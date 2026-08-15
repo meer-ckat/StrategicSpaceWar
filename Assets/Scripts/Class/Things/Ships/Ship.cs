@@ -5,7 +5,12 @@ using Core;
 
 [RequireComponent(typeof(Rigidbody2D))]
 [RequireComponent(typeof(HullStructure))]
-public abstract partial class Ship : Thing
+/// <summary>
+/// 함선 한 척. **abstract가 아니다** - 함선의 종류는 C# 클래스가 아니라 shipDefName이 정한다.
+/// 예전에는 인스턴스화하려고 몸통이 빈 Destroyer 클래스가 있었는데, 그건 새 함선마다 코드를
+/// 쓰게 만드는 프리팹 시절의 병이었다. 런이 "적 프리깃 하나"를 소환하려면 종류가 데이터여야 한다.
+/// </summary>
+public partial class Ship : Thing
 {
     [Header("기동")]
     public float drag = 0.02f;             // 종단속도 = 가속도 / drag
@@ -19,6 +24,12 @@ public abstract partial class Ship : Thing
     public List<Armor> shipArmors = new();
     public List<Engine> shipEngines = new();
     public List<Gun> shipGuns = new();
+
+    /// <summary>
+    /// 판 한 장당 질량. 배가 지어진 뒤 판 수를 곱해 Rigidbody2D에 넣는다 - 설계를 바꾸면
+    /// 질량이 알아서 따라온다. Hulk의 같은 이름 필드와 같은 뜻이다.
+    /// </summary>
+    public float massPerPlate = 420f;
 
     [Header("설계도")]
     /// <summary>
@@ -87,6 +98,17 @@ public abstract partial class Ship : Thing
         // RequireComponent는 에디터에서 스크립트를 붙일 때만 채워준다. 이미 저장된 씬의
         // 함선에는 없을 수 있어서, 없으면 여기서 만든다.
         _structure = GetComponent<HullStructure>() ?? gameObject.AddComponent<HullStructure>();
+
+        // 설계도가 제일 먼저다. drag·angleAccel 같은 수치가 def에서 오므로 리지드바디에
+        // 옮겨 담기 전에 들어와 있어야 하고, 자식도 여기서 갈아엎으니 목록을 걷기 전이다.
+        if (ShipBuilder.SpawnFrom(transform, shipDefName, this))
+        {
+            // 인스펙터에 남아 있던 목록은 방금 지운 자식을 가리킨다.
+            shipArmors.Clear();
+            shipEngines.Clear();
+            shipGuns.Clear();
+        }
+
         rig.bodyType = RigidbodyType2D.Dynamic;
         rig.gravityScale = 0f;
 
@@ -97,20 +119,15 @@ public abstract partial class Ship : Thing
         // 물리가 먼저 갉아먹지 않는다.
         rig.angularDamping = 0f;
 
-        // 자식을 갈아엎으므로 목록을 걷기 전에 와야 한다. 인스펙터에 남아 있던 목록은 방금
-        // 지운 자식을 가리키므로 비운다 - 안 그러면 배가 죽은 판 목록을 들고 시작한다.
-        if (ShipBuilder.SpawnFrom(transform, shipDefName))
-        {
-            shipArmors.Clear();
-            shipEngines.Clear();
-            shipGuns.Clear();
-        }
-
         if (shipArmors.Count == 0) shipArmors = new List<Armor>(GetComponentsInChildren<Armor>());
         if (shipEngines.Count == 0) shipEngines = new List<Engine>(GetComponentsInChildren<Engine>());
         if (shipGuns.Count == 0) shipGuns = new List<Gun>(GetComponentsInChildren<Gun>());
 
         BuildRooms();
+
+        // 질량을 판 수에서 뽑는다. 손으로 맞추면 설계를 바꿀 때마다 잊고, 세 척에 같은 값을
+        // 적어두면 작은 배가 큰 배만큼 굼떠진다 - 정찰함이 빨라야 하는 이유가 이것이다.
+        rig.mass = Mathf.Max(1f, shipArmors.Count * massPerPlate);
     }
 
     public override void OnTick()

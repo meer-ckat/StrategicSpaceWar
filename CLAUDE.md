@@ -45,6 +45,8 @@
 - **잔해로 간 모듈은 null이 아니다** — 재부모화돼도 `Gun.owner`도 `Ship.shipEngines`도 그대로 살아 있다. 그냥 두면 배가 100m 뒤의 엔진으로 가속하고 날아간 포탑이 계속 쏜다. `Ship.StillAboard`로 매 틱 소속을 다시 확인한다.
 - **결정론** — RNG는 `DeterministicRng` + `Ballistics.Hash`뿐. `UnityEngine.Random` 금지.
 - **def는 붙이는 순서가 아니라 켜는 순서가 중요하다** — `ThingDef.Spawn`은 GameObject를 **비활성으로 만들고**, 콜라이더·컴포넌트·stats·위치를 다 넣은 **뒤에** 켠다. `AddComponent`는 오브젝트가 활성이면 `Awake`를 즉시 부르기 때문에, 그냥 두면 `Armor.Awake`가 stats보다 먼저 돌아 모든 판이 기본값 체력으로 태어난다. 이 규칙 하나가 URP `Light2D` 같은 남의 컴포넌트까지 데이터로 설정 가능하게 만든다 — `OnEnable`이 값이 다 들어간 뒤에 돌아서 내부 캐시가 올바르게 잡힌다.
+- **인스펙터 값은 def가 있으면 장식이다** — `shipDefName`이 채워진 배는 Awake에서 def의 수치가 인스펙터를 덮어쓴다. 플레이 중에 인스펙터에서 `drag`를 밀어봐야 다음 실행에 되돌아온다. 튜닝은 JSON에서 하고 `Tools > Defs > Reload`.
+- **export는 배치만 다시 쓴다** — 함선 def에는 손으로 튜닝한 배 수치가 같이 들어 있다. `ShipDef.Save`가 통째로 직렬화하면 그게 조용히 사라지므로, `DefKeys.ReplaceTopLevelValue`로 `placements` 값만 갈아끼운다.
 - **JsonUtility는 모르는 키를 조용히 버린다** — `rha`를 `rah`로 오타 내면 에러 없이 기본값이 들어가고 증상은 "장갑이 좀 약한 것 같은데"다. `ThingDef.Validate`가 리플렉션으로 (주 클래스 + comps 전부)의 직렬화 필드 이름을 모아 JSON 최상위 키와 대조하고, 하나라도 모르면 그 def를 아예 안 싣는다. 이 검증은 옵션이 아니라 데이터 주도 설계의 절반이다.
 - **`hpPerSquareMetre`는 m²당이다** — 판의 총 구조 예산은 콜라이더 넓이를 곱해서 나온다. 총량으로 두면 0.4×1.0 얇은 패널이 1×1 벽과 같은 체력을 갖고, 45° 경사판(1×1.414)은 프리팹에 √2를 손으로 곱해 적어야 한다 - 새 판 모양마다 사람이 곱셈하는 규칙은 언젠가 반드시 잊힌다. `Armor.Awake`가 콜라이더를 HP 초기화보다 **먼저** 읽어야 하는 이유가 이것이다.
 - **파편 연쇄 상한 2개** — `MaxSpallDepth`(레이), `MaxFragmentGeneration`(실체 파편). 둘 다 없으면 한 발이 함선을 지운다.
@@ -66,7 +68,8 @@ Hulk.cs                   배 아닌 떠다니는 덩어리. 잔해·운석·거
 ShipGrid.cs               1m 정수 격자. 위상만 - 콜라이더는 여기 안 온다
 ShipBuilder.cs            배치 리스트 ↔ 자식 오브젝트. 양방향이 한 파일에 있어야 왕복이 닫힌다
 ShipExporter.cs           씬 → JSON (에디터). 뽑고 나서 왕복 검증까지 돈다
-ShipDef.cs                배 한 척의 배치 리스트. StreamingAssets/Ships/*.json
+ShipDef.cs                배 한 척: 배치 리스트 + 배 수치. StreamingAssets/Ships/*.json
+DefKeys.cs                def 키 검증·타입 해석·비파괴 JSON 병합. ThingDef와 ShipDef가 공유
 ThingDef.cs               물건 한 종류의 정의 + 검증 + Spawn
 DefDatabase.cs            defName → ThingDef. StreamingAssets/Defs를 훑는다
 SolidSkin.cs              모듈·탄의 절차적 그림 (ArmorSkin은 판 전용)
@@ -78,6 +81,9 @@ SolidSkin.cs              모듈·탄의 절차적 그림 (ArmorSkin은 판 전�
 
 - 저작은 씬에서, 결과는 `Tools > Ship > Export Selected Ship To Json`으로 뽑는다.
 - `Ship.shipDefName`이 비어 있으면 씬의 자식을 그대로 쓴다(= export 원본). 채워져 있으면 Awake에서 자식을 갈아엎고 JSON대로 짓는다. 두 원본을 동시에 살려두면 반드시 어긋난다.
+- **`Ship`은 abstract가 아니다.** 함선의 종류는 C# 클래스가 아니라 `shipDefName`이다. `ShipDef`는 배치 리스트 **그리고** 배 수치(`drag`, `angleAccel`, `FightDistance`...)를 함께 들고, ThingDef와 같은 두 번 읽기로 Ship에 붓는다.
+- **`team`은 설계가 아니다.** 같은 구축함이 아군일 수도 적군일 수도 있다. 위치·`engagementSign`도 같은 이유로 def에 없다 — 소환 인자다.
+- 질량은 판 수 × `massPerPlate`. 세 척에 같은 숫자를 손으로 적어두면 작은 배가 큰 배만큼 굼떠진다.
 - **프리팹은 없다.** 물건 한 종류가 `StreamingAssets/Defs/<이름>.json` 파일 하나다 — 어느 C# 클래스를 붙일지(`thingClass`), 어떤 부속을 같이 달지(`comps`), 콜라이더가 얼마인지, 수치가 얼마인지 전부.
 - 그림도 자산이 아니다. 스프라이트 파일이 없고 `ArmorSkin`(판, 서브셀 단위로 구움)과 `SolidSkin`(모듈·탄, 단색)이 콜라이더에서 런타임에 만든다. **def의 색이 곧 아트다.**
 - def는 서로를 **이름으로만** 안다 (`Gun.projectile: "Railgun Bullet"`). JSON끼리는 GUID가 없으니 그것뿐이고, 그게 모딩이 열리는 지점이다.

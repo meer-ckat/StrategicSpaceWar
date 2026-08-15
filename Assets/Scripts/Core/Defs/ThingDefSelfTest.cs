@@ -66,6 +66,29 @@ public static class ThingDefSelfTest
         Check("옛 필드 이름도 통과한다",
             Validate("{\"defName\":\"t\",\"thingClass\":\"BallisticArmor\",\"cellHp\":300}"));
 
+        // --- 배치만 갈아끼우기 ---
+        // 함선 def에는 손으로 튜닝한 수치가 들어 있다. export가 배치를 다시 쓸 때 그걸
+        // 지우면 조용히 배가 느려지거나 물러진다.
+        Splice("배열 값 교체",
+            "{\"a\":1,\"placements\":[1,2],\"b\":2}", "placements", "[9]",
+            "{\"a\":1,\"placements\":[9],\"b\":2}");
+
+        Splice("마지막 키여도 된다",
+            "{\"a\":1,\"placements\":[1,2]}", "placements", "[9]",
+            "{\"a\":1,\"placements\":[9]}");
+
+        Splice("스칼라 값도 교체된다",
+            "{\"a\":1,\"drag\":0.3,\"b\":2}", "drag", "0.9",
+            "{\"a\":1,\"drag\":0.9,\"b\":2}");
+
+        // 중첩 안의 같은 이름은 건드리면 안 된다
+        Splice("중첩된 동명 키는 안 건드린다",
+            "{\"x\":{\"drag\":1},\"drag\":2}", "drag", "9",
+            "{\"x\":{\"drag\":1},\"drag\":9}");
+
+        Check("없는 키는 null",
+            DefKeys.ReplaceTopLevelValue("{\"a\":1}", "nope", "2") == null);
+
         // --- 실제 파일 ---
         DefDatabase.Reload();
 
@@ -76,7 +99,17 @@ public static class ThingDefSelfTest
                  })
             Check($"실제 def '{name}'을 읽었다", DefDatabase.Has(name));
 
+        // 함선 def도 같은 검증을 탄다. 배 수치가 Ship이 아는 필드여야 통과한다.
+        foreach (string name in new[] { "destroyer", "frigate", "scout", "asteroid", "mirror", "derelict" })
+            Check($"실제 함선 def '{name}'을 읽었다", ShipDef.Load(name) != null);
+
         Debug.Log($"[ThingDef] {_pass} passed, {_fail} failed.");
+    }
+
+    private static void Splice(string name, string json, string key, string value, string want)
+    {
+        string got = DefKeys.ReplaceTopLevelValue(json, key, value);
+        Check($"배치 교체: {name} (got {got ?? "null"})", got == want);
     }
 
     private static bool Validate(string json)

@@ -1,5 +1,17 @@
 {
   "defName": "frigate",
+  "basedOn": "frigate",
+  "massPerPlate": 420,
+  "drag": 0.3,
+  "angleAccel": 26,
+  "angleDrag": 0.5,
+  "angleBrake": 10,
+  "leakRate": 2,
+  "doorRate": 1,
+  "crews": 3,
+  "FightDistance": 160,
+  "DetectionDistance": 300,
+  "breakawaySpeed": 2,
   "placements": [
     {
       "def": "Armor mk5",

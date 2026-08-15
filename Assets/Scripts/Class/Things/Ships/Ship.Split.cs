@@ -7,7 +7,7 @@ using UnityEngine;
 /// 여기 남은 것은 함선에만 있는 후속 처리뿐이다: 떨어져 나간 엔진이 계속 추력을 내면
 /// 안 되고, 사라진 벽이 있는 방은 뚫린 것이다.
 /// </summary>
-public abstract partial class Ship
+public partial class Ship
 {
     /// <summary>떨어져 나가는 조각이 받는 이탈 속도. 붙어 있던 자리에서 밀려나는 만큼.</summary>
     [Header("선체 파단")]

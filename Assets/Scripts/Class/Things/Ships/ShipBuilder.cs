@@ -147,7 +147,7 @@ public static class ShipBuilder
     /// 이름으로 설계도를 읽어 그대로 심는다. 함선과 Hulk가 같은 문으로 들어오게 하는 자리 -
     /// 두 곳에 적어두면 언젠가 한쪽만 고친다. 이름이 비어 있으면 아무것도 안 한다(씬 저작 모드).
     /// </summary>
-    public static bool SpawnFrom(Transform hull, string shipDefName)
+    public static bool SpawnFrom(Transform hull, string shipDefName, Component pourInto)
     {
         if (string.IsNullOrEmpty(shipDefName))
             return false;
@@ -157,6 +157,8 @@ public static class ShipBuilder
         if (def == null)
             return false;
 
+        // 수치를 먼저 붓고 자식을 심는다. 뒤집히면 배가 인스펙터 기본값으로 한 틱을 산다.
+        def.Apply(pourInto);
         Spawn(hull, def);
         return true;
     }

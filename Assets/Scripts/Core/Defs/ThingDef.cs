@@ -118,7 +118,7 @@ public class ThingDef
             return false;
         }
 
-        _mainType = ResolveType(thingClass);
+        _mainType = DefKeys.Resolve(thingClass);
 
         if (_mainType == null || !typeof(Thing).IsAssignableFrom(_mainType))
         {
@@ -131,7 +131,7 @@ public class ThingDef
 
         for (int i = 0; i < comps.Length; i++)
         {
-            _compTypes[i] = ResolveType(comps[i]);
+            _compTypes[i] = DefKeys.Resolve(comps[i]);
 
             if (_compTypes[i] == null || !typeof(Component).IsAssignableFrom(_compTypes[i]))
             {
@@ -140,158 +140,16 @@ public class ThingDef
             }
         }
 
-        var known = new HashSet<string>(HeaderKeys);
-        CollectSerialisedFields(_mainType, known);
+        var targets = new Type[_compTypes.Length + 1];
+        targets[0] = _mainType;
+        _compTypes.CopyTo(targets, 1);
 
-        foreach (Type comp in _compTypes)
-            CollectSerialisedFields(comp, known);
-
-        var unknown = new List<string>();
-
-        foreach (string key in TopLevelKeys(raw))
-        {
-            if (!known.Contains(key))
-                unknown.Add(key);
-        }
-
-        if (unknown.Count == 0)
-            return true;
-
-        Debug.LogError(
-            $"[ThingDef] {source}: 아무도 모르는 키 {string.Join(", ", unknown)}. " +
-            "오타이거나 컴포넌트를 빠뜨린 것이다 - 그냥 두면 조용히 기본값으로 묻힌다.");
-
-        return false;
+        return !DefKeys.HasUnknown(raw, source, HeaderKeys, targets);
     }
 
     private static readonly string[] HeaderKeys =
         { "defName", "thingClass", "comps", "layer", "collider" };
 
-    /// <summary>
-    /// 컴포넌트가 실제로 직렬화하는 필드 이름. public 필드와 [SerializeField]가 붙은 private
-    /// 필드, 그리고 [FormerlySerializedAs]의 옛 이름까지. MonoBehaviour 위쪽은 안 본다 -
-    /// 거기 것들은 def가 건드릴 물건이 아니다.
-    /// </summary>
-    private static void CollectSerialisedFields(Type type, HashSet<string> into)
-    {
-        const BindingFlags Flags = BindingFlags.Instance
-                                 | BindingFlags.Public
-                                 | BindingFlags.NonPublic
-                                 | BindingFlags.DeclaredOnly;
-
-        for (Type cur = type; cur != null && cur != typeof(MonoBehaviour); cur = cur.BaseType)
-        {
-            foreach (FieldInfo field in cur.GetFields(Flags))
-            {
-                if (field.IsNotSerialized)
-                    continue;
-
-                if (!field.IsPublic && field.GetCustomAttribute<SerializeField>() == null)
-                    continue;
-
-                into.Add(field.Name);
-
-                foreach (FormerlySerializedAsAttribute old in
-                         field.GetCustomAttributes<FormerlySerializedAsAttribute>())
-                    into.Add(old.oldName);
-            }
-        }
-    }
-
-    /// <summary>
-    /// JSON 최상위 객체의 키만 뽑는다. JsonUtility는 자기가 아는 필드만 채우고 나머지는
-    /// 말없이 버리므로, 원문을 직접 훑는 것 말고는 오타를 잡을 방법이 없다.
-    /// </summary>
-    public static List<string> TopLevelKeys(string json)
-    {
-        var keys = new List<string>();
-
-        if (string.IsNullOrEmpty(json))
-            return keys;
-
-        int depth = 0;
-        int stringStart = -1;
-        bool inString = false, escaped = false;
-        string pending = null;
-
-        for (int i = 0; i < json.Length; i++)
-        {
-            char c = json[i];
-
-            if (inString)
-            {
-                if (escaped) escaped = false;
-                else if (c == '\\') escaped = true;
-                else if (c == '"')
-                {
-                    inString = false;
-
-                    // 깊이 1의 문자열만 키 후보다. 값이면 다음 글자가 ':'가 아니라 흘러간다.
-                    if (depth == 1)
-                        pending = json.Substring(stringStart, i - stringStart);
-                }
-
-                continue;
-            }
-
-            switch (c)
-            {
-                case '"':
-                    inString = true;
-                    stringStart = i + 1;
-                    break;
-
-                case ':':
-                    if (depth == 1 && pending != null)
-                    {
-                        keys.Add(pending);
-                        pending = null;
-                    }
-                    break;
-
-                case '{':
-                case '[':
-                    depth++;
-                    pending = null;
-                    break;
-
-                case '}':
-                case ']':
-                    depth--;
-                    pending = null;
-                    break;
-            }
-        }
-
-        return keys;
-    }
-
-    private static readonly Dictionary<string, Type> _typeCache = new();
-
-    private static Type ResolveType(string name)
-    {
-        if (string.IsNullOrEmpty(name))
-            return null;
-
-        if (_typeCache.TryGetValue(name, out Type cached))
-            return cached;
-
-        // 같은 어셈블리(Assembly-CSharp)면 이것으로 끝난다. 나중에 asmdef로 갈라도
-        // 아래 스캔이 받아주므로 def 파일을 고칠 일이 없다.
-        Type found = Type.GetType(name);
-
-        if (found == null)
-        {
-            foreach (Assembly asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                found = asm.GetType(name);
-
-                if (found != null)
-                    break;
-            }
-        }
-
-        _typeCache[name] = found;
-        return found;
-    }
+    /// <summary>self-test용. 스캐너 자체는 DefKeys가 들고 있다.</summary>
+    public static List<string> TopLevelKeys(string json) => DefKeys.TopLevel(json);
 }

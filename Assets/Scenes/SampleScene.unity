@@ -219,9 +219,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 131405135}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 948aa9eaaa93a214aa9eccf8cbb13de8, type: 3}
+  m_Script: {fileID: 11500000, guid: 7154763d2ac89334f9f97981779c3601, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Destroyer
+  m_EditorClassIdentifier: Assembly-CSharp::Ship
   defName: destroyer
   spawnTick: 0
   drag: 0.3
@@ -601,9 +601,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 584317407}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 948aa9eaaa93a214aa9eccf8cbb13de8, type: 3}
+  m_Script: {fileID: 11500000, guid: 7154763d2ac89334f9f97981779c3601, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Destroyer
+  m_EditorClassIdentifier: Assembly-CSharp::Ship
   defName: frigate
   spawnTick: 0
   drag: 0.3
@@ -1201,9 +1201,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 795710607}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 948aa9eaaa93a214aa9eccf8cbb13de8, type: 3}
+  m_Script: {fileID: 11500000, guid: 7154763d2ac89334f9f97981779c3601, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Destroyer
+  m_EditorClassIdentifier: Assembly-CSharp::Ship
   defName: M-5 Destroyer
   spawnTick: 0
   drag: 0.3
@@ -1800,9 +1800,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 1051183153}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 948aa9eaaa93a214aa9eccf8cbb13de8, type: 3}
+  m_Script: {fileID: 11500000, guid: 7154763d2ac89334f9f97981779c3601, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Destroyer
+  m_EditorClassIdentifier: Assembly-CSharp::Ship
   defName: M-5 Destroyer
   spawnTick: 0
   drag: 0.3
@@ -2489,9 +2489,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 1198815800}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 948aa9eaaa93a214aa9eccf8cbb13de8, type: 3}
+  m_Script: {fileID: 11500000, guid: 7154763d2ac89334f9f97981779c3601, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Destroyer
+  m_EditorClassIdentifier: Assembly-CSharp::Ship
   defName: destroyer
   spawnTick: 0
   drag: 0.3
@@ -7973,9 +7973,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 1539279962}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 948aa9eaaa93a214aa9eccf8cbb13de8, type: 3}
+  m_Script: {fileID: 11500000, guid: 7154763d2ac89334f9f97981779c3601, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Destroyer
+  m_EditorClassIdentifier: Assembly-CSharp::Ship
   defName: M-5 Destroyer
   spawnTick: 0
   drag: 0.3
@@ -8185,9 +8185,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 1606370177}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 948aa9eaaa93a214aa9eccf8cbb13de8, type: 3}
+  m_Script: {fileID: 11500000, guid: 7154763d2ac89334f9f97981779c3601, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Destroyer
+  m_EditorClassIdentifier: Assembly-CSharp::Ship
   defName: M-5 Destroyer
   spawnTick: 0
   drag: 0.3
@@ -8556,9 +8556,9 @@ MonoBehaviour:
   m_GameObject: {fileID: 1744936998}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 948aa9eaaa93a214aa9eccf8cbb13de8, type: 3}
+  m_Script: {fileID: 11500000, guid: 7154763d2ac89334f9f97981779c3601, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Destroyer
+  m_EditorClassIdentifier: Assembly-CSharp::Ship
   defName: M-5 Destroyer
   spawnTick: 0
   drag: 0.3

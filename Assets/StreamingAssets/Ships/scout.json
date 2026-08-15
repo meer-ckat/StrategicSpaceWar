@@ -1,5 +1,17 @@
 {
   "defName": "scout",
+  "basedOn": "scout",
+  "massPerPlate": 420,
+  "drag": 0.3,
+  "angleAccel": 34,
+  "angleDrag": 0.5,
+  "angleBrake": 14,
+  "leakRate": 2,
+  "doorRate": 1,
+  "crews": 1,
+  "FightDistance": 120,
+  "DetectionDistance": 400,
+  "breakawaySpeed": 2,
   "placements": [
     {
       "def": "Armor mk5",
