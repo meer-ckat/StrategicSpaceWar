@@ -13,4 +13,9 @@ public abstract class Thing : TickBehaviour
 
     public float AgeSeconds =>
         (TickManager.currentTick - spawnTick) * TickManager.TickDeltaTime;
+
+    protected virtual void OnDestroy()
+    {
+        TickManager.Unregister(this);
+    }
 }

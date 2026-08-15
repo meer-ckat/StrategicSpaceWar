@@ -65,6 +65,12 @@ public static partial class Ballistics
     public const float HeavyFragmentSlowest = 0.7f;   // fraction of residual speed
     public const int HeavyFragmentLifeTick = 120;     // 2 s - they do not fly forever
     public const int MaxFragmentGeneration = 1;       // fragments never shed fragments
+    /// <summary>
+    /// 파편이 판 안으로 얼마나 들어가는가. 1이면 판을 가로질러 에너지를 얇게 펴 발라서
+    /// 아무데도 안 뚫리고, 0이면 표면 칸만 갉아 테두리만 사라진다. 순수 조율값.
+    /// </summary>
+    public const float SpallChannelDepth = 0.5f;
+
     public const float SpallSpreadMax = 45f;   // deg, half-angle
     public const float SpallSpreadMin = 6f;
     public const float SpallRangePerEnergy = 0.5f;  // m per HP-unit of fragment energy
@@ -109,6 +115,17 @@ public static partial class Ballistics
     /// 0.15면 모듈 하나당 속도가 약 92%로 떨어져, 다섯 개를 뚫으면 65%쯤 남는다.
     /// </summary>
     public const float ModuleHitFraction = 0.15f;
+
+    // --- 승무원 ---
+
+    /// <summary>
+    /// 승무원이 버틸 수 있는 최저 기압(0~1). 함내에 이 이상인 방이 하나도 없으면 승무원이
+    /// 죽고, 조타·사격·수리가 전부 멎는다. 격파 판정은 이것 하나에서 자연발생한다 -
+    /// 함선 HP 같은 건 없다.
+    ///
+    /// 이 값을 만지기 전에 leakRate를 먼저 봐라. 둘이 곱해져서 "얼마나 버티느냐"가 된다.
+    /// </summary>
+    public const float CrewMinPressure = 0.3f;
 
     // --- 충각 ---
 

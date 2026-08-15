@@ -4,6 +4,7 @@ using UnityEngine.InputSystem;
 using Core;
 
 [RequireComponent(typeof(Rigidbody2D))]
+[RequireComponent(typeof(HullStructure))]
 public abstract partial class Ship : Thing
 {
     [Header("기동")]
@@ -17,6 +18,7 @@ public abstract partial class Ship : Thing
     [Header("구성")]
     public List<Armor> shipArmors = new();
     public List<Engine> shipEngines = new();
+    public List<Gun> shipGuns = new();
 
     [Header("맵")]
     public TextAsset shipMap;
@@ -34,6 +36,18 @@ public abstract partial class Ship : Thing
     public bool isEngineerReady = true;
     public int crews;
 
+    
+    public enum Team
+    {
+        Neutral,
+        Ally,
+        Enemy
+    }
+    [Header("AI")]
+    public Team team;
+    public float FightDistance; //이 거리를 유지한다는 뜻임. 안으로 계속 들어가면서 공격한다는게 아니고
+    public float DetectionDistance; //이 거리에서 발견한다는 뜻임. 여기서 FightDistance까지 들어감.
+
     // Room은 Unity 직렬화 대상이 아니라 인스펙터에 뜨지 않는다. 런타임 전용.
     public List<Room> rooms = new();
 
@@ -50,12 +64,22 @@ public abstract partial class Ship : Thing
     protected Vector2 thrustInput;  // x: 이탈 -1 .. +1 접근, y: 회피
     protected float angleInput;     // -1..1
 
+    /// <summary>
+    /// 접근(+x)이 월드의 어느 쪽인가. 왼쪽에서 오른쪽을 보는 플레이어가 +1이고,
+    /// 반대편 함선은 ShipAi가 매 틱 -1로 뒤집는다. Drive()만 이 값을 읽는다.
+    /// </summary>
+    public float engagementSign = 1f;
+
     Rigidbody2D rig;
 
     protected override void Awake()
     {
         base.Awake();
         rig = GetComponent<Rigidbody2D>();
+
+        // RequireComponent는 에디터에서 스크립트를 붙일 때만 채워준다. 이미 저장된 씬의
+        // 함선에는 없을 수 있어서, 없으면 여기서 만든다.
+        _structure = GetComponent<HullStructure>() ?? gameObject.AddComponent<HullStructure>();
         rig.bodyType = RigidbodyType2D.Dynamic;
         rig.gravityScale = 0f;
 
@@ -68,6 +92,7 @@ public abstract partial class Ship : Thing
         //나중에는 Json 파싱으로 자동으로 만들거임. 지금은 프로토타입이니 이렇게.
         if (shipArmors.Count == 0) shipArmors = new List<Armor>(GetComponentsInChildren<Armor>());
         if (shipEngines.Count == 0) shipEngines = new List<Engine>(GetComponentsInChildren<Engine>());
+        if (shipGuns.Count == 0) shipGuns = new List<Gun>(GetComponentsInChildren<Gun>());
 
         BuildRooms();
     }
@@ -80,6 +105,66 @@ public abstract partial class Ship : Thing
         if (isDriverReady) { Angle(); Drive(); }
         if (isGunnerReady) AimGun();
         Atmosphere();
+        Crew();
+    }
+
+    /// <summary>
+    /// 승무원은 기압으로 산다. 살 만한 방이 하나도 안 남으면 죽고, 그 순간 조타·사격·수리가
+    /// 전부 멎는다 - 배는 표류하는 잔해가 된다.
+    ///
+    /// 이것이 이 게임의 격파 판정 전부다. 함선 HP도, 폭발 연출도, "격침" 이벤트도 없다.
+    /// 이미 도는 기압 시뮬레이션이 이미 있던 세 플래그를 끄는 것뿐이고, 나머지 배선은
+    /// 원래부터 그 플래그를 보고 있었다 (Gun.OnTick의 owner.isGunnerReady 등).
+    /// </summary>
+    void Crew()
+    {
+        if (!CrewAlive)
+            return;
+
+        // 맵이 없는 함선은 방 자체가 없다. 기압 모델이 없는 것이지 진공인 것이 아니다.
+        if (rooms.Count == 0)
+            return;
+
+        foreach (Room room in rooms)
+        {
+            if (room.Pressure >= Ballistics.CrewMinPressure)
+                return;
+        }
+
+        // 되돌릴 수 없다. 재가압해도 죽은 사람은 안 돌아온다 - 그래야 결과가 결과로 남는다.
+        CrewAlive = false;
+        isDriverReady = false;
+        isGunnerReady = false;
+        isEngineerReady = false;
+
+        // 조종간을 놓은 채로 마지막 입력이 남아 있으면 시체가 계속 가속한다.
+        thrustInput = Vector2.zero;
+        angleInput = 0f;
+    }
+
+    /// <summary>한 번 죽으면 끝. Crew()만 이 값을 내린다.</summary>
+    public bool CrewAlive { get; private set; } = true;
+
+    /// <summary>
+    /// 아직 상대할 가치가 있는가. 저장된 상태가 아니라 파생값이다 - 쏠 수도, 움직일 수도,
+    /// 들이받을 수도 없는 배가 잔해다. AI가 시체를 계속 쏘지 않게 하는 것이 이 값의 일이다.
+    /// </summary>
+    public bool IsCombatEffective
+    {
+        get
+        {
+            if (!CrewAlive)
+                return false;
+
+            for (int i = 0; i < shipGuns.Count; i++)
+            {
+                if (shipGuns[i] != null && !shipGuns[i].Neutralized)
+                    return true;
+            }
+
+            // 포탑이 다 죽어도 움직일 수 있으면 충각이 남아 있다.
+            return AvailableThrust(true) > 0f || AvailableThrust(false) > 0f;
+        }
     }
 
     /// <summary>
@@ -111,7 +196,7 @@ public abstract partial class Ship : Thing
 
         rooms = ShipGrid.BuildRooms(map, armorAt, doorAt);
 
-        SnapshotStructure(map);
+        _structure.Build(map, breakawaySpeed);
 
         // 문 -> 접한 방들. 틱마다 다시 뒤지지 않으려고 여기서 한 번만 만든다.
         foreach (Room room in rooms)
@@ -200,9 +285,14 @@ public abstract partial class Ship : Thing
         float main = AvailableThrust(true);
         float aux = AvailableThrust(false);
 
+        // thrustInput.x는 월드 축이 아니라 '접근/이탈'이다. 적이 왼쪽에 있는 함선은
+        // 접근이 월드 -x라, engagementSign 없이 그냥 밀면 주기관으로 도망가고
+        // 보조추진기로 다가간다. 플레이어(왼쪽, +1)는 예전과 완전히 동일하다.
+        float along = thrustInput.x * engagementSign;
+
         // 회피는 보조추진기로만 한다 - 접근보다 약한 것이 의도다.
         Vector2 force = new Vector2(
-            (thrustInput.x >= 0f ? main : aux) * thrustInput.x,
+            (thrustInput.x >= 0f ? main : aux) * along,
             aux * thrustInput.y) * 1000f;   // kN -> N
 
         // 적분도 항력도 물리가 한다. 이 틱 끝의 Simulate에서 한꺼번에 처리된다.
@@ -232,6 +322,69 @@ public abstract partial class Ship : Thing
     // AI 함선은 컴포넌트가 없으므로 두 필드를 직접 세팅하면 된다.
     public void OnMove(InputValue v)  => thrustInput = v.Get<Vector2>();
     public void OnAngle(InputValue v) => angleInput  = v.Get<float>();
+
+    /// <summary>
+    /// AI가 조종간을 잡는 자리. PlayerInput의 OnMove/OnAngle과 같은 문으로 들어오므로,
+    /// 플레이어와 AI가 서로 다른 물리를 타는 일이 생기지 않는다.
+    /// </summary>
+    public void SetPilotInput(Vector2 thrust, float angle)
+    {
+        thrustInput = thrust;
+        angleInput = angle;
+    }
+
+    /// <summary>살아 있는 함선 전부. 적을 찾을 때마다 씬을 뒤지지 않으려고 여기서 센다.</summary>
+    public static readonly List<Ship> All = new();
+
+    protected override void OnEnable()
+    {
+        base.OnEnable();
+        All.Add(this);
+    }
+
+    protected override void OnDisable()
+    {
+        All.Remove(this);
+        base.OnDisable();
+    }
+
+    /// <summary>
+    /// Neutral은 아무와도 싸우지 않는다. 인스펙터에서 팀 지정을 잊었을 때 조용히 아군이
+    /// 되는 것보다, 아무도 안 쏘는 쪽이 눈에 띈다.
+    /// </summary>
+    public bool IsHostileTo(Ship other)
+        => other != null
+        && other != this
+        && team != Team.Neutral
+        && other.team != Team.Neutral
+        && team != other.team
+        && other.IsCombatEffective;   // 잔해는 표적이 아니다
+
+    /// <summary>DetectionDistance 안에서 가장 가까운 적. 없으면 null.</summary>
+    public Ship NearestHostile()
+    {
+        Ship best = null;
+        float bestSqr = DetectionDistance * DetectionDistance;
+
+        for (int i = 0; i < All.Count; i++)
+        {
+            Ship other = All[i];
+
+            if (!IsHostileTo(other))
+                continue;
+
+            float sqr = ((Vector2)other.transform.position - (Vector2)transform.position)
+                .sqrMagnitude;
+
+            if (sqr >= bestSqr)
+                continue;
+
+            bestSqr = sqr;
+            best = other;
+        }
+
+        return best;
+    }
 
     protected void AimGun()
     {
