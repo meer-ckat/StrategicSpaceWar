@@ -15,6 +15,28 @@ public sealed class SoundManager : MonoBehaviour
 {
     private const string Folder = "Sound/";
 
+    /// <summary>
+    /// 클립별 기본 음량. 부르는 쪽이 넘긴 volume에 곱해진다.
+    ///
+    /// 여기 있는 이유: "이 소리가 얼마나 큰가"는 부르는 쪽의 사정이 아니라 클립의 성질이다.
+    /// 호출부마다 0.3f를 뿌려 놓으면 균형을 다시 잡을 때 파일 다섯 개를 뒤져야 하고,
+    /// 새로 부르는 자리가 생길 때마다 그 숫자를 잊는다.
+    ///
+    /// 균형의 요점은 **유폭이 안 묻히는 것**이다. 관통·발사·도탄은 초당 수십 번 나는 일상음이고
+    /// 유폭은 배 한 척이 사라지는 사건인데, 둘이 같은 음량이면 큰 쪽이 잔소리에 파묻힌다.
+    /// 표에 없는 이름은 1.0이다.
+    /// </summary>
+    private static readonly Dictionary<string, float> BaseVolume = new()
+    {
+        { "Cannon", 0.30f },      // 초당 5발까지 난다
+        { "Penetrate", 0.35f },
+        { "Blocked", 0.25f },     // 아무 일도 안 일어난 소리다. 제일 작아도 된다
+        { "Ricochet", 0.30f },
+        { "Blow", 0.45f },        // 계속 나는 배경음에 가깝다
+        { "Breakaway", 0.85f },
+        { "Explosion", 1.00f },   // 기준점
+    };
+
     /// <summary>동시에 울릴 수 있는 소리의 수. 스폴 한 번에 파편이 24개 날아간다.</summary>
     [Header("Pool")]
     [SerializeField] private int maxVoices = 24;
@@ -102,7 +124,9 @@ public sealed class SoundManager : MonoBehaviour
         source.transform.position = position ?? Vector3.zero;
         source.spatialBlend = position.HasValue ? 1f : 0f;
         source.clip = clip;
-        source.volume = volume;
+        source.volume = volume * (BaseVolume.TryGetValue(clipName, out float baseVolume)
+            ? baseVolume
+            : 1f);
         source.pitch = pitch;
         source.Play();
     }

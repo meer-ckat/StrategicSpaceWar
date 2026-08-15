@@ -122,6 +122,10 @@ public sealed class RoomView : MonoBehaviour
             float length = Mathf.Lerp(0.6f, 3.5f, venting);
 
             SpallTrails.Add(from, from + outward * length, SpallTrails.Kind.Miss);
+
+            // SoundManager가 한 프레임에 같은 클립을 한 번만 울리므로, 파공이 몇 개든
+            // 쉬익 소리는 한 겹이다. 세기만 새는 속도를 따라간다.
+            SoundManager.AudioShot("Blow", venting);
         }
     }
 

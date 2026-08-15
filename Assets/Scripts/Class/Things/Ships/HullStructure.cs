@@ -248,6 +248,10 @@ public sealed class HullStructure : MonoBehaviour
         // 큰 단면이 실제로 생기는 이 순간에만 놓는다.
         DefDatabase.Spawn("Cut Glow", null, centre, 0f);
 
+        // 조각이 클수록 낮게. 판 두 장이 떨어지는 것과 배가 반토막 나는 것은 같은 소리가 아니다.
+        SoundManager.AudioShot(
+            "Breakaway", 1f, Mathf.Lerp(1.15f, 0.65f, Mathf.Clamp01(chunk.Count / 60f)));
+
         // 갈라진 쪽 판들도 달아오른다. 반대쪽은 Armor가 죽으면서 이미 이웃에게 알렸지만,
         // 이쪽은 죽은 판이 없이 떨어져 나온 것이라 알려줄 사람이 없다.
         foreach (Vector2Int cell in chunk)
