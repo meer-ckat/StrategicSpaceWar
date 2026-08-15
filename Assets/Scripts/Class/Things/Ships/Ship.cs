@@ -97,21 +97,13 @@ public abstract partial class Ship : Thing
         // 물리가 먼저 갉아먹지 않는다.
         rig.angularDamping = 0f;
 
-        // 자식을 갈아엎으므로 목록을 걷기 전에 와야 한다.
-        if (!string.IsNullOrEmpty(shipDefName))
+        // 자식을 갈아엎으므로 목록을 걷기 전에 와야 한다. 인스펙터에 남아 있던 목록은 방금
+        // 지운 자식을 가리키므로 비운다 - 안 그러면 배가 죽은 판 목록을 들고 시작한다.
+        if (ShipBuilder.SpawnFrom(transform, shipDefName))
         {
-            ShipDef def = ShipDef.Load(shipDefName);
-
-            if (def != null)
-            {
-                ShipBuilder.Spawn(transform, def);
-
-                // 인스펙터에 남아 있던 목록은 방금 지운 자식을 가리킨다. 비워야 아래에서
-                // 다시 걷는다 - 안 그러면 배가 죽은 판 목록을 들고 시작한다.
-                shipArmors.Clear();
-                shipEngines.Clear();
-                shipGuns.Clear();
-            }
+            shipArmors.Clear();
+            shipEngines.Clear();
+            shipGuns.Clear();
         }
 
         if (shipArmors.Count == 0) shipArmors = new List<Armor>(GetComponentsInChildren<Armor>());

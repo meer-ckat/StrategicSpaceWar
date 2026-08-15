@@ -65,17 +65,16 @@ public static class ShipExporter
         var def = new ShipDef { defName = defName };
         int nameless = 0;
 
-        // 판이 있는 칸 목록과, 배치별로 그게 판인지 여부. 칸으로만 판별하면 판 위에 올라앉은
-        // 모듈이 자기를 판으로 착각해서 영영 마운트를 못 받는다.
-        var plateCells = new List<Vector2Int>();
-        var isPlate = new List<bool>();
+        // 선체 직속인데 판이 아닌 것 = 어느 벽에도 안 붙은 모듈. 벽이 부서져도 안 죽으므로
+        // 거의 항상 저작 실수다.
+        int unmounted = 0;
 
         foreach (Transform child in hull)
         {
             if (child == null)
                 continue;
 
-            Thing thing = DefDatabase.NameOf(child.gameObject);
+            var thing = child.GetComponent<Thing>();
 
             if (thing == null)
                 continue;
@@ -90,12 +89,9 @@ public static class ShipExporter
             }
 
             Vector2Int cell = map.ToCell(child.localPosition);
-            bool plate = child.GetComponent<Armor>() != null || child.GetComponent<Door>() != null;
 
-            if (plate)
-                plateCells.Add(cell);
-
-            isPlate.Add(plate);
+            if (child.GetComponent<Armor>() == null && child.GetComponent<Door>() == null)
+                unmounted++;
 
             def.placements.Add(new Placement
             {
@@ -106,31 +102,8 @@ public static class ShipExporter
             });
         }
 
-        // 모듈의 마운트를 정한다. 이미 판의 자식으로 들어가 있으면 그 판이 답이고,
-        // 선체 직속이면 가장 가까운 판을 골라 붙인다 - 텍스트 맵 시절의 배는 엔진이
-        // 방 한가운데 떠 있어서 손으로 옮기지 않으면 하나도 안 붙는다.
-        int autoMounted = 0, unmounted = 0;
-
-        for (int i = 0; i < def.placements.Count; i++)
-        {
-            if (isPlate[i])
-                continue;
-
-            Placement p = def.placements[i];
-            Vector2Int mount = Nearest(p.Cell, plateCells);
-
-            if (mount.x < 0)
-            {
-                unmounted++;
-                continue;
-            }
-
-            p.mountCol = mount.x;
-            p.mountRow = mount.y;
-            autoMounted++;
-        }
-
-        // 판의 자식으로 이미 들어가 있는 모듈. 손으로 붙였든 이전 로드가 붙였든 그 뜻이 이긴다.
+        // 모듈은 자기가 붙을 판의 자식으로 들어가 있어야 한다. 씬에서 그렇게 놓는 것이
+        // 곧 "이 벽이 부서지면 이 모듈이 죽는다"는 선언이고, 추측할 여지가 없다.
         foreach (Transform child in hull)
         {
             if (child == null || child.GetComponent<Armor>() == null)
@@ -140,7 +113,7 @@ public static class ShipExporter
 
             foreach (Transform module in child)
             {
-                Thing thing = DefDatabase.NameOf(module.gameObject);
+                var thing = module.GetComponent<Thing>();
 
                 if (thing == null || string.IsNullOrEmpty(thing.defName))
                     continue;
@@ -178,13 +151,10 @@ public static class ShipExporter
                 $"{string.Join(", ", unknown)}. 씬에는 있지만 def가 아니다 - " +
                 "그대로 두면 JSON으로 지은 배에서 그 자리가 빈다.");
 
-        if (autoMounted > 0)
-            Debug.LogWarning(
-                $"[ShipExporter] 모듈 {autoMounted}개를 가장 가까운 판에 자동으로 붙였다. " +
-                "의도한 벽이 아니면 씬에서 옮기고 다시 뽑아라 - 그 벽이 부서지면 모듈이 죽는다.");
-
         if (unmounted > 0)
-            Debug.LogError($"[ShipExporter] 모듈 {unmounted}개가 붙을 판을 못 찾았다.");
+            Debug.LogError(
+                $"[ShipExporter] 어느 판에도 안 붙은 모듈 {unmounted}개가 선체 직속으로 있다. " +
+                "붙일 판의 자식으로 끌어다 놓고 다시 뽑아라 - 지금 상태로는 벽이 부서져도 안 죽는다.");
 
         return def;
     }
@@ -203,34 +173,6 @@ public static class ShipExporter
         }
 
         return buffer.ToString().Trim('_');
-    }
-
-    /// <summary>
-    /// 가장 가까운 판. 거리가 같으면 (row, col)이 작은 쪽이 이긴다 - export를 두 번 돌려
-    /// 다른 파일이 나오면 왕복 검증이 의미를 잃는다.
-    /// </summary>
-    private static Vector2Int Nearest(Vector2Int from, List<Vector2Int> plates)
-    {
-        var best = new Vector2Int(-1, -1);
-        int bestSqr = int.MaxValue;
-
-        foreach (Vector2Int cell in plates)
-        {
-            int dx = cell.x - from.x;
-            int dy = cell.y - from.y;
-            int sqr = dx * dx + dy * dy;
-
-            bool better = sqr < bestSqr
-                || (sqr == bestSqr && (cell.y < best.y || (cell.y == best.y && cell.x < best.x)));
-
-            if (!better)
-                continue;
-
-            bestSqr = sqr;
-            best = cell;
-        }
-
-        return best;
     }
 
     /// <summary>

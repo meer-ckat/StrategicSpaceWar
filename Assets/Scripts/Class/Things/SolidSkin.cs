@@ -14,9 +14,6 @@ public sealed class SolidSkin : MonoBehaviour
 {
     [SerializeField] private Color tint = Color.white;
 
-    /// <summary>완전히 망가졌을 때의 색. IDamageable이 아니면 안 쓴다.</summary>
-    [SerializeField] private Color dead = new(0.18f, 0.16f, 0.15f, 1f);
-
     /// <summary>
     /// 콜라이더가 없을 때 쓸 크기. 탄이 이 경우다 - 레이캐스트로 판정해서 콜라이더가 없다.
     /// </summary>
@@ -58,12 +55,9 @@ public sealed class SolidSkin : MonoBehaviour
             _shared.hideFlags = HideFlags.HideAndDontSave;
         }
 
-        Vector2 size = TryGetComponent(out Collider2D col) ? (Vector2)col.bounds.size : skinSize;
-
-        // bounds는 월드 기준이라 회전한 판이면 부풀어 있다. 로컬 크기가 필요하므로 박스면
-        // 직접 읽는다 - 45도 경사판이 1.41배로 그려지면 안 된다.
-        if (col is BoxCollider2D box)
-            size = box.size;
+        // 콜라이더의 bounds가 아니라 size다. bounds는 월드 기준이라 회전한 판이 1.41배로
+        // 부풀어 그려진다. ThingDef가 붙이는 것은 박스뿐이므로 다른 종류는 볼 일이 없다.
+        Vector2 size = TryGetComponent(out BoxCollider2D box) ? box.size : skinSize;
 
         _renderer.sprite = _shared;
         _renderer.drawMode = SpriteDrawMode.Sliced;
@@ -83,6 +77,7 @@ public sealed class SolidSkin : MonoBehaviour
         float health = _damageable?.Health01 ?? 1f;
 
         _painted = health;
-        _renderer.color = Color.Lerp(dead, tint, health);
+        // 죽은 색을 따로 받지 않는다. 같은 색을 태운 것이라 판이 끝까지 같은 재료로 읽힌다.
+        _renderer.color = Color.Lerp(tint * 0.2f, tint, health);
     }
 }

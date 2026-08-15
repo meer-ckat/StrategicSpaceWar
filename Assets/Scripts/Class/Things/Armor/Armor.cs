@@ -199,10 +199,7 @@ public abstract class Armor : Thing
     /// 격자 좌표를 여기 저장하지 않는 것이 요점이다 - 잔해로 갈라지면 격자는 의미를 잃지만
     /// 판끼리의 인접 관계는 그대로다. 갈라짐은 <see cref="SameBodyAs"/>가 본다.
     /// </summary>
-    public Armor[] Neighbours { get; private set; } = System.Array.Empty<Armor>();
-
-    public void SetNeighbours(Armor[] neighbours)
-        => Neighbours = neighbours ?? System.Array.Empty<Armor>();
+    public Armor[] Neighbours = System.Array.Empty<Armor>();
 
     /// <summary>
     /// 아직 같은 덩어리인가. 잔해로 떨어져 나가도 이웃 참조는 살아 있어서, 그냥 두면 충격이

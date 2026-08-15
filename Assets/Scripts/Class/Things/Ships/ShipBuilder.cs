@@ -139,8 +139,26 @@ public static class ShipBuilder
                     buffer.Add(neighbour);
             }
 
-            pair.Value.SetNeighbours(buffer.ToArray());
+            pair.Value.Neighbours = buffer.ToArray();
         }
+    }
+
+    /// <summary>
+    /// 이름으로 설계도를 읽어 그대로 심는다. 함선과 Hulk가 같은 문으로 들어오게 하는 자리 -
+    /// 두 곳에 적어두면 언젠가 한쪽만 고친다. 이름이 비어 있으면 아무것도 안 한다(씬 저작 모드).
+    /// </summary>
+    public static bool SpawnFrom(Transform hull, string shipDefName)
+    {
+        if (string.IsNullOrEmpty(shipDefName))
+            return false;
+
+        ShipDef def = ShipDef.Load(shipDefName);
+
+        if (def == null)
+            return false;
+
+        Spawn(hull, def);
+        return true;
     }
 
     /// <summary>
@@ -212,7 +230,7 @@ public static class ShipBuilder
             if (!plateAt.TryGetValue(mount, out Transform plate))
             {
                 Debug.LogWarning(
-                    $"[ShipBuilder] '{p.def}'이 {p.MountCell}의 판에 붙는다고 하는데 거기 판이 없다. " +
+                    $"[ShipBuilder] '{p.def}'이 ({p.mountCol},{p.mountRow})의 판에 붙는다고 하는데 거기 판이 없다. " +
                     "선체 직속으로 둔다 - 이 모듈은 벽이 부서져도 안 죽는다.");
                 continue;
             }

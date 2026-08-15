@@ -34,6 +34,7 @@ public static class DefDatabase
     ///
     /// 위치와 회전을 여기서 받는 이유: def로 만든 물건은 전부 붙이고 자리를 잡은 **뒤에**
     /// 활성화돼야 한다. 밖에서 나중에 옮기면 Awake가 이미 지나간 뒤가 된다.
+    /// parent가 null이면 로컬 좌표가 곧 월드 좌표다 - 탄이 그 경우다.
     /// </summary>
     public static Thing Spawn(string defName, Transform parent, Vector2 localPosition, float rotationZ)
     {
@@ -46,14 +47,6 @@ public static class DefDatabase
             ? def.Spawn(parent, localPosition, rotationZ)
             : null;
     }
-
-    /// <summary>
-    /// 부모 없이 월드 좌표에 하나 놓는다. 탄이 이 경우다 - 배의 자식이 아니라 씬에 그냥 뜬다.
-    ///
-    /// 부모가 없으면 로컬 좌표가 곧 월드 좌표라, 자리를 잡고 활성화하는 순서가 그대로 지켜진다.
-    /// </summary>
-    public static Thing SpawnAt(string defName, Vector2 worldPosition, Quaternion rotation)
-        => Spawn(defName, null, worldPosition, rotation.eulerAngles.z);
 
     private static void Load()
     {
@@ -104,26 +97,6 @@ public static class DefDatabase
 
             _defs[def.defName] = def;
         }
-    }
-
-    /// <summary>
-    /// 한 오브젝트에 Thing이 둘 이상 붙어 있을 수 있다 - 문은 Armor이면서 Door다. 이름을 든
-    /// 쪽이 답이고, GetComponent 하나로 뽑으면 컴포넌트 순서 운에 맡기게 된다.
-    /// </summary>
-    public static Thing NameOf(GameObject go)
-    {
-        Thing[] things = go.GetComponents<Thing>();
-
-        if (things.Length == 0)
-            return null;
-
-        foreach (Thing t in things)
-        {
-            if (!string.IsNullOrEmpty(t.defName))
-                return t;
-        }
-
-        return things[0];
     }
 
 #if UNITY_EDITOR

@@ -39,9 +39,6 @@ public class Gun : Thing, IDamageable
     [Header("조준")]
     [SerializeField] private AimMode aim = AimMode.FollowOwner;
 
-    /// <summary>수동 조준일 때만 쓴다. 비워두면 Awake에서 Camera.main.</summary>
-    [SerializeField] private Camera aimCamera;
-
     [Header("선회")]
     public float slewRate = 30f;    // 도/초
     public float fireArc = 2f;      // 도. 조준 오차가 이 안에 들어와야 쏜다
@@ -76,9 +73,6 @@ public class Gun : Thing, IDamageable
 
         _health = maxHealth;
         owner = GetComponentInParent<Ship>();
-
-        if (aimCamera == null)
-            aimCamera = Camera.main;
 
         if (string.IsNullOrEmpty(projectile))
             Debug.LogError($"[Gun] {name}에 쏠 탄이 없다. projectile(defName)을 채워라.", this);
@@ -128,15 +122,17 @@ public class Gun : Thing, IDamageable
     {
         worldPoint = default;
 
-        if (aimCamera == null || Mouse.current == null)
+        Camera camera = Camera.main;
+
+        if (camera == null || Mouse.current == null)
             return false;
 
         Vector3 screen = Mouse.current.position.ReadValue();
 
         // 2D: ScreenToWorldPoint는 카메라에서 z=0 평면까지의 거리를 원한다
-        screen.z = -aimCamera.transform.position.z;
+        screen.z = -camera.transform.position.z;
 
-        worldPoint = aimCamera.ScreenToWorldPoint(screen);
+        worldPoint = camera.ScreenToWorldPoint(screen);
         return true;
     }
 
@@ -257,7 +253,7 @@ public class Gun : Thing, IDamageable
         Vector2 direction = transform.up;
         Vector2 muzzle = (Vector2)transform.position + direction * muzzleOffset;
 
-        var shell = DefDatabase.SpawnAt(projectile, muzzle, transform.rotation) as Projectile;
+        var shell = DefDatabase.Spawn(projectile, null, muzzle, transform.eulerAngles.z) as Projectile;
 
         if (shell == null)
             return;

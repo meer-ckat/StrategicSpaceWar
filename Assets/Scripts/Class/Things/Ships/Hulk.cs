@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using Core;
 
@@ -48,20 +49,13 @@ public class Hulk : Thing
         base.Awake();
         _structure = GetComponent<HullStructure>();
 
-        if (string.IsNullOrEmpty(structureDefName))
-            return;
-
-        ShipDef def = ShipDef.Load(structureDefName);
-
-        if (def == null)
-            return;
-
         // 함선의 Awake와 같은 순서다. 심고 -> 격자를 도장하고 -> 구조에 넘긴다.
         // 세 단계 전부 Transform만 받으므로 Ship이 없어도 그대로 돈다.
-        ShipBuilder.Spawn(transform, def);
+        if (!ShipBuilder.SpawnFrom(transform, structureDefName))
+            return;
 
-        var armorAt = new System.Collections.Generic.Dictionary<Vector2Int, Armor>();
-        var doorAt = new System.Collections.Generic.Dictionary<Vector2Int, Door>();
+        var armorAt = new Dictionary<Vector2Int, Armor>();
+        var doorAt = new Dictionary<Vector2Int, Door>();
 
         ShipGrid.Map map = ShipBuilder.Stamp(transform, armorAt, doorAt);
 

@@ -25,7 +25,6 @@ public class Placement
     public bool IsMounted => mountCol >= 0 && mountRow >= 0;
 
     public Vector2Int Cell => new(col, row);
-    public Vector2Int MountCell => new(mountCol, mountRow);
 }
 
 /// <summary>
