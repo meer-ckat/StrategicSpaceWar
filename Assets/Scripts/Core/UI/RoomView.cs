@@ -35,7 +35,7 @@ public sealed class RoomView : MonoBehaviour
         public Texture2D texture;
         public Color32[] pixels;
         public ShipGrid.Map map;        // 참조가 바뀌면 배가 다시 지어진 것이다
-        public Vector2 localOffset;     // 칸 (0,0)의 선체 기준 자리
+        public Vector2 localOffset;     // 격자 한가운데의 선체 기준 자리
         public float[] lastPressure;    // 방 번호별. 새는 속도를 여기서 뽑는다
     }
 
@@ -194,10 +194,13 @@ public sealed class RoomView : MonoBehaviour
 
         overlay.pixels = new Color32[map.width * map.height];
 
+        // 피벗은 한가운데. 모서리에 두면 부호나 축을 하나 틀려도 "조금 어긋난 그림"이라
+        // 눈에 안 띄는데, 중심이면 대칭으로 틀어져서 바로 보인다. 실제로 처음엔 모서리
+        // 피벗이었고 오버레이가 배 옆에 통째로 떠 있었다.
         var sprite = Sprite.Create(
             overlay.texture,
             new Rect(0f, 0f, map.width, map.height),
-            new Vector2(0.5f / map.width, (map.height - 0.5f) / map.height),
+            new Vector2(0.5f, 0.5f),
             pixelsPerUnit: 1f,
             extrude: 0,
             meshType: SpriteMeshType.FullRect);
@@ -207,7 +210,11 @@ public sealed class RoomView : MonoBehaviour
         overlay.renderer.sortingOrder = SortingOrder;
 
         overlay.map = map;
-        overlay.localOffset = map.ToLocal(0, 0);
+
+        // 격자 한가운데의 선체 기준 좌표. 칸 (0,0)과 칸 (w-1,h-1)의 중점이고, ppu가 1이라
+        // 그것이 곧 스프라이트의 중심이다.
+        overlay.localOffset = map.ToLocal(0, 0)
+            + new Vector2((map.width - 1) * 0.5f, -(map.height - 1) * 0.5f);
         overlay.lastPressure = new float[ship.rooms.Count];
 
         for (int i = 0; i < ship.rooms.Count; i++)
