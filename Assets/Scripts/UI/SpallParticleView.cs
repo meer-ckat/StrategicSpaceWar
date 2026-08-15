@@ -1,9 +1,12 @@
 using UnityEngine;
 
 /// <summary>
-/// Draws the last hit. Read-only consumer of the ballistics ring buffer, exactly like
-/// HitInspectorUI - nothing here feeds back into the simulation, so the look can be
-/// retuned freely without touching a single penetration number.
+/// 착탄 지점의 섬광만 그린다. 탄도 링버퍼를 읽기만 하므로 시뮬레이션에 되먹임이 없고,
+/// 관통 수치를 하나도 안 건드리고 겉모습만 다시 잡을 수 있다.
+///
+/// 파편이 지나간 선은 SpallTrails가 그린다. 예전에는 여기서도 부채꼴을 그렸는데,
+/// SpallResolver와 '같은 시드로 각도를 다시 뽑는' 방식이라 Burst의 난수 인출 순서가
+/// 바뀌자 조용히 엉뚱한 곳을 그리기 시작했다. 다시 유도하지 말고 받아 그릴 것.
 ///
 /// One instance per scene; it reads statics.
 /// </summary>
@@ -11,15 +14,6 @@ using UnityEngine;
 public class SpallParticleView : MonoBehaviour
 {
     [SerializeField] private ParticleSystem system;
-
-    [Header("Spall cone")]
-    [SerializeField] private int maxParticlesPerHit = 32;
-
-    /// <summary>Shell speeds are hundreds of m/s. Drawn at that rate they vanish in a frame.</summary>
-    [SerializeField] private float speedScale = 0.03f;
-
-    /// <summary>Surface spall has no residual speed to borrow, so it takes a cut of the impact.</summary>
-    [SerializeField] private float surfaceSpallSpeed = 0.25f;
 
     [Header("Impact flash")]
     [SerializeField] private int impactParticles = 6;
@@ -66,31 +60,6 @@ public class SpallParticleView : MonoBehaviour
             emit.position = r.spallOrigin;
             emit.velocity = Ballistics.Rotate(Vector2.right, flash.Range(0f, 360f))
                 * (impactSpeed * flash.Range(0.4f, 1f));
-
-            system.Emit(emit, 1);
-        }
-
-        // Heavy fragments are real projectiles now - they draw themselves.
-        if (r.spallCount <= 0 || r.heavySpall)
-            return;
-
-        // Same seed as SpallResolver, so the sparks land where the rays actually went
-        // instead of near where they went.
-        var rng = new DeterministicRng(r.spallSeed);
-
-        float speed = r.newVelocity.magnitude;
-
-        if (speed < 1f)
-            speed = r.impactSpeed * surfaceSpallSpeed;
-
-        int count = Mathf.Min(r.spallCount, maxParticlesPerHit);
-
-        for (int i = 0; i < count; i++)
-        {
-            Vector2 d = Ballistics.Rotate(r.spallDirection, rng.Range(-r.spallSpread, r.spallSpread));
-
-            emit.position = r.spallOrigin;
-            emit.velocity = d * (speed * speedScale);
 
             system.Emit(emit, 1);
         }
