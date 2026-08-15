@@ -28,7 +28,9 @@ public abstract class Gun : Thing, IDamageable
 
     private float _health;
     private float _pending;         // 발사 대기량. 1이면 한 발
-    private Ship owner;
+
+    /// <summary>이 포탑이 올라앉은 함선. 파생 포탑이 표적을 고를 때 쓴다.</summary>
+    protected Ship owner;
 
     public bool Neutralized => _health <= 0f;
     public float Health01 => maxHealth > 0f ? _health / maxHealth : 0f;
@@ -42,6 +44,14 @@ public abstract class Gun : Thing, IDamageable
 
         if (bulletPrefab == null)
             Debug.LogError($"[Gun] {name}에 bulletPrefab이 없다.", this);
+
+        // 포탑 둘이 한 오브젝트에 올라앉으면 같은 transform을 서로 다른 곳으로 선회시킨다.
+        // M7Cannon을 지우지 않고 AiGun을 '추가'하면 이렇게 되는데, 증상이 포탑이 떨면서
+        // 절반만 쏘는 것이라 원인을 찾기 어렵다.
+        if (GetComponents<Gun>().Length > 1)
+            Debug.LogError(
+                $"[Gun] {name}에 Gun이 둘 이상 붙어 있다. 하나만 남겨라 - 서로의 조준을 " +
+                "덮어쓴다.", this);
     }
 
     public void TakeDamage(float amount)
@@ -123,5 +133,7 @@ public abstract class Gun : Thing, IDamageable
 
         Projectile shell = Instantiate(bulletPrefab, muzzle, transform.rotation);
         shell.Launch(direction, muzzleSpeed);
+
+        SoundManager.AudioShot("Cannon", muzzle);
     }
 }
