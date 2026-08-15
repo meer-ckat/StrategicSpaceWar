@@ -103,6 +103,10 @@ public class CriticalModule : Thing, IDamageable
 
             SoundManager.AudioShot(blastSound, transform.position, 1f, blastPitch);
 
+            // 치명타 경보. 폭음과 다른 클립이라 프레임당 중복 제거에 안 걸리고 겹쳐 난다 -
+            // 쾅 소리는 사건이고 이건 그 사건의 무게다.
+            SoundManager.AudioShot("Critical", transform.position);
+
             SpallResolver.Burst(
                 transform.position,
                 transform.up,

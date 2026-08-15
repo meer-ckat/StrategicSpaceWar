@@ -3,13 +3,13 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using Core;
 
-[RequireComponent(typeof(Rigidbody2D))]
-[RequireComponent(typeof(HullStructure))]
 /// <summary>
 /// 함선 한 척. **abstract가 아니다** - 함선의 종류는 C# 클래스가 아니라 shipDefName이 정한다.
 /// 예전에는 인스턴스화하려고 몸통이 빈 Destroyer 클래스가 있었는데, 그건 새 함선마다 코드를
 /// 쓰게 만드는 프리팹 시절의 병이었다. 런이 "적 프리깃 하나"를 소환하려면 종류가 데이터여야 한다.
 /// </summary>
+[RequireComponent(typeof(Rigidbody2D))]
+[RequireComponent(typeof(HullStructure))]
 public partial class Ship : Thing
 {
     [Header("기동")]
@@ -178,6 +178,8 @@ public partial class Ship : Thing
         // 질량을 판 수에서 뽑는다. 손으로 맞추면 설계를 바꿀 때마다 잊고, 세 척에 같은 값을
         // 적어두면 작은 배가 큰 배만큼 굼떠진다 - 정찰함이 빨라야 하는 이유가 이것이다.
         rig.mass = Mathf.Max(1f, shipArmors.Count * massPerPlate);
+
+        _wasEffective = IsCombatEffective;
     }
 
     public override void OnTick()
@@ -189,6 +191,7 @@ public partial class Ship : Thing
         if (isGunnerReady) AimGun();
         Atmosphere();
         Crew();
+        WatchForCritical();
     }
 
     /// <summary>
@@ -222,6 +225,26 @@ public partial class Ship : Thing
         thrustInput = Vector2.zero;
         angleInput = 0f;
     }
+
+    /// <summary>
+    /// 전투불능이 되는 **순간**을 잡는다. IsCombatEffective는 파생값이라 아무도 보고 있지
+    /// 않았다 - 승무원이 질식했든, 원자로가 다 나갔든, 포탑이 전멸했든 여기서 한 번 울린다.
+    ///
+    /// 걸쇠가 필요한 이유: 파생값이라 다음 틱에도 계속 false다. 상태가 아니라 전이가 사건이다.
+    /// </summary>
+    private void WatchForCritical()
+    {
+        bool effective = IsCombatEffective;
+
+        if (_wasEffective && !effective)
+            SoundManager.AudioShot("Critical", transform.position);
+
+        _wasEffective = effective;
+    }
+
+    // 처음부터 무장도 기관도 없는 배(잔해로 시작하는 것)가 첫 틱에 경보를 울리지 않게,
+    // 배가 다 지어진 뒤의 실제 상태로 시작한다.
+    private bool _wasEffective = true;
 
     /// <summary>한 번 죽으면 끝. Crew()만 이 값을 내린다.</summary>
     public bool CrewAlive { get; private set; } = true;
