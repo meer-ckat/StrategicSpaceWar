@@ -249,6 +249,87 @@ public static class PenetrationSelfTest
                 default);
         }
 
+        // A shell wider than the plate starts half its lanes off the plate. SubIndex clamps
+        // anything outside onto the border, so those lanes used to pile their whole weight
+        // on the edge columns - the fat gun that only ever ate the rim of a plate.
+        {
+            int n = Ballistics.SubGrid;
+            var w = new float[Ballistics.SubCount];
+
+            // 1 m plate, 2 m shell, straight in through the bottom face
+            Ballistics.SubCellPath(
+                new Vector2(0f, -0.5f), Vector2.up, Vector2.one, w, 1f, 2f);
+
+            float sum = 0f;
+            float rim = 0f;
+            float middle = 0f;
+
+            for (int i = 0; i < w.Length; i++)
+            {
+                sum += w[i];
+
+                int col = i % n;
+
+                if (col == 0 || col == n - 1)
+                    rim += w[i];
+                else
+                    middle += w[i];
+            }
+
+            Check("overmatching shell does not pile onto the rim",
+                Mathf.Abs(sum - 1f) < 1e-3f
+                && middle > rim,
+                default);
+        }
+
+        // 판에서 떨어져 나간 서브셀은 아무것도 떠받치지 않으면서 RHA를 낸다 - 허공이 탄을
+        // 막는다. 가장 큰 연결 성분만 남기고, 8방향으로 잇는다(4방향으로 보면 대각으로만
+        // 이어진 멀쩡한 판이 두 조각으로 갈린다).
+        {
+            int n = Ballistics.SubGrid;
+            var alive = new bool[Ballistics.SubCount];
+            var largest = new bool[Ballistics.SubCount];
+
+            // 1. 멀쩡한 판은 통째로 살아남는다
+            for (int i = 0; i < alive.Length; i++) alive[i] = true;
+            Ballistics.LargestLivingComponent(alive, largest);
+
+            int kept = 0;
+            for (int i = 0; i < largest.Length; i++) if (largest[i]) kept++;
+
+            Check("성분: 멀쩡한 판은 전부 남는다", kept == Ballistics.SubCount, default);
+
+            // 2. 큰 덩어리 + 외딴 칸 하나 -> 외딴 칸은 버려진다
+            for (int i = 0; i < alive.Length; i++) alive[i] = false;
+            for (int row = 0; row < 3; row++) alive[row * n] = true;   // 0열 세 칸
+            int lonely = (n - 1) * n + (n - 1);                        // 반대편 구석
+            alive[lonely] = true;
+
+            Ballistics.LargestLivingComponent(alive, largest);
+
+            Check("성분: 외딴 서브셀은 부서진 것으로 친다",
+                largest[0] && largest[n] && largest[2 * n] && !largest[lonely], default);
+
+            // 3. 대각으로만 닿은 두 칸은 한 덩어리다 (8방향)
+            for (int i = 0; i < alive.Length; i++) alive[i] = false;
+            alive[0] = true;
+            alive[n + 1] = true;
+
+            Ballistics.LargestLivingComponent(alive, largest);
+
+            Check("성분: 대각 연결은 끊지 않는다",
+                largest[0] && largest[n + 1], default);
+
+            // 4. 전멸. 아무것도 표시하지 않고 터지지도 않는다
+            for (int i = 0; i < alive.Length; i++) alive[i] = false;
+            Ballistics.LargestLivingComponent(alive, largest);
+
+            int any = 0;
+            for (int i = 0; i < largest.Length; i++) if (largest[i]) any++;
+
+            Check("성분: 전멸한 판은 남는 칸이 없다", any == 0, default);
+        }
+
         // Hit points land exactly on sub-cell boundaries constantly - every shot on a grid
         // line or a corner. A bare floor() there can name the sub-cell the shell is leaving.
         // Sweep the whole perimeter at every angle and demand the entry cell is always one

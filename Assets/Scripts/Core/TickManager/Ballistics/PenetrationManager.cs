@@ -96,6 +96,7 @@ public static partial class PenetrationManager
         r.surfaceCount = s.count;
         r.judgeIndex = judgeIndex;
         r.angleDeg = Mathf.Acos(rawCos) * Mathf.Rad2Deg;
+        r.calliber = p.caliber;
         r.effectiveRHA = effectiveRHA;
         r.impactSpeed = speed;
         r.normalSpeed = normalSpeed;
@@ -144,10 +145,6 @@ public static partial class PenetrationManager
                 bool shattered = newState == ShellState.Shattered;
 
                 BuildSpall(ref r, residualEnergy, dir, speed, residual, shattered, p);
-
-                // Only a shell that got through AND broke up leaves real debris behind it.
-                // Blocked + Shattered sprays off the outer face - light stuff, stays rays.
-                r.heavySpall = shattered && r.spallCount > 0;
             }
 
             return r;
@@ -195,6 +192,11 @@ public static partial class PenetrationManager
             : Mathf.Clamp(
                 Mathf.RoundToInt(energy / Ballistics.SpallEnergyPerFragment),
                 1, Ballistics.SpallMaxCount);
+
+        // A shell that broke up leaves its own mass behind, wherever it broke up. Setting
+        // this only on the penetrated path left the flag dead: penetrating *and* shattering
+        // needs impact speed >= 6x shatterVelocity, which no gun in the project reaches.
+        r.heavySpall = heavy && r.spallCount > 0;
 
         // more residual energy -> tighter cone
         float tightness = speed > 0f ? Mathf.Clamp01(residualSpeed / speed) : 0f;

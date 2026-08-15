@@ -79,6 +79,7 @@ public struct HitResult
     /// paid for twice.
     /// </summary>
     public bool heavySpall;
+    public float calliber;
 
     public uint spallSeed;
     public int spallCount;
