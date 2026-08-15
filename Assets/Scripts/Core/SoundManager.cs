@@ -32,7 +32,7 @@ public sealed class SoundManager : MonoBehaviour
         { "Penetrate", 0.35f },
         { "Blocked", 0.25f },     // 아무 일도 안 일어난 소리다. 제일 작아도 된다
         { "Ricochet", 0.30f },
-        { "Blow", 0.45f },        // 계속 나는 배경음에 가깝다
+        { "Blow", 0.20f },        // 거의 끊이지 않는 배경음이다. 제일 먼저 귀에 거슬린다
         { "Breakaway", 0.85f },
         { "Explosion", 1.00f },   // 기준점
     };
@@ -42,8 +42,16 @@ public sealed class SoundManager : MonoBehaviour
     [SerializeField] private int maxVoices = 24;
 
     [Header("3D")]
-    [SerializeField] private float minDistance = 3f;
-    [SerializeField] private float maxDistance = 40f;
+
+    /// <summary>이 안쪽은 전부 최대 음량. 함선 한 척이 50 m쯤 되므로 배 안은 고르게 들린다.</summary>
+    [SerializeField] private float minDistance = 25f;
+
+    /// <summary>
+    /// 여기서 무음. 교전거리가 200 m라 40으로는 적함에서 나는 소리가 통째로 안 들렸다 -
+    /// 유폭을 2D로 우회했던 이유가 그거였는데, 거리를 제대로 잡으면 우회할 이유가 없다.
+    /// 400이면 200 m 적함이 절반 음량이라 거리감이 남으면서도 들린다.
+    /// </summary>
+    [SerializeField] private float maxDistance = 400f;
 
     /// <summary>비워두면 기본 출력으로 나간다. 나중에 SFX/BGM 볼륨을 나눌 때 쓸 자리.</summary>
     [SerializeField] private AudioMixerGroup mixerGroup;

@@ -101,10 +101,7 @@ public class CriticalModule : Thing, IDamageable
             DefDatabase.Spawn(flashDef, null, transform.position, 0f);
             CameraSystem.Shake(shake);
 
-            // 위치를 안 넘긴다 = 2D. SoundManager의 3D 롤오프가 40 m에서 끝나는데 교전거리는
-            // 200이라, 위치를 주면 적함의 유폭이 아예 안 들린다. 배 한 척이 사라지는 사건은
-            // 어디서 나든 들려야 한다.
-            SoundManager.AudioShot(blastSound, 1f, blastPitch);
+            SoundManager.AudioShot(blastSound, transform.position, 1f, blastPitch);
 
             SpallResolver.Burst(
                 transform.position,

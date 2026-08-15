@@ -84,6 +84,15 @@ public sealed class RoomView : MonoBehaviour
     /// 어디서 뿜는지는 이미 알고 있다: 방의 벽 목록 중 AnyBreached인 판이 그 방의 구멍이다.
     /// 방향은 그 판에서 방 중심을 뺀 것 - 안에서 밖으로.
     /// </summary>
+    /// <summary>
+    /// 분출음을 다시 트리거하기까지의 간격(초). SoundManager의 프레임당 중복 제거는 같은
+    /// 프레임만 막는다 - 파공마다 프레임을 어긋나게 뿜으니 어느 하나는 늘 걸려서, 클립이
+    /// 초당 60번 처음부터 다시 재생됐다. 그게 "공기 새는 소리가 시끄럽다"의 정체다.
+    /// </summary>
+    private const float BlowInterval = 0.45f;
+
+    private float _nextBlow;
+
     private void Blow(Ship ship, Room room, float venting)
     {
         Vector2 centre = Vector2.zero;
@@ -99,6 +108,9 @@ public sealed class RoomView : MonoBehaviour
             return;
 
         centre /= cells;
+
+        float loudest = 0f;
+        Vector2 at = centre;
 
         for (int i = 0; i < room.walls.Count; i++)
         {
@@ -121,11 +133,18 @@ public sealed class RoomView : MonoBehaviour
             // 세기만큼 길게. 다 빠진 방은 더 이상 뿜지 않으므로 저절로 잦아든다.
             float length = Mathf.Lerp(0.6f, 3.5f, venting);
 
+
             SpallTrails.Add(from, from + outward * length, SpallTrails.Kind.Miss);
 
-            // SoundManager가 한 프레임에 같은 클립을 한 번만 울리므로, 파공이 몇 개든
-            // 쉬익 소리는 한 겹이다. 세기만 새는 속도를 따라간다.
-            SoundManager.AudioShot("Blow", venting);
+            loudest = Mathf.Max(loudest, venting);
+            at = from;
+        }
+
+        // 방 하나가 한 번. 파공이 열 개여도 쉬익 소리는 한 겹이고, 간격을 두고 되풀이된다.
+        if (loudest > 0f && Time.time >= _nextBlow)
+        {
+            _nextBlow = Time.time + BlowInterval;
+            SoundManager.AudioShot("Blow", at, loudest);
         }
     }
 
