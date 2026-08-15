@@ -10,12 +10,18 @@ using UnityEngine;
 public static class ShipBuilder
 {
     /// <summary>
-    /// 격자에 도장을 찍는 직속 자식. Armor와 Door만이다 - 모듈은 격자에 안 나온다.
+    /// 격자에 도장을 찍는 직속 자식인가. Armor와 Door만이다 - 모듈은 격자에 안 나온다.
+    ///
+    /// **격자를 읽는 모든 자리가 이걸 통과해야 한다.** "직속 자식이면 판"이라고 가정한 코드는
+    /// 그림 오브젝트가 하나 끼어드는 순간 그걸 판으로 세고, 증상은 방 오버레이가 잔해에 실려
+    /// 우주로 날아가는 것이었다.
     ///
     /// **직속 자식만 본다.** localPosition은 부모 기준이라, 판이 선체 직속이 아니면 칸 좌표가
     /// 통째로 틀린다. 모듈은 판의 자식으로 한 겹 아래 들어가고, 그래서 여기 안 걸린다 -
     /// 판이 잔해로 넘어갈 때 모듈이 딸려가는 것도 같은 이유로 공짜다.
     /// </summary>
+    public static bool IsPlate(Component child) => child != null && StampsGrid(child, out _);
+
     private static bool StampsGrid(Component child, out bool isDoor)
     {
         isDoor = child.GetComponent<Door>() != null;

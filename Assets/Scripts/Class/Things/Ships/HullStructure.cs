@@ -118,7 +118,9 @@ public sealed class HullStructure : MonoBehaviour
 
         foreach (Transform child in transform)
         {
-            if (child != null)
+            // 판만. 그림 오브젝트가 칸을 차지하면 진짜 판이 조각에서 빠지고, 그 그림이
+            // 대신 잔해로 딸려간다.
+            if (ShipBuilder.IsPlate(child))
                 byCell[_map.ToCell(child.localPosition)] = child;
         }
 
@@ -151,7 +153,10 @@ public sealed class HullStructure : MonoBehaviour
         {
             // Destroy는 프레임 끝까지 미뤄지지만 == null은 즉시 참이 된다. 한 프레임에
             // 여러 틱이 도는 따라잡기 상황에서 죽은 판을 살아 있다고 세면 안 된다.
-            if (child == null)
+            //
+            // 판이 아닌 자식도 여기서 걸러야 한다. 안 그러면 그 자리에 그림 오브젝트가
+            // 있다는 이유로 이미 죽은 판이 살아 있는 것으로 세어져 선체가 안 갈라진다.
+            if (!ShipBuilder.IsPlate(child))
                 continue;
 
             Vector2Int cell = _map.ToCell(child.localPosition);

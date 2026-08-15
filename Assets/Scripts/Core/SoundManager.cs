@@ -34,7 +34,7 @@ public sealed class SoundManager : MonoBehaviour
         { "Ricochet", 0.30f },
         { "Blow", 0.20f },        // 거의 끊이지 않는 배경음이다. 제일 먼저 귀에 거슬린다
         { "Breakaway", 0.85f },
-        { "Explosion", 1.00f },   // 기준점
+        { "Explosion", 2.00f },   // 기준점
         { "Critical", 0.90f },    // 폭음 바로 뒤에 겹쳐 나므로 살짝 아래
     };
 

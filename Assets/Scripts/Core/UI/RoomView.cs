@@ -35,6 +35,7 @@ public sealed class RoomView : MonoBehaviour
         public Texture2D texture;
         public Color32[] pixels;
         public ShipGrid.Map map;        // 참조가 바뀌면 배가 다시 지어진 것이다
+        public Vector2 localOffset;     // 칸 (0,0)의 선체 기준 자리
         public float[] lastPressure;    // 방 번호별. 새는 속도를 여기서 뽑는다
     }
 
@@ -165,6 +166,10 @@ public sealed class RoomView : MonoBehaviour
         // 일의 그림이다. Tab으로 끄는 것은 앞엣것뿐이라 Paint는 항상 돈다.
         overlay.renderer.enabled = _visible;
 
+        // 부모가 아니라 따라간다. 배가 돌면 오버레이도 같이 돈다.
+        overlay.renderer.transform.SetPositionAndRotation(
+            ship.transform.TransformPoint(overlay.localOffset), ship.transform.rotation);
+
         Paint(ship, overlay, _visible);
     }
 
@@ -175,12 +180,11 @@ public sealed class RoomView : MonoBehaviour
         if (overlay.renderer != null)
             Destroy(overlay.renderer.gameObject);
 
+        // **함선의 자식이 아니다.** 선체 직속 자식은 판만이어야 한다 - 격자를 읽는 코드가
+        // 직속 자식을 훑기 때문에, 그림 하나가 끼어들면 칸을 차지해서 진짜 판을 밀어낸다.
+        // 대신 매 프레임 함선을 따라간다.
         var go = new GameObject("rooms");
-        go.transform.SetParent(ship.transform, worldPositionStays: false);
-
-        // 칸 (0,0)의 자리에 놓고, 피벗을 그 칸의 픽셀 중심으로 잡는다. ppu가 1이라
-        // 픽셀 하나가 1 m고, 그러면 픽셀 (c, h-1-r)이 정확히 칸 (c, r) 위에 온다.
-        go.transform.localPosition = map.ToLocal(0, 0);
+        go.transform.SetParent(transform, worldPositionStays: false);
 
         overlay.texture = new Texture2D(map.width, map.height, TextureFormat.RGBA32, false)
         {
@@ -203,6 +207,7 @@ public sealed class RoomView : MonoBehaviour
         overlay.renderer.sortingOrder = SortingOrder;
 
         overlay.map = map;
+        overlay.localOffset = map.ToLocal(0, 0);
         overlay.lastPressure = new float[ship.rooms.Count];
 
         for (int i = 0; i < ship.rooms.Count; i++)
