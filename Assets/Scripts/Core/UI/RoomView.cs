@@ -29,6 +29,15 @@ public sealed class RoomView : MonoBehaviour
     /// </summary>
     private static readonly Color Vacuum = new(0.16f, 0.18f, 0.24f, 0.34f);
 
+    /// <summary>
+    /// 격벽·외판. 방이 아니라서 예전엔 아무것도 안 그렸는데, 그러면 화면에서 "여기는 벽"과
+    /// "여기는 데이터가 없음"이 똑같아진다. 진공을 안 그리던 것과 정확히 같은 병이다.
+    ///
+    /// 그려 넣으면 오버레이가 구멍 뚫린 얼룩이 아니라 **갑판 도면**이 된다. 방 사이의 흰 열이
+    /// 격벽이라는 것이 그제야 읽힌다.
+    /// </summary>
+    private static readonly Color Structure = new(0.62f, 0.68f, 0.80f, 0.22f);
+
     /// <summary>새는 중. 눈에 띄어야 한다.</summary>
     private static readonly Color Vent = new(1.00f, 0.45f, 0.15f, 0.70f);
 
@@ -236,6 +245,17 @@ public sealed class RoomView : MonoBehaviour
         float dt = Mathf.Max(1e-4f, Time.deltaTime);
 
         System.Array.Clear(overlay.pixels, 0, overlay.pixels.Length);
+
+        // 구조부터 깔고 그 위에 방을 얹는다. 판이 차지한 칸은 방이 될 수 없으므로 덮어쓸
+        // 일이 없고, 순서를 뒤집어도 결과가 같다.
+        var structure = (Color32)Structure;
+
+        for (int row = 0; row < map.height; row++)
+        for (int col = 0; col < map.width; col++)
+        {
+            if (ShipGrid.Solid(map.cells[col, row]))
+                overlay.pixels[(map.height - 1 - row) * map.width + col] = structure;
+        }
 
         for (int i = 0; i < ship.rooms.Count && i < overlay.lastPressure.Length; i++)
         {
