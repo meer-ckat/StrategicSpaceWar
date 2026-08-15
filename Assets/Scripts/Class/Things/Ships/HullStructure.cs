@@ -243,6 +243,20 @@ public sealed class HullStructure : MonoBehaviour
         hulk.lifeTick = Ballistics.DebrisLifeTick;
         hulk.breakawaySpeed = _breakawaySpeed;
 
+        // 절단면 광원. **여기 하나뿐이다** - 판마다 Light2D를 달면 한 척에 200개가 생긴다.
+        // 판의 적열은 SpriteRenderer.color의 HDR 값이 Bloom을 통해 내는 것이고, 실제 광원은
+        // 큰 단면이 실제로 생기는 이 순간에만 놓는다.
+        DefDatabase.Spawn("Cut Glow", null, centre, 0f);
+
+        // 갈라진 쪽 판들도 달아오른다. 반대쪽은 Armor가 죽으면서 이미 이웃에게 알렸지만,
+        // 이쪽은 죽은 판이 없이 떨어져 나온 것이라 알려줄 사람이 없다.
+        foreach (Vector2Int cell in chunk)
+        {
+            if (byCell.TryGetValue(cell, out Transform child) && child != null
+                && child.TryGetComponent(out Armor plate))
+                plate.AddHeat(Ballistics.HeatFromExposure * 0.5f);
+        }
+
         Debug.Log($"[{name}] 선체 {chunk.Count}칸이 떨어져 나갔다.");
     }
 }

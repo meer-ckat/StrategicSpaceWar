@@ -57,10 +57,50 @@ public sealed class ArmorSkin : MonoBehaviour
         Rebuild();
     }
 
+    /// <summary>
+    /// 적열 색 계단. **1을 넘는 값이 있다** - SpriteRenderer.color는 HDR을 통과시키므로
+    /// Bloom이 물어서 뜨거운 단면 주변으로 빛이 번진다. 판마다 Light2D를 다는 미친 짓 없이
+    /// 발광을 얻는 유일한 길이다.
+    ///
+    /// 텍스처에 곱해지는 값이라 손상돼 어두워진 픽셀은 어두운 적열이 되고, 이미 지워진
+    /// 픽셀(알파 0)은 그대로 안 보인다 - 그을음과 발광이 한 번에 나온다.
+    /// </summary>
+    private static readonly Color[] HeatRamp =
+    {
+        new(1.00f, 1.00f, 1.00f, 1f),   // 0.00  원래 색
+        new(1.30f, 0.34f, 0.16f, 1f),   // 0.25  암적. 식어가는 끝자락
+        new(2.40f, 0.85f, 0.22f, 1f),   // 0.50  주황
+        new(3.20f, 1.60f, 0.60f, 1f),   // 0.75  노랑
+        new(4.20f, 3.20f, 2.40f, 1f),   // 1.00  갓 찢어진 단면. 거의 흰색
+    };
+
+    private bool _wasHot;
+
     private void LateUpdate()
     {
         if (_armor.DamageVersion != _paintedVersion)
             Repaint();
+
+        float heat = _armor.Heat;
+
+        // 식은 판은 한 프레임에 한 번 비교만 한다. 마지막으로 한 번은 원래 색으로 되돌린다.
+        if (heat <= 0f)
+        {
+            if (_wasHot)
+            {
+                _renderer.color = HeatRamp[0];
+                _wasHot = false;
+            }
+
+            return;
+        }
+
+        _wasHot = true;
+
+        float t = Mathf.Clamp01(heat) * (HeatRamp.Length - 1);
+        int lo = Mathf.Min((int)t, HeatRamp.Length - 2);
+
+        _renderer.color = Color.Lerp(HeatRamp[lo], HeatRamp[lo + 1], t - lo);
     }
 
     /// <summary>

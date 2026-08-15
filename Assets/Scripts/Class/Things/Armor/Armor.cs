@@ -217,6 +217,37 @@ public abstract class Armor : Thing
         => Ballistics.SubIndex(localPoint - _cellOffset, _cellSize);
 
     /// <summary>
+    /// 적열. **그림 전용이다** - 시뮬레이션은 이 값을 한 번도 안 읽는다. 0이면 원래 색,
+    /// 1이면 갓 찢어진 단면.
+    ///
+    /// HP와 따로 도는 이유: 판이 얼마나 상했나(HP)와 **언제** 상했나(열)는 다른 정보고,
+    /// 플레이어가 화면에서 읽고 싶은 것은 후자다. 시뻘건 단면은 방금 찢어진 곳이고
+    /// 검게 식은 잔해는 한참 전에 떨어진 것 - 그게 색만으로 전해진다.
+    /// </summary>
+    public float Heat { get; private set; }
+
+    public void AddHeat(float amount)
+    {
+        if (amount > 0f)
+            Heat = Mathf.Min(1f, Heat + amount);
+    }
+
+    /// <summary>
+    /// 식는다. 그림 값이라 시뮬레이션에 아무 영향이 없고, 이 메서드가 통째로 없어도
+    /// 판정은 똑같이 돈다.
+    /// </summary>
+    public override void OnTick()
+    {
+        if (Heat <= 0f)
+            return;
+
+        Heat *= Mathf.Pow(0.5f, TickManager.TickDeltaTime / Ballistics.HeatHalfLife);
+
+        if (Heat < 0.004f)
+            Heat = 0f;
+    }
+
+    /// <summary>
     /// Bumped whenever any sub-cell loses HP. The skin repaints off this instead of
     /// diffing 36 floats every frame; a plate that is not being shot costs one int compare.
     /// </summary>
@@ -228,6 +259,9 @@ public abstract class Armor : Thing
             return;
 
         DamageLog.Hit(this);
+
+        // 맞은 만큼 달아오른다. 서브셀 하나를 통째로 날리는 피해가 기준.
+        AddHeat(amount / Mathf.Max(1e-3f, SubCellMaxHp) * Ballistics.HeatFromDamage);
         SoundManager.AudioShot("Penetrate", transform.position, Mathf.Clamp01(amount / 100f));
         // The collapse below can damage this same plate again. Firing only on the
         // transition to 0 keeps one sub-cell from collapsing twice.
@@ -252,6 +286,14 @@ public abstract class Armor : Thing
             return;
 
         _collapsed = true;
+
+        // 이웃에게 "네 안쪽 면이 방금 바깥이 됐다"고 알린다. 이게 절단면 발광의 전부다 -
+        // 폴링도 탐색도 없이, 판이 죽는 그 순간에 정확히 닿아야 할 8장에게만 간다.
+        foreach (Armor neighbour in Neighbours)
+        {
+            if (neighbour != null && SameBodyAs(neighbour))
+                neighbour.AddHeat(Ballistics.HeatFromExposure);
+        }
 
         // 남은 칸이 몇 개 있어도 판으로서는 이미 끝났다. 그 몫도 파편으로 나가야지,
         // 그냥 증발하면 서브셀 하나가 죽을 때마다 파편이 나오던 규칙이 여기서만 깨진다.

@@ -77,6 +77,54 @@ public sealed class RoomView : MonoBehaviour
 
     private readonly List<Ship> _stale = new();
 
+    /// <summary>
+    /// 감압 분출. 뚫린 판에서 바깥으로 짧은 선을 뿜는다 - 파편 궤적과 같은 링버퍼를 쓰므로
+    /// 새 렌더러도 파티클 시스템도 없다.
+    ///
+    /// 어디서 뿜는지는 이미 알고 있다: 방의 벽 목록 중 AnyBreached인 판이 그 방의 구멍이다.
+    /// 방향은 그 판에서 방 중심을 뺀 것 - 안에서 밖으로.
+    /// </summary>
+    private void Blow(Ship ship, Room room, float venting)
+    {
+        Vector2 centre = Vector2.zero;
+        int cells = 0;
+
+        foreach (Vector2Int cell in room.cells)
+        {
+            centre += (Vector2)ship.transform.TransformPoint(ship.Map.ToLocal(cell.x, cell.y));
+            cells++;
+        }
+
+        if (cells == 0)
+            return;
+
+        centre /= cells;
+
+        for (int i = 0; i < room.walls.Count; i++)
+        {
+            Armor wall = room.walls[i];
+
+            if (wall == null || !wall.AnyBreached)
+                continue;
+
+            // 파공마다 매 프레임 뿜으면 궤적 링버퍼를 파편과 나눠 쓰다가 잠식한다.
+            // 3프레임에 한 번, 판마다 어긋나게 - 고르게 뿜는 것보다 펄럭이는 게 가스답다.
+            if ((Time.frameCount + i) % 3 != 0)
+                continue;
+
+            Vector2 from = wall.transform.position;
+            Vector2 outward = (from - centre).normalized;
+
+            if (outward.sqrMagnitude < 1e-4f)
+                continue;
+
+            // 세기만큼 길게. 다 빠진 방은 더 이상 뿜지 않으므로 저절로 잦아든다.
+            float length = Mathf.Lerp(0.6f, 3.5f, venting);
+
+            SpallTrails.Add(from, from + outward * length, SpallTrails.Kind.Miss);
+        }
+    }
+
     private void Draw(Ship ship)
     {
         if (ship == null || ship.Map == null || ship.rooms == null || ship.rooms.Count == 0)
@@ -90,12 +138,11 @@ public sealed class RoomView : MonoBehaviour
         if (overlay.map != ship.Map)
             Rebuild(ship, overlay);
 
+        // 오버레이는 껐다 켰다 하는 디버그 표시지만, 감압 분출은 월드에서 실제로 일어나는
+        // 일의 그림이다. Tab으로 끄는 것은 앞엣것뿐이라 Paint는 항상 돈다.
         overlay.renderer.enabled = _visible;
 
-        if (!_visible)
-            return;
-
-        Paint(ship, overlay);
+        Paint(ship, overlay, _visible);
     }
 
     private void Rebuild(Ship ship, Overlay overlay)
@@ -139,7 +186,7 @@ public sealed class RoomView : MonoBehaviour
             overlay.lastPressure[i] = ship.rooms[i].Pressure;
     }
 
-    private void Paint(Ship ship, Overlay overlay)
+    private void Paint(Ship ship, Overlay overlay, bool draw)
     {
         ShipGrid.Map map = overlay.map;
         float dt = Mathf.Max(1e-4f, Time.deltaTime);
@@ -157,6 +204,11 @@ public sealed class RoomView : MonoBehaviour
 
             Color color = Color.Lerp(Hold, Vent, venting);
 
+            // 새는 방은 어딘가로 뿜고 있다. 그 어딘가가 파공이다 - 방의 벽 중 뚫린 판을
+            // 찾아 방 반대쪽으로 분출시킨다. 방향은 판에서 방 중심을 뺀 것, 즉 바깥이다.
+            if (venting > 0.15f)
+                Blow(ship, room, venting);
+
             // 기압이 낮을수록 옅어진다. 완전히 빈 방은 아무것도 안 그린다 - 거기는
             // 이미 우주고, 볼 것이 없다. 단 새는 중이면 끝까지 보인다.
             color.a *= Mathf.Max(pressure, venting);
@@ -173,7 +225,10 @@ public sealed class RoomView : MonoBehaviour
             }
         }
 
-        overlay.texture.SetPixels32(overlay.pixels);
-        overlay.texture.Apply(false);
+        if (draw)
+        {
+            overlay.texture.SetPixels32(overlay.pixels);
+            overlay.texture.Apply(false);
+        }
     }
 }

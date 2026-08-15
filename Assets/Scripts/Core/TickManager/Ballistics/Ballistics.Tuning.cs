@@ -204,4 +204,24 @@ public static partial class Ballistics
     /// 것을 막는다. MaxSpallDepth와 같은 종류의 안전장치다.
     /// </summary>
     public const int MaxDetonationChain = 2;
+
+    // --- 적열 (그림 전용) ---
+    //
+    // 여기 세 값은 시뮬레이션이 한 번도 안 읽는다. 판의 HP와 따로 도는 시각 전용 값이고,
+    // 이걸 전부 0으로 두어도 판정은 글자 하나 안 바뀐다.
+
+    /// <summary>
+    /// 서브셀 하나를 통째로 날릴 만큼 맞았을 때 오르는 열. 맞은 만큼 달아오른다.
+    /// </summary>
+    public const float HeatFromDamage = 0.35f;
+
+    /// <summary>
+    /// **이웃 판이 죽어서 새로 바깥에 드러났을 때 오르는 열.** 피해 열보다 훨씬 크다 -
+    /// 방금 찢어진 단면이 오래 두들겨 맞은 판보다 밝아야 "언제 부서졌나"가 색으로 읽힌다.
+    /// 1을 넘겨 잡는 이유: 최대치에 확실히 붙고, 식는 동안 한동안 흰색을 유지한다.
+    /// </summary>
+    public const float HeatFromExposure = 1.6f;
+
+    /// <summary>열이 절반으로 식는 데 걸리는 시간(초). 2~5초 사이가 보기 좋다.</summary>
+    public const float HeatHalfLife = 1.4f;
 }
