@@ -67,8 +67,14 @@ public partial class Ship : Thing
 
     readonly Dictionary<Door, List<Room>> roomsOfDoor = new();
 
-    // 격자 원본. 방 BFS도, 선체 구조도, 기즈모도 전부 이걸 읽는다.
+    // 격자 원본. 방 BFS도, 선체 구조도, 오버레이도 전부 이걸 읽는다.
     ShipGrid.Map _map;
+
+    /// <summary>
+    /// 읽기 전용. BuildRooms가 배를 다시 지을 때마다 **새 객체**가 되므로, 참조가 바뀌었는지
+    /// 보는 것만으로 "배가 갈라졌다"를 알 수 있다 - RoomView가 그걸로 오버레이를 다시 굽는다.
+    /// </summary>
+    public ShipGrid.Map Map => _map;
 
     // 물리가 진실이다. 예전엔 Ship이 velocity를 따로 들고 transform을 직접 옮겼는데,
     // 그러면 충돌이 밀어낸 결과를 다음 틱에 우리가 덮어써서 충각이 성립하지 않는다.
@@ -440,24 +446,4 @@ public partial class Ship : Thing
         //Not Implemented
     }
 
-    // 방 구획을 눈으로 확인하는 유일한 창구. 색은 방 번호, 투명도는 기압.
-    void OnDrawGizmosSelected()
-    {
-        if (rooms == null || rooms.Count == 0 || _map == null)
-            return;
-
-        Gizmos.matrix = transform.localToWorldMatrix;
-
-        var size = new Vector3(ShipGrid.CellSize * 0.9f, ShipGrid.CellSize * 0.9f, 0.01f);
-
-        for (int i = 0; i < rooms.Count; i++)
-        {
-            Color color = Color.HSVToRGB(i * 0.618034f % 1f, 0.8f, 1f);
-            color.a = 0.15f + 0.45f * rooms[i].Pressure;
-            Gizmos.color = color;
-
-            foreach (Vector2Int cell in rooms[i].cells)
-                Gizmos.DrawCube(_map.ToLocal(cell.x, cell.y), size);
-        }
-    }
 }

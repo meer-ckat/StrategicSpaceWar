@@ -70,6 +70,7 @@ ShipBuilder.cs            배치 리스트 ↔ 자식 오브젝트. 양방향이
 ShipExporter.cs           씬 → JSON (에디터). 뽑고 나서 왕복 검증까지 돈다
 ShipDef.cs                배 한 척: 배치 리스트 + 배 수치. StreamingAssets/Ships/*.json
 DefKeys.cs                def 키 검증·타입 해석·비파괴 JSON 병합. ThingDef와 ShipDef가 공유
+RoomView.cs               방 기압 오버레이. 새는 방을 따로 칠한다 (Tab으로 토글)
 ThingDef.cs               물건 한 종류의 정의 + 검증 + Spawn
 DefDatabase.cs            defName → ThingDef. StreamingAssets/Defs를 훑는다
 SolidSkin.cs              모듈·탄의 절차적 그림 (ArmorSkin은 판 전용)
