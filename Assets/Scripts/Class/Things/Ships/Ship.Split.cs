@@ -24,9 +24,11 @@ public partial class Ship
         shipArmors.Clear();
         shipEngines.Clear();
         shipGuns.Clear();
+        shipCriticals.Clear();
         shipArmors.AddRange(GetComponentsInChildren<Armor>());
         shipEngines.AddRange(GetComponentsInChildren<Engine>());
         shipGuns.AddRange(GetComponentsInChildren<Gun>());
+        shipCriticals.AddRange(GetComponentsInChildren<CriticalModule>());
 
         BuildRooms();
     }

@@ -179,4 +179,29 @@ public static partial class Ballistics
     /// 튜닝을 한 번 잘못 만졌을 때 충돌 한 번이 함선을 통째로 지운다.
     /// </summary>
     public const int RamConductMaxPlates = 96;
+
+    // --- 유폭 ---
+
+    /// <summary>
+    /// 폭심에서 1 m 멀어질 때 남는 몫. 충각과 달리 방향이 없다 - 같은 값을 두 축에 다 준다.
+    ///
+    /// **반경을 정하는 것은 blastDamage가 아니라 아래 BlastCutoff다.** 0.65에 컷오프 0.05면
+    /// 약 7 m에서 끊긴다. 세기를 올리면 그 원 안의 판이 더 확실히 죽을 뿐 원이 커지지 않는다.
+    /// </summary>
+    public const float BlastFalloff = 0.65f;
+
+    /// <summary>폭심 피해의 이 비율 아래로 떨어지면 멈춘다. 곧 폭발 반경.</summary>
+    public const float BlastCutoff = 0.05f;
+
+    /// <summary>판 상한. 파편 연쇄 상한과 같은 이유다.</summary>
+    public const int BlastMaxPlates = 128;
+
+    /// <summary>폭심 피해 중 파편으로 날아가는 몫. 판을 뚫고 안쪽 모듈까지 가는 것이 이 몫이다.</summary>
+    public const float BlastFragmentFraction = 0.25f;
+
+    /// <summary>
+    /// 유폭이 유폭을 부르는 깊이 상한. 탄약고 셋을 나란히 둔 배에서 한 발이 전부를 지우는
+    /// 것을 막는다. MaxSpallDepth와 같은 종류의 안전장치다.
+    /// </summary>
+    public const int MaxDetonationChain = 2;
 }

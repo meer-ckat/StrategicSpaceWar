@@ -49,6 +49,9 @@
 - **export는 배치만 다시 쓴다** — 함선 def에는 손으로 튜닝한 배 수치가 같이 들어 있다. `ShipDef.Save`가 통째로 직렬화하면 그게 조용히 사라지므로, `DefKeys.ReplaceTopLevelValue`로 `placements` 값만 갈아끼운다.
 - **JsonUtility는 모르는 키를 조용히 버린다** — `rha`를 `rah`로 오타 내면 에러 없이 기본값이 들어가고 증상은 "장갑이 좀 약한 것 같은데"다. `ThingDef.Validate`가 리플렉션으로 (주 클래스 + comps 전부)의 직렬화 필드 이름을 모아 JSON 최상위 키와 대조하고, 하나라도 모르면 그 def를 아예 안 싣는다. 이 검증은 옵션이 아니라 데이터 주도 설계의 절반이다.
 - **`hpPerSquareMetre`는 m²당이다** — 판의 총 구조 예산은 콜라이더 넓이를 곱해서 나온다. 총량으로 두면 0.4×1.0 얇은 패널이 1×1 벽과 같은 체력을 갖고, 45° 경사판(1×1.414)은 프리팹에 √2를 손으로 곱해 적어야 한다 - 새 판 모양마다 사람이 곱셈하는 규칙은 언젠가 반드시 잊힌다. `Armor.Awake`가 콜라이더를 HP 초기화보다 **먼저** 읽어야 하는 이유가 이것이다.
+- **시타델은 규칙이 아니라 배치다** — 탄약고·원자로(`CriticalModule`)는 격자에 새긴 구역이 아니라 판에 볼트로 붙는 모듈이고, 어디에 붙였는지가 곧 결과다. destroyer로 재보면 같은 `blastDamage 1600`이 **중앙·상부구조 밖**이면 선체를 143 + 45로 가르고(T-80), **선수**면 44칸만 날리고 배는 살고(에이브럼스), **상부구조 밑**이면 판을 제일 많이 죽이는데도 함교 지붕이 다리를 놓아 안 갈라진다. 분기문은 없다.
+- **유폭은 등방성 충각이다** — `RamImpact.Conduct`에 `along == across`를 주면 띠가 아니라 원이 된다. "폭발" 시스템이 따로 없다. 반경을 정하는 것은 `blastDamage`가 아니라 `BlastCutoff`이고, 세기는 "닿은 판이 죽느냐"만 정한다.
+- **준비 플래그 셋은 파생값이다** — `isDriverReady`/`isGunnerReady`/`isEngineerReady`는 저장하지 않는다. 예전에는 `Crew()`가 끄는 public bool이었는데, 원자로까지 끄게 하면 주인이 둘이 되고 원자로 복구 순간 죽은 승무원이 되살아난다. 조건을 읽는 자리가 하나면 그 버그가 존재할 자리가 없다.
 - **파편 연쇄 상한 2개** — `MaxSpallDepth`(레이), `MaxFragmentGeneration`(실체 파편). 둘 다 없으면 한 발이 함선을 지운다.
 
 ## 파일 지도
@@ -57,7 +60,8 @@
 Ballistics.Tuning.cs      상수 전부. 숫자 만질 일이면 여기만.
 Ballistics.Formula.cs     관통 공식, RHA 곡선
 Ballistics.SubCell.cs     판 안쪽 6×6 격자, 다중 레인 채널
-RamImpact.cs              충각 피해 + 충격 전도(비등방). 선체 절단이 여기서 자연발생한다
+RamImpact.cs              충각 피해 + 충격 전도. 비등방=절단, 등방=유폭. 둘 다 여기서 자연발생한다
+CriticalModule.cs         탄약고·원자로. 죽으면 터진다. 둘의 차이는 데이터 두 개뿐
 PenetrationManager.cs     판정. 순수 함수, RNG 없음, 바깥을 안 바꾼다
 Projectile.cs             시간 예산 틱 루프
 Projectile.Surfaces.cs    레이캐스트 → 접촉면 수집

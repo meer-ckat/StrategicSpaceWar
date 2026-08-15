@@ -58,7 +58,10 @@ public static class RamImpact
             }
 
             plate.ApplyDamageEvenly(damage);
-            Conduct(plate, c.normal, damage);
+
+            Conduct(plate, c.normal, damage,
+                Ballistics.RamConductAlong, Ballistics.RamConductAcross,
+                Ballistics.RamConductCutoff, Ballistics.RamConductMaxPlates);
         }
     }
 
@@ -78,7 +81,11 @@ public static class RamImpact
     /// 경로에 누적하지 않고 위치에서 바로 구하므로, 어느 순서로 도달하든 같은 값이 나온다.
     /// </summary>
     /// <param name="axis">접촉면 법선. 부호는 안 쓴다 - 축의 양쪽으로 똑같이 번진다.</param>
-    private static void Conduct(Armor origin, Vector2 axis, float damage)
+    /// <param name="along">축을 1 m 따라갈 때 남는 몫.</param>
+    /// <param name="across">축에서 1 m 벗어날 때 남는 몫. along과 같으면 등방성 = 폭발.</param>
+    private static void Conduct(
+        Armor origin, Vector2 axis, float damage,
+        float along, float across, float cutoff01, int maxPlates)
     {
         _wave.Clear();
         _reached.Clear();
@@ -87,10 +94,10 @@ public static class RamImpact
         _reached.Add(origin);
 
         Vector2 pivot = origin.transform.position;
-        Vector2 across = new(-axis.y, axis.x);
-        float cutoff = damage * Ballistics.RamConductCutoff;
+        Vector2 acrossAxis = new(-axis.y, axis.x);
+        float cutoff = damage * cutoff01;
 
-        while (_wave.Count > 0 && _reached.Count < Ballistics.RamConductMaxPlates)
+        while (_wave.Count > 0 && _reached.Count < maxPlates)
         {
             Armor at = _wave.Dequeue();
 
@@ -109,8 +116,8 @@ public static class RamImpact
                 // 칸이 1 m라 거리가 그대로 미터다. Abs인 이유: Unity의 접촉면 법선 부호는
                 // 콜백을 받는 쪽에 따라 뒤집힌다. 어차피 축의 양쪽으로 똑같이 번지면 된다.
                 float share = damage
-                    * Mathf.Pow(Ballistics.RamConductAlong, Mathf.Abs(Vector2.Dot(offset, axis)))
-                    * Mathf.Pow(Ballistics.RamConductAcross, Mathf.Abs(Vector2.Dot(offset, across)));
+                    * Mathf.Pow(along, Mathf.Abs(Vector2.Dot(offset, axis)))
+                    * Mathf.Pow(across, Mathf.Abs(Vector2.Dot(offset, acrossAxis)));
 
                 // 더 멀리는 더 작다. 여기서 끊어도 놓치는 판이 없다.
                 if (share < cutoff)
@@ -121,6 +128,22 @@ public static class RamImpact
                 _wave.Enqueue(neighbour);
             }
         }
+    }
+
+    /// <summary>
+    /// 유폭. 충각과 같은 전도인데 등방성이다 - along과 across가 같으면 띠가 아니라 원이 된다.
+    /// 그래서 "폭발"이라는 별도 시스템이 없다. 충각은 배를 굽혀 자르고, 폭발은 둥글게 판다.
+    ///
+    /// 어디까지 닿는지는 BlastCutoff가 정하고 damage는 "닿은 판이 죽느냐"만 정한다. destroyer로
+    /// 재보면 damage 800이면 판 17장 구멍, 1600이면 선체가 갈라진다.
+    /// </summary>
+    public static void Detonate(Armor origin, float damage)
+    {
+        origin.ApplyDamageEvenly(damage);
+
+        Conduct(origin, Vector2.up, damage,
+            Ballistics.BlastFalloff, Ballistics.BlastFalloff,
+            Ballistics.BlastCutoff, Ballistics.BlastMaxPlates);
     }
 
     /// <summary>

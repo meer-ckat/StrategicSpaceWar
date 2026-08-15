@@ -612,6 +612,14 @@
       "rot": 0.0,
       "mountCol": 16,
       "mountRow": 3
+    },
+    {
+      "def": "Reactor",
+      "col": 10,
+      "row": 8,
+      "rot": 0.0,
+      "mountCol": 10,
+      "mountRow": 9
     }
   ]
 }

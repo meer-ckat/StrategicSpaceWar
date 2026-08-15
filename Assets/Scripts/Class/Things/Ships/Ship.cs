@@ -24,6 +24,7 @@ public partial class Ship : Thing
     public List<Armor> shipArmors = new();
     public List<Engine> shipEngines = new();
     public List<Gun> shipGuns = new();
+    public List<CriticalModule> shipCriticals = new();
 
     /// <summary>
     /// 판 한 장당 질량. 배가 지어진 뒤 판 수를 곱해 Rigidbody2D에 넣는다 - 설계를 바꾸면
@@ -45,10 +46,50 @@ public partial class Ship : Thing
     public float doorRate = 1f;    // 문 하나의 초당 유량 계수
 
     [Header("승무원")]
-    public bool isDriverReady = true;
-    public bool isGunnerReady = true;
-    public bool isEngineerReady = true;
     public int crews;
+
+    /// <summary>
+    /// 살아 있는 원자로가 하나라도 있는가. 포탑 선회에도 전기가 들어서 조타와 조준이 같이
+    /// 걸린다. 원자로를 아예 안 단 설계(운석·구형 함선)는 전기 걱정이 없는 것으로 친다.
+    ///
+    /// 이중화는 코드가 아니라 배치다 - def에 원자로를 둘 넣으면 하나 터져도 배가 산다.
+    /// </summary>
+    public bool HasPower
+    {
+        get
+        {
+            bool any = false;
+
+            for (int i = 0; i < shipCriticals.Count; i++)
+            {
+                CriticalModule module = shipCriticals[i];
+
+                if (module == null || !module.providesPower || !StillAboard(module, this))
+                    continue;
+
+                any = true;
+
+                if (!module.Neutralized)
+                    return true;
+            }
+
+            return !any;
+        }
+    }
+
+    /// <summary>
+    /// 조타·사격·수리가 되는가. **저장값이 아니라 파생값이다.**
+    ///
+    /// 예전에는 public bool 셋이었고 Crew()가 껐다. 거기에 원자로까지 끄게 하면 주인이 둘이
+    /// 되고, 원자로가 복구된 순간 승무원이 죽었는데도 다시 켜진다. 조건을 읽는 자리를 하나로
+    /// 두면 그 버그가 존재할 자리가 없다.
+    /// </summary>
+    public bool isDriverReady => CrewAlive && HasPower;
+
+    public bool isGunnerReady => CrewAlive && HasPower;
+
+    /// <summary>수리는 사람이 한다. 전기가 나가도 손으로 때운다.</summary>
+    public bool isEngineerReady => CrewAlive;
 
     
     public enum Team
@@ -113,6 +154,7 @@ public partial class Ship : Thing
             shipArmors.Clear();
             shipEngines.Clear();
             shipGuns.Clear();
+            shipCriticals.Clear();
         }
 
         rig.bodyType = RigidbodyType2D.Dynamic;
@@ -128,6 +170,8 @@ public partial class Ship : Thing
         if (shipArmors.Count == 0) shipArmors = new List<Armor>(GetComponentsInChildren<Armor>());
         if (shipEngines.Count == 0) shipEngines = new List<Engine>(GetComponentsInChildren<Engine>());
         if (shipGuns.Count == 0) shipGuns = new List<Gun>(GetComponentsInChildren<Gun>());
+        if (shipCriticals.Count == 0)
+            shipCriticals = new List<CriticalModule>(GetComponentsInChildren<CriticalModule>());
 
         BuildRooms();
 
@@ -171,10 +215,8 @@ public partial class Ship : Thing
         }
 
         // 되돌릴 수 없다. 재가압해도 죽은 사람은 안 돌아온다 - 그래야 결과가 결과로 남는다.
+        // 세 준비 플래그는 여기서 안 건드린다. CrewAlive에서 파생되므로 저절로 꺼진다.
         CrewAlive = false;
-        isDriverReady = false;
-        isGunnerReady = false;
-        isEngineerReady = false;
 
         // 조종간을 놓은 채로 마지막 입력이 남아 있으면 시체가 계속 가속한다.
         thrustInput = Vector2.zero;
@@ -192,7 +234,8 @@ public partial class Ship : Thing
     {
         get
         {
-            if (!CrewAlive)
+            // 전기가 없으면 겨누지도 돌리지도 못한다. 포탑이 멀쩡해도 잔해다.
+            if (!CrewAlive || !HasPower)
                 return false;
 
             for (int i = 0; i < shipGuns.Count; i++)

@@ -1236,6 +1236,22 @@
       "rot": 0.0,
       "mountCol": 27,
       "mountRow": 4
+    },
+    {
+      "def": "Magazine",
+      "col": 26,
+      "row": 11,
+      "rot": 0.0,
+      "mountCol": 26,
+      "mountRow": 9
+    },
+    {
+      "def": "Reactor",
+      "col": 8,
+      "row": 11,
+      "rot": 0.0,
+      "mountCol": 8,
+      "mountRow": 9
     }
   ]
 }
