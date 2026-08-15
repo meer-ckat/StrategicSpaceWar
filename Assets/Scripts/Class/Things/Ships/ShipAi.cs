@@ -2,7 +2,8 @@ using UnityEngine;
 using Core;
 
 /// <summary>
-/// 함선의 조종간을 잡는 AI. 조종만 한다 - 사격은 포탑마다 AiGun이 알아서 한다.
+/// 함선의 조종간을 잡는 AI. 조종만 한다 - 사격은 포탑이 알아서 한다. PlayerInput이 없는
+/// 배의 포탑은 Gun.AimMode.FollowOwner가 자동 조준으로 풀리기 때문에 여기서 할 일이 없다.
 /// 그래서 이 파일에는 무기도, 명중도, 피해도 나오지 않는다.
 ///
 /// 조종 입력은 Ship.SetPilotInput 하나로만 들어간다. PlayerInput의 OnMove/OnAngle과
@@ -110,7 +111,7 @@ public sealed class ShipAi : TickBehaviour
             return 0f;
 
         // -90도: Gun.Slew와 같은 이유. 뱃머리가 transform.up이라 0도가 오른쪽이 아니라 위다.
-        float want = Mathf.Atan2(toTarget.y, toTarget.x) * Mathf.Rad2Deg - 90f;
+        float want = Mathf.Atan2(toTarget.y, toTarget.x) * Mathf.Rad2Deg - ((transform.localScale.x < 0)? 180f : 0f);
         float error = Mathf.DeltaAngle(_ship.hullAngle, want);
 
         // 지금 각속도로 turnLead초 동안 더 돌 각도를 미리 상쇄한다.

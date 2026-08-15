@@ -1,0 +1,43 @@
+{
+  "defName": "50.BMG",
+  "thingClass": "AutoCannonProjectile",
+  "comps": [
+    "SolidSkin"
+  ],
+  "layer": "Default",
+  "collider": {
+    "size": {
+      "x": 0,
+      "y": 0
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "mass": 0.05,
+  "caliber": 12.7,
+  "shatterVelocity": 800,
+  "penetrationK": 0.18,
+  "lifeTick": 1800,
+  "muzzleSpeed": 1200,
+  "armorLayer": {
+    "m_Bits": 64
+  },
+  "moduleLayer": {
+    "m_Bits": 128
+  },
+  "spallLayer": {
+    "m_Bits": 192
+  },
+  "tint": {
+    "r": 1.0,
+    "g": 0.55,
+    "b": 0.3,
+    "a": 1
+  },
+  "skinSize": {
+    "x": 0.18,
+    "y": 0.18
+  }
+}

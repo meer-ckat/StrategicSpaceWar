@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -5,12 +6,17 @@ using UnityEngine;
 /// 피해를 넣는다. 그 뒤로는 포탄에 맞았을 때와 완전히 같은 길을 탄다 - 서브셀이 죽고,
 /// 죽은 서브셀이 파편을 뿌리고, 파편이 모듈을 친다.
 ///
-/// Ship과 HullDebris가 같이 쓴다. 예전에는 Ship에만 있어서 잔해가 체력 무한인 벽이었다 -
+/// Ship과 Hulk(잔해·운석·폐위성)가 같이 쓴다. 예전에는 Ship에만 있어서 잔해가 체력 무한인 벽이었다 -
 /// 함선은 잔해에 부딪혀 자기 판만 깎였고, 잔해는 흠집 하나 안 났다.
 /// </summary>
 public static class RamImpact
 {
     private static readonly ContactPoint2D[] _contacts = new ContactPoint2D[16];
+
+    // 접점마다 새로 만들면 한 번 부딪힐 때 최대 16쌍이 쓰레기가 된다. 충각은 난전에서
+    // 매 틱 들어온다.
+    private static readonly Queue<Armor> _wave = new();
+    private static readonly HashSet<Armor> _reached = new();
 
     /// <summary>
     /// 충돌은 양쪽에 각각 따로 들어온다. 각자 자기 판만 깎으므로 이중 계산이 없다.
@@ -51,13 +57,69 @@ public static class RamImpact
                 continue;
             }
 
-            // 충각은 포탄과 다르다. 포탄은 한 점으로 파고들어 선을 그리지만, 충각은 판
-            // 전체를 한 번에 밀어서 어디랄 것 없이 고르게 상한다 - 그래서 채널이 아니라
-            // 균일 분배다.
-            //
-            // 다만 총량은 보존한다. 36칸에 damage를 '각각' 넣으면 균일한 게 아니라
-            // 36배 센 것이다. 충각을 더 아프게 하려면 Ballistics.RamDamageFraction을 올려라.
             plate.ApplyDamageEvenly(damage);
+            Conduct(plate, c.normal, damage);
+        }
+    }
+
+    /// <summary>
+    /// 충격이 선체 구조를 타고 번진다. 포탄과 충각의 차이가 이것이다 - 포탄은 한 점을 뚫고
+    /// 지나가고, 충각은 배를 굽힌다.
+    ///
+    /// **번지는 모양이 등방성이 아니다.** 충격축을 따라서는 거의 안 줄고, 옆으로는 급히 죽는다.
+    /// 그래서 진입 지점에서 반대편 외판까지 폭 한두 칸짜리 띠가 통째로 상한다 - 배를 굽히면
+    /// 그 단면 전체가 견디는 것이지 맞은 자리만 견디는 게 아니기 때문이다.
+    ///
+    /// **허리를 끊는 코드는 여기 없다.** 띠가 외판까지 이어지면 그 판들이 죽고, 다음 틱에
+    /// HullStructure의 8방향 BFS가 두 덩어리를 찾아 알아서 떼어낸다. 원래 있던 길이다.
+    ///
+    /// BFS와 감쇠 공식이 하는 일이 다르다: BFS는 **어디까지 닿는가**(실물로 이어져 있어야
+    /// 충격이 간다. 이미 뚫린 구멍 너머로는 안 넘어간다), 공식은 **얼마나 먹는가**. 감쇠를
+    /// 경로에 누적하지 않고 위치에서 바로 구하므로, 어느 순서로 도달하든 같은 값이 나온다.
+    /// </summary>
+    /// <param name="axis">접촉면 법선. 부호는 안 쓴다 - 축의 양쪽으로 똑같이 번진다.</param>
+    private static void Conduct(Armor origin, Vector2 axis, float damage)
+    {
+        _wave.Clear();
+        _reached.Clear();
+
+        _wave.Enqueue(origin);
+        _reached.Add(origin);
+
+        Vector2 pivot = origin.transform.position;
+        Vector2 across = new(-axis.y, axis.x);
+        float cutoff = damage * Ballistics.RamConductCutoff;
+
+        while (_wave.Count > 0 && _reached.Count < Ballistics.RamConductMaxPlates)
+        {
+            Armor at = _wave.Dequeue();
+
+            if (at == null)
+                continue;
+
+            foreach (Armor neighbour in at.Neighbours)
+            {
+                // == null: 이미 부서진 판. 부서진 자리로는 충격이 안 지나간다.
+                // SameBodyAs: 잔해로 갈라진 조각. 참조는 살아 있어도 이제 남의 몸이다.
+                if (neighbour == null || !at.SameBodyAs(neighbour) || _reached.Contains(neighbour))
+                    continue;
+
+                Vector2 offset = (Vector2)neighbour.transform.position - pivot;
+
+                // 칸이 1 m라 거리가 그대로 미터다. Abs인 이유: Unity의 접촉면 법선 부호는
+                // 콜백을 받는 쪽에 따라 뒤집힌다. 어차피 축의 양쪽으로 똑같이 번지면 된다.
+                float share = damage
+                    * Mathf.Pow(Ballistics.RamConductAlong, Mathf.Abs(Vector2.Dot(offset, axis)))
+                    * Mathf.Pow(Ballistics.RamConductAcross, Mathf.Abs(Vector2.Dot(offset, across)));
+
+                // 더 멀리는 더 작다. 여기서 끊어도 놓치는 판이 없다.
+                if (share < cutoff)
+                    continue;
+
+                _reached.Add(neighbour);
+                neighbour.ApplyDamageEvenly(share);
+                _wave.Enqueue(neighbour);
+            }
         }
     }
 

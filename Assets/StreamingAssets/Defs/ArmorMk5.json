@@ -1,0 +1,43 @@
+{
+  "defName": "Armor mk5",
+  "thingClass": "BallisticArmor",
+  "comps": [
+    "ArmorSkin"
+  ],
+  "layer": "Armor",
+  "collider": {
+    "size": {
+      "x": 1,
+      "y": 1
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "rha": 500,
+  "hpPerSquareMetre": 300,
+  "plateThickness": 0.5,
+  "fallbackCellSize": {
+    "x": 1,
+    "y": 1
+  },
+  "debrisLayer": {
+    "m_Bits": 128
+  },
+  "pixelsPerUnit": 48,
+  "maxTextureSize": 256,
+  "healthy": {
+    "r": 1,
+    "g": 1,
+    "b": 1,
+    "a": 1.0
+  },
+  "damaged": {
+    "r": 0.35,
+    "g": 0.33,
+    "b": 0.32,
+    "a": 1.0
+  },
+  "erodeBelow": 0.6
+}

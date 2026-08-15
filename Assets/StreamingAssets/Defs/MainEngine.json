@@ -1,0 +1,27 @@
+{
+  "defName": "SuperDuper Engine",
+  "thingClass": "Engine",
+  "comps": [
+    "SolidSkin"
+  ],
+  "layer": "Module",
+  "collider": {
+    "size": {
+      "x": 1,
+      "y": 1
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "maxHealth": 100,
+  "MaxPower": 100,
+  "MaxReversePower": 100,
+  "tint": {
+    "r": 0.5,
+    "g": 0.5,
+    "b": 0.5,
+    "a": 1
+  }
+}

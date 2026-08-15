@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 using Core;
 
 /// <summary>
@@ -15,11 +16,18 @@ public abstract class Armor : Thing
     [SerializeField] private float rha = 100f;        // mm
 
     /// <summary>
-    /// Structural budget for the WHOLE cell, not per sub-cell. Sub-cell HP is derived,
-    /// so SubGrid stays a readout-precision knob: bumping 3x3 to 6x6 used to quadruple
-    /// how much punishment a cell could take.
+    /// 판 **1 m²당** 구조 예산. 실제 총량은 콜라이더 넓이를 곱해서 나온다.
+    ///
+    /// 두 가지를 동시에 막는 정의다.
+    /// 1. 서브셀당이 아니라 총량이라, SubGrid는 읽기 정밀도 손잡이로 남는다 - 예전에 3x3을
+    ///    6x6으로 올렸더니 판이 4배 튼튼해졌다.
+    /// 2. m²당이라, 판 크기가 달라도 재료 밀도가 같다. 예전에는 넓이를 안 봐서 0.4x1.0 얇은
+    ///    패널이 1x1 벽과 똑같은 총량을 받았고, 서브셀 하나로 치면 2.7배 단단했다.
+    ///    45도 경사판(1 x 1.414)은 프리팹에 1800 x sqrt(2) = 2546을 손으로 적어 넣어야 했는데,
+    ///    새 판 모양을 만들 때마다 사람이 곱셈을 하는 것이 곧 언젠가 잊는다는 뜻이다.
     /// </summary>
-    [SerializeField] private float cellHp = 1800f;
+    [FormerlySerializedAs("cellHp")]
+    [SerializeField] private float hpPerSquareMetre = 1800f;
 
     [SerializeField] private float plateThickness = 0.1f; // m, actual plate - overmatch only
 
@@ -49,8 +57,15 @@ public abstract class Armor : Thing
     private Vector2 _cellSize = Vector2.one;
     private Vector2 _cellOffset;
 
+    /// <summary>m². Awake에서 콜라이더를 읽은 직후 정해지고 그 뒤로 안 바뀐다.</summary>
+    private float _cellArea = 1f;
+
     public float PlateThickness => plateThickness;
-    public float SubCellMaxHp => cellHp / SubCount;
+
+    /// <summary>판 전체 구조 예산. 넓이를 곱한 뒤의 값이라 이게 진짜 총량이다.</summary>
+    public float PlateHp => hpPerSquareMetre * _cellArea;
+
+    public float SubCellMaxHp => PlateHp / SubCount;
 
     /// <summary>Undamaged nominal RHA.</summary>
     public float RHA => rha;
@@ -59,9 +74,8 @@ public abstract class Armor : Thing
     {
         base.Awake();
 
-        for (int i = 0; i < SubCount; i++)
-            _hp[i] = SubCellMaxHp;
-
+        // 콜라이더를 먼저 읽는다. SubCellMaxHp가 넓이에서 나오므로 순서가 뒤집히면
+        // 모든 판이 넓이 0의 체력, 즉 0을 들고 시작한다.
         if (TryGetComponent(out BoxCollider2D box))
         {
             _cellSize = box.size;
@@ -72,6 +86,11 @@ public abstract class Armor : Thing
             _cellSize = fallbackCellSize;
             _cellOffset = Vector2.zero;
         }
+
+        _cellArea = Mathf.Max(1e-4f, _cellSize.x * _cellSize.y);
+
+        for (int i = 0; i < SubCount; i++)
+            _hp[i] = SubCellMaxHp;
     }
 
     // ponytail: assumes uniform scale 1 on the armor transform. Divide by lossyScale if that changes.
@@ -170,6 +189,29 @@ public abstract class Armor : Thing
     public Vector2 CellSize => _cellSize;
 
     /// <summary>
+    /// 격자상 8방향으로 맞닿은 판. 배를 지을 때 <see cref="ShipBuilder.Stamp"/>가 한 번 채우고
+    /// 그 뒤로 안 바뀐다 - 판은 죽기만 하고 새로 생기지 않으므로, 죽은 자리는 `== null`이 된다.
+    ///
+    /// 이게 없으면 이웃을 찾는 유일한 방법이 물리 질의(OverlapCircle)인데 세 가지가 틀린다:
+    /// 접촉마다 배열을 새로 할당하고, 콜라이더 반경 때문에 두 칸 건너까지 집어오고,
+    /// 무엇보다 **상대 함선의 판까지 같이 집어온다.**
+    ///
+    /// 격자 좌표를 여기 저장하지 않는 것이 요점이다 - 잔해로 갈라지면 격자는 의미를 잃지만
+    /// 판끼리의 인접 관계는 그대로다. 갈라짐은 <see cref="SameBodyAs"/>가 본다.
+    /// </summary>
+    public Armor[] Neighbours { get; private set; } = System.Array.Empty<Armor>();
+
+    public void SetNeighbours(Armor[] neighbours)
+        => Neighbours = neighbours ?? System.Array.Empty<Armor>();
+
+    /// <summary>
+    /// 아직 같은 덩어리인가. 잔해로 떨어져 나가도 이웃 참조는 살아 있어서, 그냥 두면 충격이
+    /// 100 m 떨어진 조각으로 건너뛴다. 판은 선체 직속 자식이므로 부모가 같으면 같은 덩어리다.
+    /// </summary>
+    public bool SameBodyAs(Armor other)
+        => other != null && other.transform.parent == transform.parent;
+
+    /// <summary>
     /// Sub-cell containing a point in the plate's LOCAL space. The single place anything
     /// outside this class is allowed to ask where the grid is - a collider-driven grid can
     /// then replace the body of this method and nothing else has to know.
@@ -189,7 +231,7 @@ public abstract class Armor : Thing
             return;
 
         DamageLog.Hit(this);
-
+        SoundManager.AudioShot("Penetrate", transform.position, Mathf.Clamp01(amount / 100f));
         // The collapse below can damage this same plate again. Firing only on the
         // transition to 0 keeps one sub-cell from collapsing twice.
         bool wasAlive = _hp[subIndex] > 0f;

@@ -1,0 +1,59 @@
+{
+  "defName": "Railgun Bullet",
+  "thingClass": "AutoCannonProjectile",
+  "comps": [
+    "SolidSkin",
+    "UnityEngine.Rendering.Universal.Light2D"
+  ],
+  "layer": "Default",
+  "collider": {
+    "size": {
+      "x": 0,
+      "y": 0
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "mass": 500,
+  "caliber": 800,
+  "shatterVelocity": 10000,
+  "penetrationK": 0.18,
+  "lifeTick": 1800,
+  "muzzleSpeed": 300,
+  "armorLayer": {
+    "m_Bits": 64
+  },
+  "moduleLayer": {
+    "m_Bits": 128
+  },
+  "spallLayer": {
+    "m_Bits": 192
+  },
+  "tint": {
+    "r": 0.7,
+    "g": 0.9,
+    "b": 1.0,
+    "a": 1
+  },
+  "skinSize": {
+    "x": 0.6,
+    "y": 0.6
+  },
+  "m_ComponentVersion": 2,
+  "m_LightType": 3,
+  "m_BlendStyleIndex": 0,
+  "m_FalloffIntensity": 0.5,
+  "m_Color": {
+    "r": 0.4,
+    "g": 0.7,
+    "b": 1.0,
+    "a": 1
+  },
+  "m_Intensity": 3.0,
+  "m_PointLightInnerAngle": 360,
+  "m_PointLightOuterAngle": 360,
+  "m_PointLightInnerRadius": 0,
+  "m_PointLightOuterRadius": 3.0
+}

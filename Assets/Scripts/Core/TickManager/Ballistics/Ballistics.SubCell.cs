@@ -7,13 +7,13 @@ using UnityEngine;
 /// </summary>
 public static partial class Ballistics
 {
-    public const int SubGrid = 6;
-    public const int SubCount = SubGrid * SubGrid;
+    public const int SubGrid = 6; //서브셀이 하나당 6x6개 있다는 뜻.
+    public const int SubCount = SubGrid * SubGrid; //36
 
     // ponytail: sample march, not an exact DDA. Count scales with the sub-grid so a
     // worst-case diagonal (crossing ~1.41 * SubGrid cells) still lands ~5 samples per cell
     // at any resolution. Swap for a DDA if this ever shows up in a profile.
-    private const int Samples = SubGrid * 8; //해상도
+    private const int Samples = SubGrid * 8; //해상도, 이게 높을수록 weight 할당이 정확해짐 
 
     /// <summary>Where the first sample sits, as a fraction of the channel length.</summary>
     private const float FirstSampleOffset = 0.5f / Samples;
@@ -23,10 +23,10 @@ public static partial class Ballistics
     /// 옆으로 2칸 반을 덮으므로, 중심선 하나만 훑으면 나머지가 통째로 무사해진다.
     /// 직경을 가로지르는 평행선 여러 개를 쏘고 무게를 나눠 갖는다.
     /// </summary>
-    private const int MaxLanes = 5;
+    private const int MaxLanes = 5; //띠의 최대 width
 
     /// <summary>직경이 서브셀 하나에 못 미치면 예전처럼 선 하나. 공짜다.</summary>
-    private static int LaneCount(float diameter, Vector2 cellSize)
+    private static int LaneCount(float diameter, Vector2 cellSize) //1m,1m 당 얼마냐
     {
         if (diameter <= 0f)
             return 1;

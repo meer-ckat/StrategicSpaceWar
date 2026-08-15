@@ -119,7 +119,7 @@ public sealed class HullStructure : MonoBehaviour
         foreach (Transform child in transform)
         {
             if (child != null)
-                byCell[ShipGrid.ToCell(child.localPosition, _map.width, _map.height)] = child;
+                byCell[_map.ToCell(child.localPosition)] = child;
         }
 
         int alive = 0;
@@ -154,7 +154,7 @@ public sealed class HullStructure : MonoBehaviour
             if (child == null)
                 continue;
 
-            Vector2Int cell = ShipGrid.ToCell(child.localPosition, _map.width, _map.height);
+            Vector2Int cell = _map.ToCell(child.localPosition);
 
             if (_solid.Contains(cell))
                 alive.Add(cell);
@@ -234,9 +234,14 @@ public sealed class HullStructure : MonoBehaviour
         body.linearVelocity = _body.linearVelocity + spin + push * _breakawaySpeed;
         body.angularVelocity = _body.angularVelocity;
 
-        // 순서가 중요하다. HullDebris.Awake가 HullStructure를 찾으므로 구조가 먼저 있어야 한다.
+        // 순서가 중요하다. Hulk.Awake가 HullStructure를 찾으므로 구조가 먼저 있어야 한다.
         go.AddComponent<HullStructure>().Adopt(_map, _solid, chunk, _breakawaySpeed);
-        go.AddComponent<HullDebris>();
+        Hulk hulk = go.AddComponent<Hulk>();
+
+        // 배치해 둔 운석과 달리 잔해는 사라져야 한다. 영원히 두면 한 판이 끝날 때쯤
+        // 씬이 조각으로 덮인다.
+        hulk.lifeTick = Ballistics.DebrisLifeTick;
+        hulk.breakawaySpeed = _breakawaySpeed;
 
         Debug.Log($"[{name}] 선체 {chunk.Count}칸이 떨어져 나갔다.");
     }

@@ -1,0 +1,1909 @@
+{
+  "defName": "destroyer",
+  "placements": [
+    {
+      "def": "Armor mk5",
+      "col": 26,
+      "row": -2,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 26,
+      "row": -1,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 24,
+      "row": 0,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 25,
+      "row": 0,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 26,
+      "row": 0,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 27,
+      "row": 0,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 28,
+      "row": 0,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 23,
+      "row": 1,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 29,
+      "row": 1,
+      "rot": 45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 23,
+      "row": 2,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 30,
+      "row": 2,
+      "rot": 45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 22,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 23,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 24,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 25,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 26,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 27,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 28,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 29,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 30,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 31,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 21,
+      "row": 4,
+      "rot": -45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 32,
+      "row": 4,
+      "rot": 45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 38,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 42,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 14,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 17,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 20,
+      "row": 5,
+      "rot": -45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 33,
+      "row": 5,
+      "rot": 45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 35,
+      "row": 5,
+      "rot": -45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 36,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 37,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 38,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 39,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 40,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 41,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 42,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 43,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 44,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 45,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 10,
+      "row": 6,
+      "rot": -45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 11,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 12,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 13,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 14,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 15,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 16,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 17,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 18,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 19,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 20,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 21,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 22,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 23,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 24,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 25,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 26,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 27,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 28,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 29,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 30,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 31,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 32,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 33,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 34,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 40,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 46,
+      "row": 6,
+      "rot": 45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 9,
+      "row": 7,
+      "rot": -45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 12,
+      "row": 7,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 19,
+      "row": 7,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 26,
+      "row": 7,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 33,
+      "row": 7,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 40,
+      "row": 7,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 46,
+      "row": 7,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 47,
+      "row": 7,
+      "rot": 45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 0,
+      "row": 8,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 1,
+      "row": 8,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 2,
+      "row": 8,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 3,
+      "row": 8,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 4,
+      "row": 8,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 5,
+      "row": 8,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 6,
+      "row": 8,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 7,
+      "row": 8,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 8,
+      "row": 8,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 12,
+      "row": 8,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 19,
+      "row": 8,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 26,
+      "row": 8,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 33,
+      "row": 8,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 40,
+      "row": 8,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 46,
+      "row": 8,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 48,
+      "row": 8,
+      "rot": 45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 0,
+      "row": 9,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 6,
+      "row": 9,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 12,
+      "row": 9,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 19,
+      "row": 9,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 26,
+      "row": 9,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 33,
+      "row": 9,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 40,
+      "row": 9,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 46,
+      "row": 9,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 49,
+      "row": 9,
+      "rot": 45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 0,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 1,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 2,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 3,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 4,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 5,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 6,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 7,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 8,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 9,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 10,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 11,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 12,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 13,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 14,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 15,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 16,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 17,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 18,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 19,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 20,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 21,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 22,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 23,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 24,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 25,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 26,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 27,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 28,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 29,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 30,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 31,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 32,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 33,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 34,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 35,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 36,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 37,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 38,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 39,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 40,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 41,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 42,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 43,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 44,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 45,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 46,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 50,
+      "row": 10,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 0,
+      "row": 11,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 6,
+      "row": 11,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 12,
+      "row": 11,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 19,
+      "row": 11,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 26,
+      "row": 11,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 33,
+      "row": 11,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 40,
+      "row": 11,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 46,
+      "row": 11,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 49,
+      "row": 11,
+      "rot": -45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 1,
+      "row": 12,
+      "rot": 45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 6,
+      "row": 12,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 12,
+      "row": 12,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 19,
+      "row": 12,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 26,
+      "row": 12,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 33,
+      "row": 12,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 40,
+      "row": 12,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Ballistic Door",
+      "col": 46,
+      "row": 12,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 48,
+      "row": 12,
+      "rot": -45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5 slope",
+      "col": 2,
+      "row": 13,
+      "rot": 45.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 3,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 4,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 5,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 6,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 7,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 8,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 9,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 10,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 11,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 12,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 13,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 14,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 15,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 16,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 17,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 18,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 19,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 20,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 21,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 22,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 23,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 24,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 25,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 26,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 27,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 28,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 29,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 30,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 31,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 32,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 33,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 34,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 35,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 36,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 37,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 38,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 39,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 40,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 41,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 42,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 43,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 44,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 45,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 46,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 47,
+      "row": 13,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 18,
+      "row": 14,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 19,
+      "row": 14,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 20,
+      "row": 14,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 21,
+      "row": 14,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 22,
+      "row": 14,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 23,
+      "row": 14,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 24,
+      "row": 14,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 25,
+      "row": 14,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 26,
+      "row": 14,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 27,
+      "row": 14,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 28,
+      "row": 14,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 21,
+      "row": 15,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 22,
+      "row": 15,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 23,
+      "row": 15,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 24,
+      "row": 15,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Armor mk5",
+      "col": 25,
+      "row": 15,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "SuperDuper Engine",
+      "col": 1,
+      "row": 9,
+      "rot": 0.0,
+      "mountCol": 1,
+      "mountRow": 10
+    },
+    {
+      "def": "SuperDuper Engine",
+      "col": 1,
+      "row": 11,
+      "rot": 0.0,
+      "mountCol": 1,
+      "mountRow": 10
+    },
+    {
+      "def": "SuperDuper Engine",
+      "col": 2,
+      "row": 9,
+      "rot": 0.0,
+      "mountCol": 2,
+      "mountRow": 10
+    },
+    {
+      "def": "SuperDuper Engine",
+      "col": 2,
+      "row": 11,
+      "rot": 0.0,
+      "mountCol": 2,
+      "mountRow": 10
+    },
+    {
+      "def": "SuperDuper Engine",
+      "col": 3,
+      "row": 9,
+      "rot": 0.0,
+      "mountCol": 3,
+      "mountRow": 10
+    },
+    {
+      "def": "SuperDuper Engine",
+      "col": 3,
+      "row": 11,
+      "rot": 0.0,
+      "mountCol": 3,
+      "mountRow": 10
+    },
+    {
+      "def": "m7",
+      "col": 14,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": 14,
+      "mountRow": 5
+    },
+    {
+      "def": "m7",
+      "col": 17,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": 17,
+      "mountRow": 5
+    },
+    {
+      "def": "m7",
+      "col": 38,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": 38,
+      "mountRow": 4
+    },
+    {
+      "def": "m7",
+      "col": 42,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": 42,
+      "mountRow": 4
+    }
+  ]
+}

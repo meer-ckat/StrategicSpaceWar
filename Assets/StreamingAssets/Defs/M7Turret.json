@@ -1,0 +1,33 @@
+{
+  "defName": "m7",
+  "thingClass": "Gun",
+  "comps": [
+    "SolidSkin"
+  ],
+  "layer": "Module",
+  "collider": {
+    "size": {
+      "x": 1,
+      "y": 1
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "projectile": "Railgun Bullet",
+  "muzzleSpeed": 900,
+  "roundsPerMinute": 300,
+  "aim": 0,
+  "slewRate": 30,
+  "fireArc": 2,
+  "muzzleOffset": 1,
+  "friendlyCheckRange": 100,
+  "maxHealth": 60,
+  "tint": {
+    "r": 0.78,
+    "g": 0.8,
+    "b": 0.84,
+    "a": 1
+  }
+}

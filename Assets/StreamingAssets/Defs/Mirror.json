@@ -1,0 +1,43 @@
+{
+  "defName": "Mirror",
+  "thingClass": "BallisticArmor",
+  "comps": [
+    "ArmorSkin"
+  ],
+  "layer": "Armor",
+  "collider": {
+    "size": {
+      "x": 1,
+      "y": 1
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "rha": 2000,
+  "hpPerSquareMetre": 30,
+  "plateThickness": 0.05,
+  "fallbackCellSize": {
+    "x": 1,
+    "y": 1
+  },
+  "debrisLayer": {
+    "m_Bits": 128
+  },
+  "pixelsPerUnit": 48,
+  "maxTextureSize": 256,
+  "healthy": {
+    "r": 0.82,
+    "g": 0.95,
+    "b": 1.0,
+    "a": 1.0
+  },
+  "damaged": {
+    "r": 0.287,
+    "g": 0.3135,
+    "b": 0.32,
+    "a": 1.0
+  },
+  "erodeBelow": 0.6
+}

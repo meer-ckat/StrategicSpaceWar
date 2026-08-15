@@ -42,7 +42,7 @@ public static partial class Ballistics
 
     /// <summary>
     /// Joules -> armor HP. Pure calibration knob: 5 kg at 900 m/s blocked head-on deals
-    /// ~200, about 1/9 of a default cell (Armor.cellHp 1800).
+    /// ~200. Armor.hpPerSquareMetre is per m2, so compare against that times the plate area.
     ///
     /// Note the swing this feeds: armorDamage scales with (effectiveRHA / penetration)^2,
     /// so a round overmatching the plate 3x deposits only ~11% of its energy and drills a
@@ -63,7 +63,7 @@ public static partial class Ballistics
     // projectiles: 4 per event instead of 24, and big enough to cross a whole ship, which
     // a one-tick ray clamped to SpallRangeMax cannot do.
     public const float HeavyFragmentSlowest = 0.7f;   // fraction of residual speed
-    public const int HeavyFragmentLifeTick = 120;     // 2 s - they do not fly forever
+    public const int HeavyFragmentLifeTick = 60;     // 2 s - they do not fly forever
     public const int MaxFragmentGeneration = 1;       // fragments never shed fragments
     /// <summary>
     /// 파편이 판 안으로 얼마나 들어가는가. 1이면 판을 가로질러 에너지를 얇게 펴 발라서
@@ -91,9 +91,9 @@ public static partial class Ballistics
     /// <summary>
     /// 판이 통째로 무너지는 지점. 36칸을 하나도 남김없이 지워야 사라지게 두면, 마지막
     /// 몇 칸이 이미 아무것도 못 버티는데도 판이 서 있고 탄이 거기서 멈춘다.
-    /// 0.8 = 29/36.
+    /// 0.5면 36칸 중 18칸에서 무너진다.
     /// </summary>
-    public const float PlateCollapseFraction = 0.8f;
+    public const float PlateCollapseFraction = 0.5f;
 
     /// <summary>
     /// Debris from a disintegrating plate has no preferred direction the way spall behind
@@ -140,4 +140,43 @@ public static partial class Ballistics
     /// N·s.
     /// </summary>
     public const float RamMinImpulse = 200f;
+
+    /// <summary>
+    /// 함선에서 떨어져 나온 조각이 남아 있는 틱 수. 60틱/초라 3600이면 60초.
+    /// 배치해 둔 운석·폐위성은 Hulk.lifeTick을 0으로 두어 이 규칙에서 빠진다.
+    /// </summary>
+    public const int DebrisLifeTick = 3600;
+
+    /// <summary>
+    /// 충격축을 1 m 따라갈 때 남는 몫. 1에 가까울수록 배를 깊이 관통한다.
+    ///
+    /// 이 값과 아래 RamConductAcross의 **비율**이 충각의 성격을 통째로 정한다. 0.80 대 0.30이면
+    /// 축으로 7 m 간 판이 0.21배를 먹는 동안 옆으로 2 m 벗어난 판은 0.09배로 잘려 나간다 -
+    /// 폭 한 칸짜리 띠가 배를 가로질러 죽는다. 띠가 반대쪽 외판까지 이어지면 HullStructure의
+    /// 8방향 BFS가 다음 틱에 두 덩어리를 찾아 배를 가른다. **절단을 위한 코드는 없다.**
+    ///
+    /// 둘을 같은 값으로 두면 등방성으로 돌아가서 충돌 지점 주변이 둥글게 패기만 한다.
+    ///
+    /// 이 값으로 destroyer를 재보면(scratch 시뮬) **격벽 위**를 때렸을 때 판 한 장을 죽이는
+    /// 피해의 5~6배에서 선체가 갈라진다. 격벽 사이를 때리면 아래가 방이라 충격이 내려갈
+    /// 구조가 없어 절대 안 갈라지고, 상부구조 밑(26열)은 지붕이 다리를 놓아 역시 안 갈라진다.
+    /// </summary>
+    public const float RamConductAlong = 0.80f;
+
+    /// <summary>충격축에서 1 m 벗어날 때 남는 몫. 낮을수록 절단선이 가늘고 날카롭다.</summary>
+    public const float RamConductAcross = 0.30f;
+
+    /// <summary>
+    /// 진입 판 피해의 이 비율 아래로 떨어지면 거기서 멈춘다. 절대값이 아니라 비율이라
+    /// 살짝 스친 충돌과 전속 충각이 같은 모양의 자국을 남긴다 - 크기만 다르다.
+    ///
+    /// 도달 거리를 정하는 것도 이 값이다: 0.08이면 축으로 11 m, 옆으로 2 m에서 끊긴다.
+    /// </summary>
+    public const float RamConductCutoff = 0.08f;
+
+    /// <summary>
+    /// 충격 하나가 건드릴 수 있는 판의 상한. 파편 연쇄 상한과 같은 이유다 - 없으면
+    /// 튜닝을 한 번 잘못 만졌을 때 충돌 한 번이 함선을 통째로 지운다.
+    /// </summary>
+    public const int RamConductMaxPlates = 96;
 }

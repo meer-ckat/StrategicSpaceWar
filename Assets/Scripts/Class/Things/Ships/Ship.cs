@@ -20,11 +20,14 @@ public abstract partial class Ship : Thing
     public List<Engine> shipEngines = new();
     public List<Gun> shipGuns = new();
 
-    [Header("맵")]
-    public TextAsset shipMap;
-    public Armor armorPrefab;
-    public Door doorPrefab;
-    public Engine enginePrefab;
+    [Header("설계도")]
+    /// <summary>
+    /// StreamingAssets/Ships/&lt;이름&gt;.json. 채우면 Awake에서 자식을 싹 지우고 JSON대로 짓는다.
+    ///
+    /// 비워두면 씬에 손으로 지어놓은 자식을 그대로 쓴다 - 그게 export의 원본이다.
+    /// 두 원본을 동시에 살려두면 반드시 어긋나므로, 채워져 있으면 JSON이 이긴다.
+    /// </summary>
+    public string shipDefName;
 
     [Header("공기")]
     public float leakRate = 2f;    // 파공 1개당 초당 유출량
@@ -52,7 +55,9 @@ public abstract partial class Ship : Thing
     public List<Room> rooms = new();
 
     readonly Dictionary<Door, List<Room>> roomsOfDoor = new();
-    int mapWidth, mapHeight;
+
+    // 격자 원본. 방 BFS도, 선체 구조도, 기즈모도 전부 이걸 읽는다.
+    ShipGrid.Map _map;
 
     // 물리가 진실이다. 예전엔 Ship이 velocity를 따로 들고 transform을 직접 옮겼는데,
     // 그러면 충돌이 밀어낸 결과를 다음 틱에 우리가 덮어써서 충각이 성립하지 않는다.
@@ -77,6 +82,8 @@ public abstract partial class Ship : Thing
         base.Awake();
         rig = GetComponent<Rigidbody2D>();
 
+        IsPlayerControlled = GetComponent<PlayerInput>() != null && GetComponent<ShipAi>() == null;
+
         // RequireComponent는 에디터에서 스크립트를 붙일 때만 채워준다. 이미 저장된 씬의
         // 함선에는 없을 수 있어서, 없으면 여기서 만든다.
         _structure = GetComponent<HullStructure>() ?? gameObject.AddComponent<HullStructure>();
@@ -89,7 +96,24 @@ public abstract partial class Ship : Thing
         // 각감쇠는 0. 회전 제동은 Angle()의 RCS가 직접 하고, 그래야 충돌이 준 회전을
         // 물리가 먼저 갉아먹지 않는다.
         rig.angularDamping = 0f;
-        //나중에는 Json 파싱으로 자동으로 만들거임. 지금은 프로토타입이니 이렇게.
+
+        // 자식을 갈아엎으므로 목록을 걷기 전에 와야 한다.
+        if (!string.IsNullOrEmpty(shipDefName))
+        {
+            ShipDef def = ShipDef.Load(shipDefName);
+
+            if (def != null)
+            {
+                ShipBuilder.Spawn(transform, def);
+
+                // 인스펙터에 남아 있던 목록은 방금 지운 자식을 가리킨다. 비워야 아래에서
+                // 다시 걷는다 - 안 그러면 배가 죽은 판 목록을 들고 시작한다.
+                shipArmors.Clear();
+                shipEngines.Clear();
+                shipGuns.Clear();
+            }
+        }
+
         if (shipArmors.Count == 0) shipArmors = new List<Armor>(GetComponentsInChildren<Armor>());
         if (shipEngines.Count == 0) shipEngines = new List<Engine>(GetComponentsInChildren<Engine>());
         if (shipGuns.Count == 0) shipGuns = new List<Gun>(GetComponentsInChildren<Gun>());
@@ -168,35 +192,28 @@ public abstract partial class Ship : Thing
     }
 
     /// <summary>
-    /// 텍스트 맵으로 구획을 나눈다. 자식들의 localPosition을 다시 칸으로 되돌려 맞추므로
-    /// 손으로 옮긴 장갑판도 그대로 따라온다.
+    /// 자식 판들의 위치에서 격자를 짓고 구획을 나눈다. 별도의 맵 파일이 없다 - 씬에 있는 것이
+    /// 곧 맵이라, 손으로 판 하나를 옮기면 방도 따라온다. 어긋날 두 번째 원본이 없다.
     /// </summary>
     void BuildRooms()
     {
         rooms.Clear();
         roomsOfDoor.Clear();
 
-        if (shipMap == null)
+        var armorAt = new Dictionary<Vector2Int, Armor>();
+        var doorAt = new Dictionary<Vector2Int, Door>();
+
+        _map = ShipBuilder.Stamp(transform, armorAt, doorAt);
+
+        if (_map == null)
         {
-            Debug.LogWarning($"[{name}] shipMap이 없다. 방·기압 계산을 건너뛴다.");
+            Debug.LogWarning($"[{name}] 판이 하나도 없다. 방·기압 계산을 건너뛴다.");
             return;
         }
 
-        ShipGrid.Map map = ShipGrid.ParseMap(shipMap.text);
-        mapWidth = map.width;
-        mapHeight = map.height;
+        rooms = ShipGrid.BuildRooms(_map, armorAt, doorAt);
 
-        var armorAt = new Dictionary<Vector2Int, Armor>();
-        foreach (Armor armor in GetComponentsInChildren<Armor>())
-            armorAt[ShipGrid.ToCell(armor.transform.localPosition, mapWidth, mapHeight)] = armor;
-
-        var doorAt = new Dictionary<Vector2Int, Door>();
-        foreach (Door door in GetComponentsInChildren<Door>())
-            doorAt[ShipGrid.ToCell(door.transform.localPosition, mapWidth, mapHeight)] = door;
-
-        rooms = ShipGrid.BuildRooms(map, armorAt, doorAt);
-
-        _structure.Build(map, breakawaySpeed);
+        _structure.Build(_map, breakawaySpeed);
 
         // 문 -> 접한 방들. 틱마다 다시 뒤지지 않으려고 여기서 한 번만 만든다.
         foreach (Room room in rooms)
@@ -266,7 +283,7 @@ public abstract partial class Ship : Thing
 
         foreach (Engine engine in shipEngines)
         {
-            if (engine == null || engine.Neutralized)
+            if (!StillAboard(engine, this) || engine.Neutralized)
                 continue;
 
             total += forward ? engine.MaxPower : engine.MaxReversePower;
@@ -274,6 +291,16 @@ public abstract partial class Ship : Thing
 
         return total;
     }
+
+    /// <summary>
+    /// 이 부품이 아직 이 배의 것인가.
+    ///
+    /// null 검사로는 안 된다. 모듈은 자기가 올라앉은 판과 함께 잔해로 재부모화되는데,
+    /// Awake에 캐시해 둔 Ship 참조도 shipEngines 목록도 그대로 살아 있다. 그냥 두면
+    /// 배가 100m 뒤에 떠 있는 엔진으로 계속 가속하고, 날아간 포탑이 본체 포수의 명령을 받는다.
+    /// </summary>
+    public static bool StillAboard(Component part, Ship ship)
+        => part != null && ship != null && part.GetComponentInParent<Ship>() == ship;
 
     /// <summary>
     /// 추력은 함체 방향과 무관하게 월드 축으로 작용한다. 자세는 Angle()이 따로 제어한다.
@@ -317,6 +344,14 @@ public abstract partial class Ship : Thing
 
         rig.angularVelocity = rate;
     }
+
+    /// <summary>
+    /// 사람이 모는 배인가. PlayerInput이 붙어 있느냐가 전부다 - OnMove/OnAngle이 그 컴포넌트를
+    /// 통해서만 들어오므로, 없으면 정의상 AI다. 포탑이 커서를 볼지 적을 볼지를 이걸로 정한다.
+    ///
+    /// Awake에서 한 번만 본다. 매 틱 GetComponent를 부르면 포탑 수만큼 곱해진다.
+    /// </summary>
+    public bool IsPlayerControlled { get; private set; }
 
     // PlayerInput이 붙은 프리팹에서만 호출된다.
     // AI 함선은 컴포넌트가 없으므로 두 필드를 직접 세팅하면 된다.
@@ -399,7 +434,7 @@ public abstract partial class Ship : Thing
     // 방 구획을 눈으로 확인하는 유일한 창구. 색은 방 번호, 투명도는 기압.
     void OnDrawGizmosSelected()
     {
-        if (rooms == null || rooms.Count == 0)
+        if (rooms == null || rooms.Count == 0 || _map == null)
             return;
 
         Gizmos.matrix = transform.localToWorldMatrix;
@@ -413,74 +448,7 @@ public abstract partial class Ship : Thing
             Gizmos.color = color;
 
             foreach (Vector2Int cell in rooms[i].cells)
-                Gizmos.DrawCube(ShipGrid.ToLocal(cell.x, cell.y, mapWidth, mapHeight), size);
+                Gizmos.DrawCube(_map.ToLocal(cell.x, cell.y), size);
         }
     }
-
-#if UNITY_EDITOR
-    /// <summary>에디터 전용. 자식을 전부 갈아엎고 맵대로 다시 심는다.</summary>
-    [ContextMenu("Build From Map")]
-    void BuildFromMap()
-    {
-        if (shipMap == null)
-        {
-            Debug.LogWarning($"[{name}] shipMap이 없다.");
-            return;
-        }
-
-        if (Application.isPlaying)
-        {
-            Debug.LogWarning($"[{name}] 플레이 모드에서 심으면 종료할 때 전부 사라진다. 나가서 다시 눌러라.");
-            return;
-        }
-
-        ShipGrid.Map map = ShipGrid.ParseMap(shipMap.text);
-
-        for (int i = transform.childCount - 1; i >= 0; i--)
-            DestroyImmediate(transform.GetChild(i).gameObject);
-
-        int planted = 0, missing = 0;
-
-        for (int row = 0; row < map.height; row++)
-        for (int col = 0; col < map.width; col++)
-        {
-            Thing prefab = null;
-
-            switch (map.cells[col, row])
-            {
-                case ShipGrid.Cell.Wall:   prefab = armorPrefab;  break;
-                case ShipGrid.Cell.Door:   prefab = doorPrefab;   break;
-                case ShipGrid.Cell.Engine: prefab = enginePrefab; break;
-                default: continue;
-            }
-
-            // 빈 슬롯을 조용히 건너뛰면 "아무 일도 안 일어남"으로 보인다
-            if (prefab == null)
-            {
-                missing++;
-                continue;
-            }
-
-            // Instantiate와 달리 프리팹 연결이 남아 나중에 장갑 수치를 한 번에 고칠 수 있다
-            var spawned = (Thing)UnityEditor.PrefabUtility.InstantiatePrefab(prefab, transform);
-
-            spawned.transform.localPosition = ShipGrid.ToLocal(col, row, map.width, map.height);
-            spawned.transform.localRotation = Quaternion.identity;
-            planted++;
-        }
-
-        if (missing > 0)
-            Debug.LogError(
-                $"[{name}] {missing}칸을 심지 못했다. 비어 있는 프리팹 슬롯: " +
-                $"{(armorPrefab == null ? "armorPrefab " : "")}" +
-                $"{(doorPrefab == null ? "doorPrefab " : "")}" +
-                $"{(enginePrefab == null ? "enginePrefab" : "")}");
-
-        Debug.Log($"[{name}] {map.width}x{map.height} 맵에서 {planted}칸을 심었다.");
-
-        shipArmors.Clear();
-        shipEngines.Clear();
-        BuildRooms();   // 심자마자 기즈모로 구획을 볼 수 있게
-    }
-#endif
 }

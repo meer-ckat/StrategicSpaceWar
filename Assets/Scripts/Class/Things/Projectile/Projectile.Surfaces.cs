@@ -44,8 +44,8 @@ public abstract partial class Projectile
         {
             RaycastHit2D h = _hits[i];
 
-            //if (!Accept(h, dir, lastCollider)) 이미 앞에서 계산하는데 왜 있어야 하는지 사실 잘 모르겠음, 일단 주석처리
-             //   continue; 괜찮은듯? 오류는 안뜸
+            if (!Accept(h, dir, lastCollider))
+                continue;
 
             if (h.distance - min > Ballistics.EdgeEpsilon) //모서리가 아니라면 continue
                 continue;
