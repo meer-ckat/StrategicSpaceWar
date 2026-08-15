@@ -16,8 +16,12 @@ public sealed class SpallTrails : MonoBehaviour
 {
     public enum Kind { Miss = 0, Armor = 1, Module = 2 }
 
-    /// <summary>선분 상한. 한 발이 만드는 파편은 SpallMaxCount x MaxSpallDepth로 이미 막혀 있다.</summary>
-    private const int Capacity = 512;
+    /// <summary>
+    /// 선분 상한. 한 발이 만드는 파편은 SpallMaxCount x MaxSpallDepth로 막혀 있지만,
+    /// **유폭은 그 규칙 밖이다** - 판 40장이 한 틱에 무너지면 붕괴 파편만 수천 개다.
+    /// 512로는 한 프레임에 링버퍼를 여러 바퀴 덮어써서, 제일 큰 사건이 제일 안 보였다.
+    /// </summary>
+    private const int Capacity = 4096;
 
     [Header("Trail")]
     [SerializeField] private float lifetime = 0.3f;   // s

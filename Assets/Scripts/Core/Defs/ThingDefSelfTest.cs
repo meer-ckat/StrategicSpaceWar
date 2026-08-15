@@ -96,6 +96,7 @@ public static class ThingDefSelfTest
                  {
                      "Armor mk5", "Armor mk5 slope", "Ballistic Door", "Glass", "Rock", "Mirror",
                      "m7", "SuperDuper Engine", "45mm", "50.BMG", "Railgun Bullet",
+                     "Magazine", "Reactor", "Blast Flash", "Blast Flash Large",
                  })
             Check($"실제 def '{name}'을 읽었다", DefDatabase.Has(name));
 

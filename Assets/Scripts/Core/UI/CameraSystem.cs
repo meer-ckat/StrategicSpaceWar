@@ -18,6 +18,24 @@ public class CameraSystem : MonoBehaviour
     void Start()
     {
         cam = GetComponent<Camera>();
+        _instance = this;
+    }
+
+    // --- 화면 흔들림 ---
+    //
+    // 그림이다. 유폭이 화면 밖에서 나도 뭔가 일어났다는 것이 전해져야 하고, 화면 안이면
+    // 판이 사라지는 한 틱짜리 사건에 무게가 생긴다.
+
+    private static CameraSystem _instance;
+
+    private float _shake;
+    private uint _shakeSeed = 1;
+
+    /// <summary>세기만 받는다. 지속시간은 감쇠율이 정한다 - 손잡이가 둘이면 하나는 안 만진다.</summary>
+    public static void Shake(float amount)
+    {
+        if (_instance != null)
+            _instance._shake = Mathf.Max(_instance._shake, amount);
     }
 
     // Update is called once per frame
@@ -35,7 +53,26 @@ public class CameraSystem : MonoBehaviour
             Aim();
             break;
         }
-        transform.position = new Vector3(transform.position.x, transform.position.y, -10f);
+        Vector2 jitter = Vector2.zero;
+
+        if (_shake > 0.001f)
+        {
+            // UnityEngine.Random 금지. 결정론 불변식은 그림에도 적용된다 - 리플레이가
+            // 카메라 때문에 어긋나면 그것도 어긋난 것이다.
+            var rng = new DeterministicRng(Ballistics.Hash(0, Core.TickManager.currentTick, (int)_shakeSeed++));
+
+            jitter = new Vector2(rng.Range(-_shake, _shake), rng.Range(-_shake, _shake));
+
+            // 프레임률과 무관하게 약 0.25초에 사그라든다.
+            _shake *= Mathf.Pow(0.02f, Time.deltaTime / 0.25f);
+        }
+        else
+        {
+            _shake = 0f;
+        }
+
+        transform.position = new Vector3(
+            transform.position.x + jitter.x, transform.position.y + jitter.y, -10f);
     }
 
     void Following()

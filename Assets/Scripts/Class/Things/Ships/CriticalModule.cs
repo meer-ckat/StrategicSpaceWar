@@ -33,6 +33,12 @@ public class CriticalModule : Thing, IDamageable
     /// </summary>
     public bool providesPower;
 
+    /// <summary>터질 때 띄울 빛의 defName. 비우면 안 띄운다.</summary>
+    public string flashDef = "Blast Flash";
+
+    /// <summary>화면 흔들림 세기. 폭발이 화면 밖에서 나도 뭔가 일어났다는 것이 전해진다.</summary>
+    public float shake = 0.6f;
+
     private float _health;
     private bool _detonated;
 
@@ -84,6 +90,10 @@ public class CriticalModule : Thing, IDamageable
         {
             if (mount != null)
                 RamImpact.Detonate(mount, blastDamage);
+
+            // 그림 둘. 시뮬레이션은 위에서 이미 다 끝났고 아래는 사람 눈을 위한 것이다.
+            DefDatabase.Spawn(flashDef, null, transform.position, 0f);
+            CameraSystem.Shake(shake);
 
             SpallResolver.Burst(
                 transform.position,
