@@ -15,10 +15,11 @@
       "y": 0
     }
   },
-  "seconds": 0.35,
-  "peakIntensity": 12,
+  "seconds": 2.35,
+  "expandSeconds": 0.3,
+  "peakIntensity": 136,
   "startRadius": 2,
-  "endRadius": 16,
+  "endRadius": 32,
   "m_ComponentVersion": 2,
   "m_LightType": 3,
   "m_BlendStyleIndex": 0,

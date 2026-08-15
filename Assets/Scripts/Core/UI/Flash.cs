@@ -13,7 +13,16 @@ using UnityEngine.Rendering.Universal;
 /// </summary>
 public sealed class Flash : Thing
 {
+    /// <summary>빛이 완전히 꺼질 때까지. 잔광이 남는 시간이다.</summary>
     public float seconds = 0.35f;
+
+    /// <summary>
+    /// 충격파가 끝까지 퍼지는 데 걸리는 시간. **seconds와 따로다.**
+    /// 하나로 묶으면 잔광을 늘리는 순간 충격파가 같이 느려져서, 폭발이 아니라 부풀어 오르는
+    /// 거품으로 보인다. 빛은 오래 남아도 되지만 충격파는 빨라야 한다.
+    /// </summary>
+    public float expandSeconds = 0.4f;
+
     public float peakIntensity = 12f;
     public float startRadius = 2f;
     public float endRadius = 16f;
@@ -50,7 +59,9 @@ public sealed class Flash : Thing
         // 끝이 질질 끌려서 "연기"처럼 보인다.
         _light.intensity = peakIntensity * (1f - t) * (1f - t);
 
-        // 충격파. 밝기는 죽는데 반경은 계속 커진다.
-        _light.pointLightOuterRadius = Mathf.Lerp(startRadius, endRadius, t);
+        // 충격파는 자기 시계로 돈다. 다 퍼진 뒤에는 그 크기로 남아서 잔광이 된다.
+        float spread = Mathf.Clamp01(_age / Mathf.Max(1e-3f, expandSeconds));
+
+        _light.pointLightOuterRadius = Mathf.Lerp(startRadius, endRadius, spread);
     }
 }
