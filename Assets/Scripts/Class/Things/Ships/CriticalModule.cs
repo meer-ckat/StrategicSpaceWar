@@ -39,6 +39,12 @@ public class CriticalModule : Thing, IDamageable
     /// <summary>화면 흔들림 세기. 폭발이 화면 밖에서 나도 뭔가 일어났다는 것이 전해진다.</summary>
     public float shake = 0.6f;
 
+    /// <summary>Resources/Sound 아래의 클립 이름. 비우면 소리 없이 터진다.</summary>
+    public string blastSound = "Explosion";
+
+    /// <summary>낮을수록 크고 무거운 폭발로 들린다. 같은 클립으로 탄약고와 원자로를 가른다.</summary>
+    public float blastPitch = 1f;
+
     private float _health;
     private bool _detonated;
 
@@ -91,9 +97,14 @@ public class CriticalModule : Thing, IDamageable
             if (mount != null)
                 RamImpact.Detonate(mount, blastDamage);
 
-            // 그림 둘. 시뮬레이션은 위에서 이미 다 끝났고 아래는 사람 눈을 위한 것이다.
+            // 그림과 소리. 시뮬레이션은 위에서 이미 다 끝났고 아래는 사람을 위한 것이다.
             DefDatabase.Spawn(flashDef, null, transform.position, 0f);
             CameraSystem.Shake(shake);
+
+            // 위치를 안 넘긴다 = 2D. SoundManager의 3D 롤오프가 40 m에서 끝나는데 교전거리는
+            // 200이라, 위치를 주면 적함의 유폭이 아예 안 들린다. 배 한 척이 사라지는 사건은
+            // 어디서 나든 들려야 한다.
+            SoundManager.AudioShot(blastSound, 1f, blastPitch);
 
             SpallResolver.Burst(
                 transform.position,

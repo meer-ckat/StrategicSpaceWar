@@ -24,5 +24,7 @@
     "b": 0.2,
     "a": 1
   },
-  "flashDef": "Blast Flash Large"
+  "flashDef": "Blast Flash Large",
+  "blastSound": "Explosion",
+  "blastPitch": 0.62
 }
