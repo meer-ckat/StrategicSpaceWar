@@ -20,6 +20,15 @@ public sealed class RoomView : MonoBehaviour
     /// <summary>기밀 상태. 배를 가리면 안 되니 옅게.</summary>
     private static readonly Color Hold = new(0.30f, 0.75f, 1.00f, 0.30f);
 
+    /// <summary>
+    /// 다 빠진 방. **안 그리면 안 된다.**
+    ///
+    /// 원래는 기압 0인 방을 투명하게 뒀는데, 그러면 "이미 진공인 구획"과 "오버레이가 아예
+    /// 안 잡은 구획"이 화면에서 똑같다. 빈 열을 보고 버그를 의심하게 되는데, 사실은 정보가
+    /// 전해지고 있어야 할 자리다 - 저 칸이 진공이라는 것이 플레이어가 알아야 할 결과다.
+    /// </summary>
+    private static readonly Color Vacuum = new(0.16f, 0.18f, 0.24f, 0.34f);
+
     /// <summary>새는 중. 눈에 띄어야 한다.</summary>
     private static readonly Color Vent = new(1.00f, 0.45f, 0.15f, 0.70f);
 
@@ -237,16 +246,14 @@ public sealed class RoomView : MonoBehaviour
             float venting = Mathf.Clamp01((overlay.lastPressure[i] - pressure) / dt / FullVentRate);
             overlay.lastPressure[i] = pressure;
 
-            Color color = Color.Lerp(Hold, Vent, venting);
+            // 기압이 색을 정하고, 새는 중이면 그 위에 주황이 덮인다. 알파는 안 건드린다 -
+            // 진공도 "진공이다"라는 정보라 끝까지 보여야 한다.
+            Color color = Color.Lerp(Color.Lerp(Vacuum, Hold, pressure), Vent, venting);
 
             // 새는 방은 어딘가로 뿜고 있다. 그 어딘가가 파공이다 - 방의 벽 중 뚫린 판을
             // 찾아 방 반대쪽으로 분출시킨다. 방향은 판에서 방 중심을 뺀 것, 즉 바깥이다.
             if (venting > 0.15f)
                 Blow(ship, room, venting);
-
-            // 기압이 낮을수록 옅어진다. 완전히 빈 방은 아무것도 안 그린다 - 거기는
-            // 이미 우주고, 볼 것이 없다. 단 새는 중이면 끝까지 보인다.
-            color.a *= Mathf.Max(pressure, venting);
 
             var packed = (Color32)color;
 
