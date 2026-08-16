@@ -73,28 +73,67 @@ public sealed class RoomView : MonoBehaviour
         if (Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame)
             _visible = !_visible;
 
-        // 죽은 배의 오버레이를 걷어낸다. 배는 파괴되지만 사전 키는 남는다.
+        // 표시하고 쓸어낸다. 오버레이의 수명을 "이번 프레임에 그렸나" 하나로 정하는 것이
+        // 요점이다 - 예전에는 "배가 파괴됐나"만 봤고, 그래서 Draw가 조기 리턴하는 배
+        // (방이 하나도 안 남았거나 판이 전멸한 배)의 오버레이가 **켜진 채로 얼어붙었다.**
+        // 배는 계속 날아가는데 그림만 제자리에 남으니 offset처럼 보였고, Tab 토글도
+        // Draw 안에 있어서 그 유령은 꺼지지도 않았다.
+        //
+        // 이 규칙 하나가 세 경우를 전부 덮는다: 파괴된 배(All에서 빠짐), 비활성 배
+        // (OnDisable이 All에서 뺌), 그릴 게 없는 배(Draw가 리턴해서 표시를 안 남김).
+        _drawn.Clear();
+
+        for (int i = 0; i < Ship.All.Count; i++)
+        {
+            if (Draw(Ship.All[i]))
+                _drawn.Add(Ship.All[i]);
+        }
+
         _stale.Clear();
 
         foreach (KeyValuePair<Ship, Overlay> pair in _overlays)
         {
-            if (pair.Key == null)
+            if (!_drawn.Contains(pair.Key))
                 _stale.Add(pair.Key);
         }
 
-        foreach (Ship dead in _stale)
+        foreach (Ship gone in _stale)
         {
-            if (_overlays.TryGetValue(dead, out Overlay o) && o.renderer != null)
-                Destroy(o.renderer.gameObject);
+            if (_overlays.TryGetValue(gone, out Overlay o))
+                Discard(o);
 
-            _overlays.Remove(dead);
+            _overlays.Remove(gone);
         }
-
-        for (int i = 0; i < Ship.All.Count; i++)
-            Draw(Ship.All[i]);
     }
 
     private readonly List<Ship> _stale = new();
+    private readonly HashSet<Ship> _drawn = new();
+
+    /// <summary>
+    /// 오버레이 하나를 통째로 버린다. **텍스처와 스프라이트는 GameObject의 소유가 아니다** -
+    /// `new Texture2D`와 `Sprite.Create`로 만든 것이라 렌더러를 지워도 같이 안 죽는다.
+    /// 파단마다 오버레이를 다시 굽는 구조라, 안 지우면 한 판을 치를 때마다 조금씩 샌다.
+    /// </summary>
+    private static void Discard(Overlay o)
+    {
+        if (o == null)
+            return;
+
+        if (o.renderer != null)
+        {
+            if (o.renderer.sprite != null)
+                Destroy(o.renderer.sprite);
+
+            Destroy(o.renderer.gameObject);
+        }
+
+        if (o.texture != null)
+            Destroy(o.texture);
+
+        o.renderer = null;
+        o.texture = null;
+        o.pixels = null;
+    }
 
     /// <summary>
     /// 감압 분출. 뚫린 판에서 바깥으로 짧은 선을 뿜는다 - 파편 궤적과 같은 링버퍼를 쓰므로
@@ -167,10 +206,15 @@ public sealed class RoomView : MonoBehaviour
         }
     }
 
-    private void Draw(Ship ship)
+    /// <summary>
+    /// 그렸으면 true. 이 반환값이 곧 오버레이의 수명이다 - false를 돌려주면 호출자가
+    /// 그 배의 오버레이를 파괴한다. 조기 리턴은 "못 그린다"가 아니라 "이 배에는 오버레이가
+    /// 없다"라는 뜻이고, 조건이 하나 더 붙어도 청소가 저절로 따라온다.
+    /// </summary>
+    private bool Draw(Ship ship)
     {
         if (ship == null || ship.Map == null || ship.rooms == null || ship.rooms.Count == 0)
-            return;
+            return false;
 
         if (!_overlays.TryGetValue(ship, out Overlay overlay))
             _overlays[ship] = overlay = new Overlay();
@@ -188,15 +232,26 @@ public sealed class RoomView : MonoBehaviour
         overlay.renderer.transform.SetPositionAndRotation(
             ship.transform.TransformPoint(overlay.localOffset), ship.transform.rotation);
 
+        // **scale까지 물려받아야 한다.** 반대쪽에서 오는 배는 localScale.x가 -1이다.
+        // TransformPoint는 scale을 적용하므로 오버레이의 *자리*는 이미 뒤집혀 있는데,
+        // 렌더러는 함선의 자식이 아니라(직속 자식은 판만) 자기 scale이 1이라 그림만
+        // 정방향으로 남는다 - 선체는 왼쪽을 보는데 방 도면은 오른쪽을 보는 그림이 된다.
+        //
+        // localOffset은 건드리지 않는다. 그건 로컬 값이고 TransformPoint가 이미 반전을
+        // 먹였다. 여기서 또 손대면 두 번 뒤집힌다.
+        overlay.renderer.transform.localScale = ship.transform.lossyScale;
+
         Paint(ship, overlay, _visible);
+        return true;
     }
 
     private void Rebuild(Ship ship, Overlay overlay)
     {
         ShipGrid.Map map = ship.Map;
 
-        if (overlay.renderer != null)
-            Destroy(overlay.renderer.gameObject);
+        // 텍스처·스프라이트까지 같이 버린다. 여기가 파단마다 도는 자리라, 렌더러만 지우면
+        // 배가 갈라질 때마다 텍스처 한 장씩 쌓인다.
+        Discard(overlay);
 
         // **함선의 자식이 아니다.** 선체 직속 자식은 판만이어야 한다 - 격자를 읽는 코드가
         // 직속 자식을 훑기 때문에, 그림 하나가 끼어들면 칸을 차지해서 진짜 판을 밀어낸다.
