@@ -187,6 +187,9 @@ public partial class Ship : Thing
         // 물리 콜백 밖에서, 이번 틱의 힘을 걸기 전에. 재부모화가 안전한 유일한 자리다.
         SplitIfBroken();
 
+        // 지난 틱에 닿은 곳을 지금 부순다. Simulate보다 앞이라, 솔버는 살아남은 판만 본다.
+        Ram();
+
         if (isDriverReady) { Angle(); Drive(); }
         if (isGunnerReady) AimGun();
         Atmosphere();
@@ -402,6 +405,9 @@ public partial class Ship : Thing
         Vector2 force = new Vector2(
             (thrustInput.x >= 0f ? main : aux) * along,
             aux * thrustInput.y) * 1000f;   // kN -> N
+
+        // 충각이 읽는다. 유리에 대고 가속하는 것도 충각이라, 속도가 아니라 힘이 예산이 된다.
+        _thrust = force;
 
         // 적분도 항력도 물리가 한다. 이 틱 끝의 Simulate에서 한꺼번에 처리된다.
         rig.AddForce(force);

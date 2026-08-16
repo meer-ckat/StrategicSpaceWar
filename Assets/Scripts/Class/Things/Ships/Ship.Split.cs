@@ -18,7 +18,7 @@ public partial class Ship
     /// <summary>OnTick 맨 앞에서 부른다. 물리 콜백 밖이라 재부모화가 안전하다.</summary>
     private void SplitIfBroken()
     {
-        if (_structure == null || !_structure.SplitIfBroken())
+        if (_structure == null || !_structure.TrySplitIfBroken())
             return;
 
         shipArmors.Clear();

@@ -457,6 +457,20 @@ public static class PenetrationSelfTest
             Check("rha curve monotone", ok, default);
         }
 
+        // 유폭의 두 매질이 같은 눈금을 쓴다. 구조 전도(Conduct)는 컷오프에서 멈추고,
+        // 자유 공간(Radiate)은 BlastRadius에서 멈춘다 - 그 둘이 같은 지점이어야 원이 하나다.
+        // BlastRadius를 상수로 손수 적어 넣는 순간 여기서 걸린다.
+        {
+            float atRadius = Mathf.Pow(Ballistics.BlastFalloff, Ballistics.BlastRadius);
+
+            bool ok = Mathf.Abs(atRadius - Ballistics.BlastCutoff) < 1e-4f
+                && Mathf.Pow(Ballistics.BlastFalloff, Ballistics.BlastRadius - 1f)
+                    > Ballistics.BlastCutoff;
+
+            Check($"blast radius matches falloff (got {atRadius:0.0000} "
+                + $"at r={Ballistics.BlastRadius:0.00})", ok, default);
+        }
+
         Debug.Log($"[Ballistics] {_pass} passed, {_fail} failed.");
     }
 

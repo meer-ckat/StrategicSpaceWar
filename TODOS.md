@@ -80,3 +80,21 @@ nominal RHA를 읽는다"가 된다. 재정규화하면 안 된다 - 사다리�
 
 **같이 봐야 할 것** — `SpallTrails.Capacity`를 4096으로 올렸는데, 그것도 이 숫자에서 나왔다.
 파편 수를 줄이면 용량도 되돌릴 수 있다.
+
+## Unity 6에서 obsolete가 된 물리 질의 API
+
+**무엇** — `Physics2D.RaycastNonAlloc`과 `Physics2D.OverlapCircleNonAlloc`이 Unity 6에서
+`[Obsolete]`다. 대체는 `ContactFilter2D`를 받는 오버로드이고, 그쪽은 `List<T>`도 받아서
+버퍼 크기를 넘긴 결과가 잘리지 않는다.
+
+쓰는 자리 넷:
+- `Projectile.Surfaces` — 본체 레이캐스트
+- `Projectile.Damage` — 모듈 직격
+- `SpallResolver` — 파편
+- `RamImpact.Radiate` — 유폭이 빈 공간을 건너갈 때
+
+**왜 지금 안 하나** — 경고지 에러가 아니다. 그리고 넷 중 하나만 바꾸면 같은 일을 하는 코드가
+두 모양이 되어 다음 사람이 어느 쪽을 따라야 할지 모른다. 옮기려면 넷을 한 번에.
+
+**같이 볼 것** — 넷 다 레이어 마스크를 인자로 받는데 `Radiate`만 마스크 없이 컴포넌트로
+거른다. `ContactFilter2D`로 옮기면 그것도 마스크 쪽으로 통일된다.

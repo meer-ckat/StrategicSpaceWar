@@ -155,6 +155,9 @@ public static class ShipGridSelfTest
         }
 
         StampTest();
+        MirroredHullTest();
+        OffGridPlateTest();
+        PlateLostTest();
 
         Debug.Log($"[ShipGrid] {_pass} passed, {_fail} failed.");
     }
@@ -201,7 +204,191 @@ public static class ShipGridSelfTest
         }
     }
 
-    private static void Plate(Transform hull, float x, float y)
+    /// <summary>
+    /// **좌우 반전된 배도 똑같은 격자를 얻는다.** 반대쪽에서 오는 함선은 `localScale.x = -1`인데,
+    /// `localPosition`은 부모의 scale과 무관하므로 Stamp가 보는 값이 하나도 안 바뀐다.
+    ///
+    /// 이게 버그가 아니라 설계다 - 격자는 로컬 위상이고 반전은 월드에 그릴 때의 일이다.
+    /// Stamp에 scale을 곱하려 들면 같은 설계도가 두 벌이 되고, 칸 번호에 -1을 곱하는 순간
+    /// (반사는 `-x`가 아니라 `width-1-x`다) 인덱스가 음수로 나가 배열 밖으로 나간다.
+    ///
+    /// 반전을 실제로 처리해야 하는 곳은 월드로 나가는 두 자리뿐이다: RoomView의 오버레이
+    /// scale과 HullStructure.Breakaway의 잔해 scale.
+    /// </summary>
+    private static void MirroredHullTest()
+    {
+        var upright = new GameObject("selftest upright hull");
+        var mirrored = new GameObject("selftest mirrored hull");
+        upright.SetActive(false);
+        mirrored.SetActive(false);
+
+        try
+        {
+            mirrored.transform.localScale = new Vector3(-1f, 1f, 1f);
+
+            // 좌우가 다른 모양이어야 의미가 있다. 대칭이면 반전돼도 티가 안 난다.
+            foreach (GameObject hull in new[] { upright, mirrored })
+            {
+                Plate(hull.transform, 0f, 0f);
+                Plate(hull.transform, 1f, 0f);
+                Plate(hull.transform, 2f, 0f);
+                Plate(hull.transform, 0f, -1f);
+            }
+
+            var armorA = new Dictionary<Vector2Int, Armor>();
+            var armorB = new Dictionary<Vector2Int, Armor>();
+
+            ShipGrid.Map a = ShipBuilder.Stamp(upright.transform, armorA, new Dictionary<Vector2Int, Door>());
+            ShipGrid.Map b = ShipBuilder.Stamp(mirrored.transform, armorB, new Dictionary<Vector2Int, Door>());
+
+            if (a == null || b == null)
+            {
+                Check("mirrored: both stamped", false);
+                return;
+            }
+
+            Check($"mirrored: same size ({a.width}x{a.height} vs {b.width}x{b.height})",
+                a.width == b.width && a.height == b.height);
+
+            Check("mirrored: same origin", (a.origin - b.origin).sqrMagnitude < 1e-6f);
+
+            bool sameCells = true;
+
+            for (int row = 0; row < a.height && sameCells; row++)
+            for (int col = 0; col < a.width && sameCells; col++)
+                sameCells = a.cells[col, row] == b.cells[col, row];
+
+            Check("mirrored: identical cells", sameCells);
+            Check($"mirrored: same plate count ({armorA.Count} vs {armorB.Count})",
+                armorA.Count == armorB.Count && armorA.Count == 4);
+        }
+        finally
+        {
+            Object.DestroyImmediate(upright);
+            Object.DestroyImmediate(mirrored);
+        }
+    }
+
+    /// <summary>
+    /// 격자에서 반 칸 벗어난 판은 **조용히 사라진다.** 이게 ShipBuilder의 잔차 경고가 막는
+    /// 사고다 - 경고 자체는 여기서 못 잡지만(로그 단언 장치가 없다), 경고가 말하는 결과는
+    /// 잡을 수 있다.
+    ///
+    /// 격자의 불변식은 "원점이 정수"가 아니라 "판끼리의 간격이 CellSize의 정수배"다.
+    /// 원점은 ToCell에서 상쇄되므로 배가 통째로 x.5에 놓여도 멀쩡하다. 어긋나는 것은 잔차고,
+    /// 0.5 잔차는 RoundToInt의 은행가 반올림에 걸려 이웃 칸으로 넘어간다.
+    ///
+    /// 이 테스트를 돌리면 ShipBuilder가 경고 두 개를 찍는다. 그게 정상이다 - 사람이 읽어야
+    /// 할 문장이 어떻게 생겼는지 여기서 같이 보인다.
+    /// </summary>
+    private static void OffGridPlateTest()
+    {
+        var hull = new GameObject("selftest offgrid hull");
+        hull.SetActive(false);
+
+        try
+        {
+            Plate(hull.transform, 0f, 0f);
+            Plate(hull.transform, 1f, 0f);
+            Plate(hull.transform, 0.5f, 0f);   // 반 칸 어긋남
+
+            var armorAt = new Dictionary<Vector2Int, Armor>();
+            var doorAt = new Dictionary<Vector2Int, Door>();
+
+            ShipGrid.Map map = ShipBuilder.Stamp(hull.transform, armorAt, doorAt);
+
+            if (map == null)
+            {
+                Check("off-grid: stamped", false);
+                return;
+            }
+
+            // 어긋난 판이 세 번째 열을 만들지 못한다. maxX가 1이라 폭은 그대로 2다.
+            Check($"off-grid: still 2 columns wide (got {map.width})", map.width == 2);
+
+            // RoundToInt(0.5)는 은행가 반올림으로 0이다. 세 번째 판이 첫 판의 칸을 먹고,
+            // 하나가 격자에서 통째로 빠진다 - 방 경계에도 Neighbours에도 안 들어간다.
+            Check($"off-grid: a plate is silently lost (armorAt {armorAt.Count} of 3 plates)",
+                armorAt.Count == 2);
+        }
+        finally
+        {
+            Object.DestroyImmediate(hull);
+        }
+    }
+
+    /// <summary>
+    /// 판이 죽으면 격자에서도 그 칸이 지워진다. 오버레이가 이미 뚫린 자리를 계속 갑판으로
+    /// 그리던 버그를 막는 것이 목적이고, 여기서 못 박는 것은 **그 수정이 파단 판정을 건드리지
+    /// 않는다**는 쪽이다 - 셋이 서로 다른 원본을 보기 때문이다. BuildStructure는 map에서
+    /// Inside(폭·높이)만 읽고, 살아 있는 칸은 인자로 따로 받는다.
+    /// </summary>
+    private static void PlateLostTest()
+    {
+        var hull = new GameObject("selftest hull");
+        hull.SetActive(false);
+
+        try
+        {
+            // 가로 일렬 세 칸. 가운데가 죽으면 8방향으로도 양 끝이 안 이어진다.
+            Plate(hull.transform, 0f, 0f);
+            Transform middle = Plate(hull.transform, 1f, 0f);
+            Plate(hull.transform, 2f, 0f);
+
+            var armorAt = new Dictionary<Vector2Int, Armor>();
+            var doorAt = new Dictionary<Vector2Int, Door>();
+
+            ShipGrid.Map map = ShipBuilder.Stamp(hull.transform, armorAt, doorAt);
+
+            if (map == null)
+            {
+                Check("plate lost: stamped", false);
+                return;
+            }
+
+            HullStructure structure = hull.AddComponent<HullStructure>();
+            structure.Build(map, 2f);
+
+            var mid = new Vector2Int(1, 0);
+            var alive = new HashSet<Vector2Int> { new(0, 0), new(2, 0) };
+
+            Check("plate lost: the cell is solid before the plate dies",
+                ShipGrid.Solid(map.cells[mid.x, mid.y]));
+
+            // 장부는 Build에서 격자 그대로 채워진다. 자식을 다시 세는 코드가 없으므로
+            // 이 수가 어긋나면 넣고 빼는 네 자리 중 하나가 빠진 것이다.
+            Check($"plate lost: ledger starts at 3 (got {structure.AliveCount})",
+                structure.AliveCount == 3);
+
+            int before = ShipGrid.BuildStructure(map, alive).Count;
+
+            structure.ReportPlateLost(middle);
+
+            Check("plate lost: the cell is cleared from the grid",
+                !ShipGrid.Solid(map.cells[mid.x, mid.y]));
+
+            Check($"plate lost: ledger drops to 2 (got {structure.AliveCount})",
+                structure.AliveCount == 2);
+
+            // 같은 판을 두 번 신고해도 장부가 음수로 가거나 두 번 빠지면 안 된다.
+            // 파편 연쇄 중에는 같은 판에 피해가 여러 번 들어온다.
+            structure.ReportPlateLost(middle);
+
+            Check($"plate lost: reporting twice is idempotent (got {structure.AliveCount})",
+                structure.AliveCount == 2);
+
+            int after = ShipGrid.BuildStructure(map, alive).Count;
+
+            Check($"plate lost: split verdict unchanged ({before} -> {after})", before == after);
+            Check($"plate lost: still reads as two chunks (got {after})", after == 2);
+        }
+        finally
+        {
+            Object.DestroyImmediate(hull);
+        }
+    }
+
+    private static Transform Plate(Transform hull, float x, float y)
     {
         var go = new GameObject("selftest plate");
         go.SetActive(false);
@@ -209,6 +396,7 @@ public static class ShipGridSelfTest
         go.transform.localPosition = new Vector3(x, y, 0f);
         go.AddComponent<BoxCollider2D>();
         go.AddComponent<BallisticArmor>();
+        return go.transform;
     }
 
     private static string Lines(params string[] rows) => string.Join("\n", rows);

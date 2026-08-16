@@ -21,7 +21,18 @@ public static class ShipGrid
 
     public class Map
     {
-        public Cell[,] cells;   // [col, row]
+        /// <summary>
+        /// [col, row]. **as-built가 아니라 현재 상태다.** <see cref="ShipBuilder.Stamp"/>가
+        /// 처음 찍고, 판이 죽을 때마다 <see cref="HullStructure.ReportPlateLost"/>가 그 칸을
+        /// Empty로 되돌린다. "지어질 때 여기 뭐가 있었나"에는 아무도 답하지 않는다 - 필요한
+        /// 것은 "지금 살아 있나"뿐이고, 그건 HullStructure가 장부로 들고 있다. 스냅샷이 하나
+        /// 남아 있긴 한데(<c>_attached</c>) 그건 "이 덩어리가 생길 때 붙어 있었나"라는
+        /// 다른 질문에 답한다.
+        ///
+        /// 죽은 칸은 Empty이지 Exterior가 아니다. 우주와 실내를 가르는 것은
+        /// <see cref="MarkExterior"/>의 flood이고, 판 한 장 죽을 때마다 다시 번지지 않는다.
+        /// </summary>
+        public Cell[,] cells;
         public int width;
         public int height;
 
@@ -223,6 +234,7 @@ public static class ShipGrid
         var queue = new Queue<Vector2Int>();
         var border = new HashSet<Vector2Int>();
 
+        //BFS, 원래 map의 총 셀 수와 visited가 같아질 때까지 반복하는게 기본이긴 한데, 여기선 전체 map의 행과 열의 크기를 앎으로 이런식으로 한듯?
         for (int row = 0; row < map.height; row++)
         for (int col = 0; col < map.width; col++)
         {
@@ -303,6 +315,6 @@ public static class ShipGrid
             rooms.Add(room);
         }
 
-        return rooms;
+        return rooms; //모든 청크를 Return
     }
 }

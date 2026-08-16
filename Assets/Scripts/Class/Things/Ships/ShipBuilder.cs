@@ -22,6 +22,13 @@ public static class ShipBuilder
     /// </summary>
     public static bool IsPlate(Component child) => child != null && StampsGrid(child, out _);
 
+    /// <summary>
+    /// 판이 자기 칸 중심에서 이만큼(m) 넘게 벗어나면 경고한다. 0.5면 반올림이 이웃 칸으로
+    /// 넘어가는 지점이라, 그 절반 아래로 잡아 실제로 칸을 잘못 먹기 전에 잡는다.
+    /// 에디터에서 드래그하다 붙는 미세한 흔들림은 이보다 훨씬 작다.
+    /// </summary>
+    private const float GridResidualEpsilon = 0.1f;
+
     private static bool StampsGrid(Component child, out bool isDoor)
     {
         isDoor = child.GetComponent<Door>() != null;
@@ -51,21 +58,23 @@ public static class ShipBuilder
             if (child == null || !StampsGrid(child, out _))
                 continue;
 
+            // **hull.localScale을 곱하지 않는다.** localPosition은 부모의 scale과 무관하므로
+            // 좌우 반전된 배도 여기서는 정방향 배와 글자 그대로 같은 값을 낸다. 격자는
+            // 로컬 위상이고 반전은 월드에 그릴 때의 일이다 - 이 함수가 scale을 알면
+            // 두 배가 서로 다른 방 구획을 갖게 되어 같은 설계도가 두 벌이 된다.
             Vector2 p = child.localPosition;
             float rowAxis = -p.y;   // 맵 첫 줄이 위쪽
 
-            minX = Mathf.Min(minX, p.x);
-            maxX = Mathf.Max(maxX, p.x);
+            minX = Mathf.Min(minX, p.x); //가장 낮은 x값을 찾는 코드
+            maxX = Mathf.Max(maxX, p.x); //가장 높은 x값을 찾는 코드
             minRow = Mathf.Min(minRow, rowAxis);
             maxRow = Mathf.Max(maxRow, rowAxis);
             any = true;
         }
 
-        if (!any)
+        if (!any) //판이 하나도 없으면 격자가 없다. 주인(Ship.BuildRooms)이 로그를 남긴다.
             return null;
 
-        // 차이만 반올림한다. 위치 자체를 반올림하면 짝수 폭에서 정확히 0.5가 나오고,
-        // RoundToInt는 거기서 은행가 반올림(0.5 -> 0, 1.5 -> 2)을 해서 한 칸이 어긋난다.
         var map = new ShipGrid.Map(
             Mathf.RoundToInt((maxX - minX) / ShipGrid.CellSize) + 1,
             Mathf.RoundToInt((maxRow - minRow) / ShipGrid.CellSize) + 1,
@@ -73,13 +82,36 @@ public static class ShipBuilder
 
         foreach (Transform child in hull)
         {
+            // 판이 아닌 직속 자식은 조용히 건너뛴다. 오류가 아니다 - IsPlate가 격자를 읽는
+            // 모든 자리의 단일 관문이고, 여기가 그 관문이다.
             if (child == null || !StampsGrid(child, out bool isDoor))
                 continue;
 
+            // 1차 패스와 **같은 공간**이어야 한다. 원점을 뒤집힌 좌표로 잡고 여기서 안 뒤집힌
+            // 좌표를 빼면 뺄셈 자체가 뜻을 잃는다. 둘 다 그냥 localPosition이다.
             Vector2Int cell = map.ToCell(child.localPosition);
 
             if (!map.Inside(cell))
                 continue;   // 위 패스가 극값을 잡았으므로 여기 오면 안 된다
+
+            // 격자의 진짜 불변식은 "원점이 정수"가 아니라 **"판끼리의 간격이 CellSize의
+            // 정수배"**다. ToCell이 원점을 빼고 나눠서 반올림하므로 원점의 절대값은
+            // 상쇄된다 - 배 전체가 x.5에 놓여 있어도 잘 돈다. 어긋나는 것은 잔차다.
+            //
+            // 반 칸 어긋난 판 하나는 RoundToInt에서 이웃 칸으로 넘어가고, 그러면 증상이
+            // "판이 둘 이상 겹쳐 있다"로 나온다 - 원인과 다른 말이라 한참 헤맨다. 밀려난
+            // 판은 armorAt에서 빠져 방 경계에도 Neighbours에도 안 들어간다. 조용히
+            // 시뮬레이션 밖으로 나가는 것이 제일 나쁘다.
+            //
+            // JSON 경로는 정수만 쓰므로 안전하다. 이 검사는 씬에서 손으로 놓고 export 하는
+            // 저작 경로를 위한 것이다.
+            Vector2 residual = (Vector2)child.localPosition - map.ToLocal(cell.x, cell.y);
+
+            if (residual.sqrMagnitude > GridResidualEpsilon * GridResidualEpsilon)
+                Debug.LogWarning(
+                    $"[ShipBuilder] '{child.name}'이 격자에서 {residual.magnitude:0.00} m " +
+                    $"벗어나 있다({cell}로 반올림됨). 판 간격은 {ShipGrid.CellSize} m의 " +
+                    "정수배여야 한다.", child);
 
             if (map.cells[cell.x, cell.y] != ShipGrid.Cell.Unset)
                 Debug.LogWarning(
@@ -100,6 +132,7 @@ public static class ShipBuilder
 
         ShipGrid.MarkExterior(map);
         WireNeighbours(armorAt, doorAt);
+        Debug.Log("map exported");
         return map;
     }
 

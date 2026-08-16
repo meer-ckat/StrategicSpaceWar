@@ -3,8 +3,9 @@ using UnityEngine.Serialization;
 using Core;
 
 /// <summary>
-/// One grid cell, split into a SubGrid x SubGrid sub-cell grid.
-/// Armor remembers what hit it: sub-cell HP drives the RHA multiplier.
+/// 격자 한 칸. 안쪽은 SubGrid × SubGrid 서브셀로 다시 나뉜다.
+///
+/// **판은 자기가 어디를 맞았는지 기억한다** - 서브셀 HP가 그 자리의 RHA 배율을 정한다.
 /// </summary>
 [RequireComponent(typeof(Collider2D))]
 public abstract class Armor : Thing
@@ -29,12 +30,12 @@ public abstract class Armor : Thing
     [FormerlySerializedAs("cellHp")]
     [SerializeField] private float hpPerSquareMetre = 1800f;
 
-    [SerializeField] private float plateThickness = 0.1f; // m, actual plate - overmatch only
+    [SerializeField] private float plateThickness = 0.1f; // m, 실제 판 두께. 오버매치 판정에만 쓴다
 
-    /// <summary>Used only when the collider is not a box. A box tells us its own size.</summary>
+    /// <summary>콜라이더가 박스가 아닐 때만 쓴다. 박스는 자기 크기를 스스로 알려준다.</summary>
     [SerializeField] private Vector2 fallbackCellSize = Vector2.one;
 
-    /// <summary>What the debris from a collapsing sub-cell can hit. Armor | Module.</summary>
+    /// <summary>무너진 서브셀의 파편이 맞힐 수 있는 것. Armor | Module.</summary>
     [SerializeField] private LayerMask debrisLayer;
 
     private readonly float[] _hp = new float[SubCount];
@@ -46,14 +47,13 @@ public abstract class Armor : Thing
     private readonly bool[] _inLargest = new bool[SubCount];
     private bool _sweeping;
 
-    // Destroy is deferred to the end of the frame, so the ApplyDamageAlong loop that killed
-    // the plate keeps calling into it. Without this latch every further sub-cell death
-    // re-runs the collapse burst and re-tells the ship the plate is gone.
+    // Destroy는 프레임 끝까지 미뤄진다. 그래서 판을 죽인 ApplyDamageAlong 루프가 계속
+    // 이 판을 부른다. 이 걸쇠가 없으면 남은 서브셀이 죽을 때마다 붕괴 파편이 다시 터지고
+    // 선체에 "판 사라졌다"를 다시 신고한다.
     private bool _collapsed;
 
-    // The sub-cell grid maps onto the collider. A hand-typed size that disagrees with it
-    // lands the entry point in the wrong sub-cell and lets the channel run out past the
-    // real edge of the plate, so it is read from the collider instead of typed.
+    // 서브셀 격자는 콜라이더 위에 얹힌다. 손으로 적은 크기가 콜라이더와 어긋나면 진입점이
+    // 엉뚱한 서브셀에 떨어지고 채널이 판 바깥까지 흘러나간다. 그래서 적지 않고 읽는다.
     private Vector2 _cellSize = Vector2.one;
     private Vector2 _cellOffset;
 
@@ -67,7 +67,7 @@ public abstract class Armor : Thing
 
     public float SubCellMaxHp => PlateHp / SubCount;
 
-    /// <summary>Undamaged nominal RHA.</summary>
+    /// <summary>안 상한 상태의 명목 RHA.</summary>
     public float RHA => rha;
 
     protected override void Awake()
@@ -93,14 +93,14 @@ public abstract class Armor : Thing
             _hp[i] = SubCellMaxHp;
     }
 
-    // ponytail: assumes uniform scale 1 on the armor transform. Divide by lossyScale if that changes.
+    // ponytail: 판의 scale이 1이라고 가정한다. 바뀌면 lossyScale로 나눌 것.
     private Vector2 ToCellLocal(Vector2 worldPoint)
         => (Vector2)transform.InverseTransformPoint(worldPoint) - _cellOffset;
 
     /// <summary>
-    /// Sub-cell an impact travelling in worldDirection lands in. The direction matters:
-    /// hit points sit exactly on cell boundaries constantly, and without it the index
-    /// can name the sub-cell the shell is leaving rather than the one it enters.
+    /// worldDirection으로 들어온 명중이 떨어지는 서브셀. **방향이 중요하다** - 히트 지점이
+    /// 격자선에 정확히 걸리는 일이 상시라, 방향이 없으면 탄이 들어가는 칸이 아니라
+    /// *떠나는* 칸을 고른다.
     /// </summary>
     public int SubIndexAt(Vector2 worldPoint, Vector2 worldDirection)
         => Ballistics.EntrySubIndex(
@@ -109,12 +109,11 @@ public abstract class Armor : Thing
             _cellSize);
 
     /// <summary>
-    /// Effective RHA along the line the shell would take through this cell, and the
-    /// per-sub-cell weights that produced it. Resistance and damage must read the same
-    /// line - a sub-cell that takes damage but never resists is decoration.
-    /// A fresh cell still reads its nominal RHA: the weights sum to 1.
+    /// 탄이 이 칸을 가로지르는 선 전체의 유효 RHA와, 그 값을 만든 서브셀별 가중치.
+    /// **저항과 피해는 같은 선을 읽어야 한다** - 맞기만 하고 저항은 안 하는 서브셀은 장식이다.
+    /// 멀쩡한 칸은 그대로 명목 RHA가 나온다. 가중치의 합이 1이기 때문이다.
     /// </summary>
-    /// <param name="diameter">Shell diameter in metres. 0 sweeps the centre line only.</param>
+    /// <param name="diameter">탄 직경(m). 0이면 중심선 하나만 훑는다.</param>
     public float ChannelRha(
         Vector2 worldEntry,
         Vector2 worldDirection,
@@ -137,8 +136,8 @@ public abstract class Armor : Thing
     }
 
     /// <summary>
-    /// Fill weights with the channel, cut off at depthFraction of the way through.
-    /// Returns false when the ray leaves immediately; entry is the sub-cell it touched.
+    /// 채널을 weights에 채운다. depthFraction만큼 들어간 지점에서 끊는다.
+    /// 레이가 곧바로 빠져나가면 false. entry는 그때 스친 서브셀이다.
     /// </summary>
     public bool TraceChannel(
         Vector2 worldEntry,
@@ -159,8 +158,8 @@ public abstract class Armor : Thing
     }
 
     /// <summary>
-    /// Damage along the channel, not just the face it came in through.
-    /// The energy budget is the same - it is spread over the sub-cells the line crosses.
+    /// 들어온 면만이 아니라 채널 전체에 피해를 넣는다. 총량은 같고, 선이 지나간
+    /// 서브셀들에 나눠 담길 뿐이다.
     /// </summary>
     public void ApplyDamageAlong(float[] weights, float amount)
     {
@@ -179,13 +178,13 @@ public abstract class Armor : Thing
     public float EffectiveRhaAt(int subIndex) =>
         rha * RhaMultiplier(subIndex);
 
-    /// <summary>HP 0 sub-cell cannot hold pressure - the room behind it vents.</summary>
+    /// <summary>HP 0인 서브셀은 기압을 못 버틴다. 그 뒤의 방이 샌다.</summary>
     public bool IsBreached(int subIndex) => _hp[subIndex] <= 0f;
 
-    /// <summary>Latched on the hit that opens the hole, so atmosphere never scans sub-cells.</summary>
+    /// <summary>구멍을 뚫은 그 명중에서 걸린다. 그래서 기압 계산이 서브셀을 훑을 일이 없다.</summary>
     public bool AnyBreached { get; private set; }
 
-    /// <summary>Real collider size, read at Awake. The x-ray overlay sizes itself off this.</summary>
+    /// <summary>Awake에서 읽은 실제 콜라이더 크기. X선 오버레이가 이걸로 자기 크기를 잡는다.</summary>
     public Vector2 CellSize => _cellSize;
 
     /// <summary>
@@ -209,9 +208,8 @@ public abstract class Armor : Thing
         => other != null && other.transform.parent == transform.parent;
 
     /// <summary>
-    /// Sub-cell containing a point in the plate's LOCAL space. The single place anything
-    /// outside this class is allowed to ask where the grid is - a collider-driven grid can
-    /// then replace the body of this method and nothing else has to know.
+    /// 판 **로컬** 좌표의 한 점이 들어 있는 서브셀. 바깥에서 "격자가 어디냐"를 물어도 되는
+    /// 유일한 자리다 - 콜라이더 기반 격자로 갈아끼울 때 이 메서드 본문만 바꾸면 된다.
     /// </summary>
     public int SubIndexAtLocal(Vector2 localPoint)
         => Ballistics.SubIndex(localPoint - _cellOffset, _cellSize);
@@ -248,8 +246,8 @@ public abstract class Armor : Thing
     }
 
     /// <summary>
-    /// Bumped whenever any sub-cell loses HP. The skin repaints off this instead of
-    /// diffing 36 floats every frame; a plate that is not being shot costs one int compare.
+    /// 서브셀이 HP를 잃을 때마다 오른다. 그림은 매 프레임 float 36개를 비교하는 대신
+    /// 이 숫자만 본다 - 안 맞고 있는 판은 int 비교 한 번이 전부다.
     /// </summary>
     public int DamageVersion { get; private set; }
 
@@ -263,8 +261,8 @@ public abstract class Armor : Thing
         // 맞은 만큼 달아오른다. 서브셀 하나를 통째로 날리는 피해가 기준.
         AddHeat(amount / Mathf.Max(1e-3f, SubCellMaxHp) * Ballistics.HeatFromDamage);
         SoundManager.AudioShot("Penetrate", transform.position, Mathf.Clamp01(amount / 100f));
-        // The collapse below can damage this same plate again. Firing only on the
-        // transition to 0 keeps one sub-cell from collapsing twice.
+        // 아래의 붕괴가 이 판을 또 때릴 수 있다. 0으로 **떨어지는 순간**에만 터뜨려야
+        // 서브셀 하나가 두 번 무너지지 않는다.
         bool wasAlive = _hp[subIndex] > 0f;
 
         _hp[subIndex] = Mathf.Max(0f, _hp[subIndex] - amount);
@@ -299,15 +297,18 @@ public abstract class Armor : Thing
         // 그냥 증발하면 서브셀 하나가 죽을 때마다 파편이 나오던 규칙이 여기서만 깨진다.
         CollapseRemains();
 
-        // Nothing structural is left. The collider has to go with it, or shells keep
-        // stopping on a plate that is no longer there.
+        // 구조가 하나도 안 남았다. 콜라이더도 같이 사라져야 한다 - 안 그러면 탄이 없는 판에
+        // 계속 걸린다.
         //
         // 주인은 통보만 받고, 다음 틱에 구조 BFS를 다시 돈다. 여기서 바로 하면 파편 연쇄나
         // 물리 콜백 한가운데서 GameObject를 재부모화하게 된다.
         //
         // Ship이 아니라 HullStructure를 찾는다. 잔해 안의 판은 Ship을 못 찾아서 아무에게도
         // 보고하지 못했고, 그래서 잔해는 한 번 떨어진 뒤로 영영 안 쪼개졌다.
-        GetComponentInParent<HullStructure>()?.ReportPlateLost();
+        GetComponentInParent<HullStructure>()?.ReportPlateLost(transform);
+
+        foreach (Collider2D col in GetComponentsInChildren<Collider2D>())
+             col.enabled = false;
 
         Destroy(gameObject);
     }
@@ -367,9 +368,8 @@ public abstract class Armor : Thing
     }
 
     /// <summary>
-    /// The plate material at a dead sub-cell did not evaporate - it came apart and went
-    /// somewhere. Unlike spall behind a penetration this has no preferred direction, so
-    /// it sprays the full circle.
+    /// 죽은 서브셀의 재료는 증발한 게 아니라 **뜯겨서 어딘가로 갔다.** 관통 뒤의 파편과 달리
+    /// 선호 방향이 없어서 원 전체로 흩뿌린다.
     /// </summary>
     private void Collapse(int subIndex)
     {
@@ -387,9 +387,8 @@ public abstract class Armor : Thing
     }
 
     /// <summary>
-    /// The plate gives way with living sub-cells still on it. Their material leaves in one
-    /// burst from the centre - bigger than a single sub-cell going, which is what a plate
-    /// letting go should look like.
+    /// 살아 있는 서브셀을 남긴 채 판이 통째로 주저앉는다. 남은 재료가 중심에서 한 번에
+    /// 터져 나간다 - 서브셀 하나가 죽을 때보다 크고, 판이 놓이는 건 원래 그렇게 보여야 한다.
     /// </summary>
     private void CollapseRemains()
     {
