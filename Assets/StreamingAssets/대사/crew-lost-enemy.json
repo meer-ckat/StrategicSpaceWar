@@ -1,0 +1,11 @@
+{
+  "defName": "crew-lost-enemy",
+  "pickOne": true,
+  "cooldown": 8,
+  "lines": [
+    { "message": "<color=#8fd3ff>{0}</color> fully decompressed. Nothing alive inside.", "author": "TACTICAL", "duration": 4, "intensity": 1.3 },
+    { "message": "Their pressure is zero. Helm and guns both stopped.", "author": "TACTICAL", "duration": 3.5, "intensity": 1.2 },
+    { "message": "There's nothing left to breathe over there. That's the end of it.", "author": "COMMS", "duration": 3.5, "intensity": 1.1 },
+    { "message": "<color=#8fd3ff>{0}</color> crew presumed lost.", "author": "TACTICAL", "duration": 3, "intensity": 1.0 }
+  ]
+}

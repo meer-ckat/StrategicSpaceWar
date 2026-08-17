@@ -1,0 +1,38 @@
+{
+  "defName": "Blast Flash",
+  "thingClass": "Flash",
+  "comps": [
+    "UnityEngine.Rendering.Universal.Light2D"
+  ],
+  "layer": "Default",
+  "collider": {
+    "size": {
+      "x": 0,
+      "y": 0
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "seconds": 2.35,
+  "expandSeconds": 0.3,
+  "peakIntensity": 136,
+  "startRadius": 2,
+  "endRadius": 32,
+  "m_ComponentVersion": 2,
+  "m_LightType": 3,
+  "m_BlendStyleIndex": 0,
+  "m_FalloffIntensity": 0.6,
+  "m_Color": {
+    "r": 0.55,
+    "g": 0.9,
+    "b": 1.0,
+    "a": 1
+  },
+  "m_Intensity": 0,
+  "m_PointLightInnerAngle": 360,
+  "m_PointLightOuterAngle": 360,
+  "m_PointLightInnerRadius": 0,
+  "m_PointLightOuterRadius": 2
+}

@@ -1,0 +1,13 @@
+{
+  "defName": "ship-finished-enemy",
+  "pickOne": true,
+  "cooldown": 4,
+  "lines": [
+    { "message": "<color=#8fd3ff>{0}</color> signature gone. Combat ineffective.", "author": "TACTICAL", "duration": 3, "intensity": 1.0 },
+    { "message": "<color=#8fd3ff>{0}</color> propulsion stopped. Adrift now.", "author": "TACTICAL", "duration": 3, "intensity": 0.9 },
+    { "message": "One target cleared. <color=#8fd3ff>{0}</color>, no more rounds on it.", "author": "GUNNERY", "duration": 3, "intensity": 1.0 },
+    { "message": "<color=#8fd3ff>{0}</color> bridge signal cut. They had people too.", "author": "COMMS", "duration": 4, "intensity": 0.8 },
+    { "message": "<color=#8fd3ff>{0}</color> confirmed out of the line.", "author": "TACTICAL", "duration": 2.5, "intensity": 0.9 },
+    { "message": "That's wreckage now. Next target.", "author": "CAPTAIN", "duration": 3, "intensity": 1.1 }
+  ]
+}

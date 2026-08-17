@@ -17,6 +17,20 @@ public static class SpallResolver
     /// </summary>
     private static int _depth;
 
+    // 깊이마다 따로. ApplyDamageAlong이 서브셀을 죽이면 그 자리에서 Collapse가 다시
+    // Burst를 부르므로, 하나를 돌려쓰면 바깥 루프가 읽는 중인 채널이 덮인다.
+    private static readonly float[][] _channel = BuildChannels();
+
+    private static float[][] BuildChannels()
+    {
+        var buffers = new float[Ballistics.MaxSpallDepth + 1][];
+
+        for (int i = 0; i < buffers.Length; i++)
+            buffers[i] = new float[Ballistics.SubCount];
+
+        return buffers;
+    }
+
     public static void Resolve(in HitResult r, LayerMask mask)
     {
         if (r.spallCount <= 0 || r.spallEnergy <= 0f)
@@ -29,7 +43,8 @@ public static class SpallResolver
             r.spallEnergy,
             r.spallCount,
             r.spallSeed,
-            mask);
+            mask,
+            r.calliber);
     }
 
     /// <summary>
@@ -43,7 +58,7 @@ public static class SpallResolver
         float energy,
         int count,
         uint seed,
-        LayerMask mask)
+        LayerMask mask, float caliber = 0f)
     {
         if (count <= 0 || energy <= 0f || _depth >= Ballistics.MaxSpallDepth)
             return;
@@ -70,14 +85,52 @@ public static class SpallResolver
 
             for (int i = 0; i < count; i++)
             {
-                Vector2 d = Ballistics.Rotate(direction, rng.Range(-spread, spread));
+                Vector2 right = new Vector2(direction.y, -direction.x);
 
-                int n = Physics2D.RaycastNonAlloc(start, d, _hits, range, mask);
+                // -1 = 왼쪽 가장자리, 0 = 탄두 중심, +1 = 오른쪽 가장자리
+                float lateral = rng.Range(-1f, 1f);
+
+                // caliber는 mm, 월드는 m. Armor 붕괴처럼 탄두 단면이 없는 호출은 0을 넘겨
+                // 한 점에서 뿌린다.
+                Vector2 fragmentOrigin =
+                    origin + right * lateral * (caliber * 0.0005f);
+
+                // 중심 0, 가장자리 1
+                float edgeFactor = Mathf.Abs(lateral);
+
+                // 중심에서는 좁게, 가장자리에서는 넓게
+                float localSpread = Mathf.Lerp(
+                    spread,
+                    Mathf.Min(180f, spread * 10f),
+                    edgeFactor
+                );
+
+                Vector2 d = Ballistics.Rotate(
+                    direction,
+                    rng.Range(-localSpread, localSpread)
+                );
+
+                Vector2 fragmentStart =
+                    fragmentOrigin + d * Ballistics.Epsilon;
+
+                int n = Physics2D.RaycastNonAlloc(
+                    fragmentStart,
+                    d,
+                    _hits,
+                    range,
+                    mask
+                );
+                // 파편이 지나간 선을 화면에 남긴다. 그림뿐이고, 판정에는 관여하지 않는다.
                 if (n <= 0)
-                    continue;
+                {
+                    SpallTrails.Add(
+                        fragmentStart,
+                        fragmentStart + d.normalized * range,
+                        SpallTrails.Kind.Miss);
 
-                // Armor is sub-cell addressed and needs the hit point. A module has one health
-                // pool and no geometry, so the two damage models never merge into one interface.
+                    continue;
+                }
+
                 RaycastHit2D h = Nearest(n);
 
                 if (h.collider == null)
@@ -85,12 +138,28 @@ public static class SpallResolver
 
                 if (h.collider.TryGetComponent(out Armor armor))
                 {
-                    armor.ApplyDamage(armor.SubIndexAt(h.point, d), perFragment);
+                    SpallTrails.Add(fragmentStart, h.point, SpallTrails.Kind.Armor);
+
+                    // 파편도 선이다. 맞은 면의 칸에만 넣으면 6x6 격자의 테두리만 갉히고
+                    // 안쪽은 영원히 멀쩡하다 - 파편은 언제나 표면에 닿으니까.
+                    float[] channel = _channel[_depth];
+
+                    armor.TraceChannel(
+                        h.point, d, Ballistics.SpallChannelDepth, channel, out _);
+
+                    armor.ApplyDamageAlong(channel, perFragment);
                 }
                 else if (h.collider.TryGetComponent(out IDamageable target))
                 {
+                    SpallTrails.Add(fragmentStart, h.point, SpallTrails.Kind.Module);
+
                     target.TakeDamage(perFragment);
                     DamageLog.Hit(h.collider.transform, perFragment, target);
+                }
+                else
+                {
+                    // 맞긴 맞았는데 피해를 받는 물건이 아니었다. 선은 거기서 끊긴다.
+                    SpallTrails.Add(fragmentStart, h.point, SpallTrails.Kind.Miss);
                 }
             }
         }

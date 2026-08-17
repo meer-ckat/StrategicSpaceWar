@@ -1,0 +1,10 @@
+{
+  "defName": "battle-won",
+  "lines": [
+    { "message": "All contacts lost. <color=#8fd3ff>Engagement over.</color>", "author": "TACTICAL", "duration": 3.5, "intensity": 1.0 },
+    { "message": "Cease fire. Keep thermal tracking up.", "author": "CAPTAIN", "duration": 3.5, "intensity": 0.8, "wait": 2 },
+    { "message": "Damage report. Recover what can be recovered.", "author": "CAPTAIN", "duration": 4, "intensity": 0.9 },
+    { "message": "Counting hull losses. The plates we lost aren't coming back.", "author": "ENGINEERING", "duration": 5, "intensity": 0.7 },
+    { "message": "We pick the next heading from here.", "author": "CAPTAIN", "duration": 4, "intensity": 0.9 }
+  ]
+}

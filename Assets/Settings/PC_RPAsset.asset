@@ -18,7 +18,8 @@ MonoBehaviour:
   m_RendererData: {fileID: 0}
   m_RendererDataList:
   - {fileID: 11400000, guid: f288ae1f4751b564a96ac7587541f7a2, type: 2}
-  m_DefaultRendererIndex: 0
+  - {fileID: 11400000, guid: bd703c4cbcaf71847933726f954665e5, type: 2}
+  m_DefaultRendererIndex: 1
   m_RequireDepthTexture: 1
   m_RequireOpaqueTexture: 1
   m_OpaqueDownsampling: 1
@@ -83,7 +84,7 @@ MonoBehaviour:
   m_UseFastSRGBLinearConversion: 0
   m_SupportDataDrivenLensFlare: 1
   m_SupportScreenSpaceLensFlare: 1
-  m_GPUResidentDrawerMode: 1
+  m_GPUResidentDrawerMode: 0
   m_SmallMeshScreenPercentage: 0
   m_GPUResidentDrawerEnableOcclusionCullingInCameras: 0
   m_ShadowType: 1

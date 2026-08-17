@@ -40,6 +40,18 @@ namespace IMGUI
 
         public string Parent;
 
+        /// <summary>
+        /// 입력을 아예 안 받는 종류인가. GUI.Label·GUI.Box·GUI.DrawTexture는 이벤트를
+        /// 소비하지 않는데, <see cref="GUIManager"/>의 GetTopMouseLayer는 그걸 모른다 -
+        /// 마우스 아래 있는 interactable 중 제일 위 Layer를 찾아 **그보다 낮은 것의 입력을
+        /// 통째로 죽인다.** 화면을 덮는 배경 라벨 하나가 그 밑의 버튼을 전부 막는 이유가
+        /// 이것이다.
+        ///
+        /// 호출자가 고르는 옵션이 아니라 클래스의 성질이라 여기 둔다. 새 위젯을 만들 때
+        /// 이 한 줄을 잊으면 기본값(false)이라 안전한 쪽으로 틀린다.
+        /// </summary>
+        public virtual bool Decorative => false;
+
         public Action<GUIItem, float> whenTick;
 
 
@@ -116,6 +128,9 @@ namespace IMGUI
         }
 
 
+        public override bool Decorative => true;
+
+
         public override void Draw()
         {
             GUI.Label(
@@ -145,6 +160,9 @@ namespace IMGUI
         }
 
 
+        public override bool Decorative => true;
+
+
         public override void Draw()
         {
             GUI.Box(
@@ -158,6 +176,9 @@ namespace IMGUI
 
     // =========================================================
     // Group
+    //
+    // Decorative가 아니다. 그리는 것은 GUI.Box라 입력을 안 먹지만, isInteractable을
+    // 끄면 GUIManager가 그룹을 그릴 때 GUI.enabled를 내려서 **자식 버튼까지 같이** 죽는다.
     // =========================================================
 
     public class GUIGroup : GUIItem
@@ -561,6 +582,8 @@ namespace IMGUI
             Sprite = sprite;
             ScaleMode = scaleMode;
         }
+
+        public override bool Decorative => true;
 
         public override void Draw()
         {

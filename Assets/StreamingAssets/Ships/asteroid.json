@@ -1,0 +1,725 @@
+{
+  "defName": "asteroid",
+  "placements": [
+    {
+      "def": "Rock",
+      "col": 4,
+      "row": 0,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 5,
+      "row": 0,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 6,
+      "row": 0,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 7,
+      "row": 0,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 8,
+      "row": 0,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 9,
+      "row": 0,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 2,
+      "row": 1,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 3,
+      "row": 1,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 4,
+      "row": 1,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 5,
+      "row": 1,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 6,
+      "row": 1,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 7,
+      "row": 1,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 8,
+      "row": 1,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 9,
+      "row": 1,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 10,
+      "row": 1,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 11,
+      "row": 1,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 12,
+      "row": 1,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 1,
+      "row": 2,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 2,
+      "row": 2,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 3,
+      "row": 2,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 4,
+      "row": 2,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 5,
+      "row": 2,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 6,
+      "row": 2,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 7,
+      "row": 2,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 8,
+      "row": 2,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 9,
+      "row": 2,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 10,
+      "row": 2,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 11,
+      "row": 2,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 12,
+      "row": 2,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 13,
+      "row": 2,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 14,
+      "row": 2,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 0,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 1,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 2,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 3,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 4,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 5,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 6,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 7,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 8,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 9,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 10,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 11,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 12,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 13,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 14,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 15,
+      "row": 3,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 0,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 1,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 2,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 3,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 4,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 5,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 6,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 7,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 8,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 9,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 10,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 11,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 12,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 13,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 14,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 1,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 2,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 3,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 4,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 5,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 6,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 7,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 8,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 9,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 10,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 11,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 12,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 13,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 14,
+      "row": 5,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 2,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 3,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 4,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 5,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 6,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 7,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 8,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 9,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 10,
+      "row": 6,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 4,
+      "row": 7,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 5,
+      "row": 7,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 6,
+      "row": 7,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 7,
+      "row": 7,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    },
+    {
+      "def": "Rock",
+      "col": 8,
+      "row": 7,
+      "rot": 0.0,
+      "mountCol": -1,
+      "mountRow": -1
+    }
+  ]
+}

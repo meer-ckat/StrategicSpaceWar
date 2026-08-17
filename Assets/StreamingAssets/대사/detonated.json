@@ -1,0 +1,10 @@
+{
+  "defName": "detonated",
+  "pickOne": true,
+  "cooldown": 8,
+  "lines": [
+    { "message": "<color=yellow>Detonation somewhere.</color> Origin unidentified.", "author": "TACTICAL", "duration": 3, "intensity": 1.2 },
+    { "message": "One blast. Not ours, not theirs.", "author": "TACTICAL", "duration": 3.5, "intensity": 1.1 },
+    { "message": "Something adrift just went up. <color=grey>{0}</color>.", "author": "TACTICAL", "duration": 3, "intensity": 1.0 }
+  ]
+}

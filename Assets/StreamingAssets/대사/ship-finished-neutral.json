@@ -1,0 +1,10 @@
+{
+  "defName": "ship-finished-neutral",
+  "pickOne": true,
+  "cooldown": 6,
+  "lines": [
+    { "message": "<color=grey>{0}</color> stopped. Affiliation was never identified.", "author": "TACTICAL", "duration": 3, "intensity": 0.8 },
+    { "message": "<color=grey>{0}</color> signal lost. Entering it in the engagement log.", "author": "COMMS", "duration": 3.5, "intensity": 0.9 },
+    { "message": "That was not our target.", "author": "CAPTAIN", "duration": 3, "intensity": 1.1 }
+  ]
+}

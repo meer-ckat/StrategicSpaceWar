@@ -1,0 +1,12 @@
+{
+  "defName": "hull-split-enemy",
+  "pickOne": true,
+  "cooldown": 10,
+  "lines": [
+    { "message": "<color=#8fd3ff>{0}</color> severed. Broken into two pieces.", "author": "TACTICAL", "duration": 3.5, "intensity": 1.5 },
+    { "message": "Cut through the middle. Bow and stern are turning separately.", "author": "TACTICAL", "duration": 3.5, "intensity": 1.4 },
+    { "message": "Hull failure confirmed. <color=#8fd3ff>{0}</color> is two ships now.", "author": "TACTICAL", "duration": 4, "intensity": 1.4 },
+    { "message": "Only the engine section came off. It still has thrust on it.", "author": "ENGINEERING", "duration": 4, "intensity": 1.2 },
+    { "message": "Split like that, everything inside comes out.", "author": "COMMS", "duration": 4, "intensity": 1.1 }
+  ]
+}

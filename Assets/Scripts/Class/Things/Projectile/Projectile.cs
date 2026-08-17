@@ -47,7 +47,7 @@ public abstract partial class Projectile : Thing, ITickLate
     /// <summary>0 = fired from a gun. Anything higher is debris, and debris sheds none.</summary>
     public int generation;
 
-    public int ProjectileId { get; private set; }
+    public int ProjectileId { get; private set; } //Projectile을 구분하기 위한 ID
     public float Speed => velocity.magnitude;
     public float IntegrityFactor => integrity;
 
@@ -57,25 +57,22 @@ public abstract partial class Projectile : Thing, ITickLate
     // shared scratch - consumed synchronously inside one loop iteration
     private static readonly RaycastHit2D[] _hits = new RaycastHit2D[16];
     private static readonly SurfaceSet _surfaces = new();
-    private static int _nextId;
+    private static int _nextId; //다음 Projectile ID 할당
 
     protected override void Awake()
     {
         base.Awake();
         ProjectileId = ++_nextId;
 
-        // Awake, not Start: a shell spawned mid-tick can be ticked again in the same
-        // frame (accumulator catch-up), and Start would not have run yet - it would
-        // read velocity 0 and delete itself.
-        if (velocity.sqrMagnitude <= 0f)
-            Launch(transform.up, muzzleSpeed);
+        if (velocity.sqrMagnitude <= 0f) //만약 속도가 개같다면 리제로
+            Launch(transform.up, muzzleSpeed >= 50 ? muzzleSpeed : 50); //50 이상으로 고정, Petard 공병 박격포탄이 최소인거임
     }
 
     public virtual void Launch(Vector2 direction, float speed)
     {
         velocity = direction.normalized * speed;
 
-        if (velocity.sqrMagnitude > 0f)
+        if (velocity.sqrMagnitude > 0f) //속도가 유효하다면
             transform.up = velocity.normalized;
     }
 
@@ -92,7 +89,7 @@ public abstract partial class Projectile : Thing, ITickLate
         }
 
         Vector2 position = transform.position;
-        float remainingTime = TickManager.TickDeltaTime;
+        float remainingTime = TickManager.TickDeltaTime; // 1틱당 계산할 수 있는 최대 시간
         Collider2D lastCollider = null;
 
         for (int guard = 0; guard < Ballistics.MaxHitsPerTick && remainingTime > 0f; guard++)
@@ -112,7 +109,7 @@ public abstract partial class Projectile : Thing, ITickLate
             {
                 // 판을 안 만났어도 이번 구간에 모듈이 있었으면 그건 맞은 것이다
                 StrikeModules(position, dir, distance);
-                position += velocity * remainingTime;
+                position += dir * distance; //그리고 이번틱을 스킵하고 이동한다.
                 break;
             }
 

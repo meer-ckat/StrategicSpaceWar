@@ -17,25 +17,26 @@ public static partial class PenetrationManager
 {
     public static HitResult Resolve(in ProjectileState p, SurfaceSet s)
     {
-        HitResult r = default;
+        HitResult r = default; //먼저 충돌 결과 선언;
 
         float speed = p.Speed;
-        if (speed <= 0f || s.count <= 0)
+        if (speed <= 0f || s.count <= 0) //만약 speed가 0보다 작거나 Surface set이 없다면
         {
-            r.outcome = HitOutcome.Blocked;
-            r.newState = p.state;
-            r.newIntegrity = p.integrity;
+            r.outcome = HitOutcome.Blocked; //비관통 처리
+            r.newState = p.state; //현재 탄두 상태 유지.
+            r.newIntegrity = p.integrity; //현재 intergrity 유지
             return r;
         }
 
-        Vector2 dir = p.velocity / speed;
+        Vector2 dir = p.velocity / speed; //velocity.normalize랑 똑같음
 
         // --- surface aggregation: equal weight resistance, most head-on face judges angle ---
         // Seeding best at MinFacing makes -dir win outright when every contacted normal is
         // corner garbage. One comparison, no branch, no seam ricochet, no seam tunnelling.
-        float w = 1f / s.count;
+
+        float w = 1f / s.count; //닿은 armor 개수만큼 w을 나눔
         float weightedRHA = 0f;
-        Vector2 judgeNormal = -dir;
+        Vector2 judgeNormal = -dir; //fallback은 정면 입사 판정.
         int judgeIndex = -1;
         float best = Ballistics.MinFacing;
 
@@ -96,6 +97,7 @@ public static partial class PenetrationManager
         r.surfaceCount = s.count;
         r.judgeIndex = judgeIndex;
         r.angleDeg = Mathf.Acos(rawCos) * Mathf.Rad2Deg;
+        r.calliber = p.caliber;
         r.effectiveRHA = effectiveRHA;
         r.impactSpeed = speed;
         r.normalSpeed = normalSpeed;
@@ -144,10 +146,6 @@ public static partial class PenetrationManager
                 bool shattered = newState == ShellState.Shattered;
 
                 BuildSpall(ref r, residualEnergy, dir, speed, residual, shattered, p);
-
-                // Only a shell that got through AND broke up leaves real debris behind it.
-                // Blocked + Shattered sprays off the outer face - light stuff, stays rays.
-                r.heavySpall = shattered && r.spallCount > 0;
             }
 
             return r;
@@ -195,6 +193,11 @@ public static partial class PenetrationManager
             : Mathf.Clamp(
                 Mathf.RoundToInt(energy / Ballistics.SpallEnergyPerFragment),
                 1, Ballistics.SpallMaxCount);
+
+        // A shell that broke up leaves its own mass behind, wherever it broke up. Setting
+        // this only on the penetrated path left the flag dead: penetrating *and* shattering
+        // needs impact speed >= 6x shatterVelocity, which no gun in the project reaches.
+        r.heavySpall = heavy && r.spallCount > 0;
 
         // more residual energy -> tighter cone
         float tightness = speed > 0f ? Mathf.Clamp01(residualSpeed / speed) : 0f;

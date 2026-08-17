@@ -72,6 +72,15 @@ public abstract partial class Projectile
         if (_surfaces.count <= 0)
             return;
 
+        SoundManager.AudioShot(
+            r.outcome switch
+            {
+                HitOutcome.Penetrated => "Penetrate",
+                HitOutcome.Ricochet => "Ricochet",
+                _ => "Blocked",
+            },
+            _surfaces.hitPoint);
+
         // How far into the line the shell got. Penetrated = all the way. Blocked = it
         // stopped inside, so it only chewed that much of it - dumping the whole lot on the
         // entry sub-cell is what left the far side untouched until it failed all at once.
@@ -128,21 +137,54 @@ public abstract partial class Projectile
         float fragmentCaliber = caliber * Mathf.Pow(1f / count, 1f / 3f);
         float scale = fragmentCaliber / caliber;
 
-        float speed = r.newVelocity.magnitude;
+        // Fragment speed comes from the spall energy, not the shell's residual velocity -
+        // a shell blocked on the face has residual 0 and its debris still flies. spallEnergy
+        // is on the HP scale (DamageScale already applied), so undo that before v = sqrt(2E/m).
+        float fragmentEnergy = r.spallEnergy / (count * Ballistics.DamageScale);
+        float speed = Mathf.Sqrt(2f * fragmentEnergy / Mathf.Max(1e-4f, fragmentMass));
 
-        // start just inside the plate we came through - queriesStartInColliders keeps the
-        // fragments from immediately re-hitting it
-        Vector2 origin = r.spallOrigin + r.spallDirection * Ballistics.Epsilon;
+        Vector2 direction = r.spallDirection.normalized;
+        Vector2 right = new Vector2(direction.y, -direction.x);
 
         for (int i = 0; i < count; i++)
         {
+            // -1 = 왼쪽 가장자리, 0 = 중심, +1 = 오른쪽 가장자리
+            float lateral = rng.Range(-1f, 1f);
+
+            // 원래 탄두 단면상의 파편 생성 위치. caliber는 mm, 월드는 m - 0.001을 빼먹으면
+            // 100mm 탄이 착탄점에서 50m 옆에 파편을 낳는다.
+            Vector2 fragmentOrigin =
+                r.spallOrigin
+                + right * lateral * (caliber * 0.0005f);
+
+            // 중심 0, 가장자리 1
+            float sign = Mathf.Sign(lateral);
+            float edgeFactor = Mathf.Abs(lateral);
+
+            float minAngle = r.spallSpread * edgeFactor;
+            float maxAngle = Mathf.Lerp(
+                r.spallSpread,
+                90f,
+                edgeFactor
+            );
+
+            float angle = rng.Range(minAngle, maxAngle) * sign;
+
             Vector2 heading = Ballistics.Rotate(
-                r.spallDirection,
-                rng.Range(-r.spallSpread, r.spallSpread));
+                direction,
+                angle
+            );
 
-            Projectile fragment = Instantiate(this, origin, transform.rotation);
+            // 실제 파편 진행 방향으로 epsilon만큼 밀기
+            fragmentOrigin += heading * Ballistics.Epsilon;
 
-            fragment.velocity = heading * (speed * rng.Range(Ballistics.HeavyFragmentSlowest, 1f));
+            Projectile fragment =
+                Instantiate(this, fragmentOrigin, transform.rotation);
+
+            fragment.velocity =
+                heading *
+                (speed * rng.Range(Ballistics.HeavyFragmentSlowest, 1f));
+
             fragment.mass = fragmentMass;
             fragment.caliber = fragmentCaliber;
             fragment.integrity = r.newIntegrity;
@@ -152,7 +194,8 @@ public abstract partial class Projectile
             fragment.lifeTick = Ballistics.HeavyFragmentLifeTick;
 
             fragment.transform.up = heading;
-            fragment.transform.localScale = transform.localScale * scale;
+            fragment.transform.localScale =
+                transform.localScale * scale;
         }
     }
 }

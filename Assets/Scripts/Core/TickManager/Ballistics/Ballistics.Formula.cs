@@ -36,7 +36,7 @@ public static partial class Ballistics
         return Mathf.Lerp(0f, 0.5f, f / 0.25f);
     }
 
-    public static uint Hash(int projectileId, long tick, int hitIndex)
+    public static uint Hash(int projectileId, long tick, int hitIndex) //발사체의 정보를 Random value로 바꿔주는 함수. 필요 없음.
     {
         unchecked
         {
@@ -49,7 +49,7 @@ public static partial class Ballistics
         }
     }
 
-    public static Vector2 Rotate(Vector2 v, float degrees)
+    public static Vector2 Rotate(Vector2 v, float degrees) //Vector를 회전시키는 헬퍼 함수
     {
         float r = degrees * Mathf.Deg2Rad;
         float c = Mathf.Cos(r);

@@ -1,0 +1,43 @@
+{
+  "defName": "Rock",
+  "thingClass": "BallisticArmor",
+  "comps": [
+    "ArmorSkin"
+  ],
+  "layer": "Armor",
+  "collider": {
+    "size": {
+      "x": 1,
+      "y": 1
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "rha": 100,
+  "hpPerSquareMetre": 900,
+  "plateThickness": 1,
+  "fallbackCellSize": {
+    "x": 1,
+    "y": 1
+  },
+  "debrisLayer": {
+    "m_Bits": 128
+  },
+  "pixelsPerUnit": 48,
+  "maxTextureSize": 256,
+  "healthy": {
+    "r": 0.55,
+    "g": 0.5,
+    "b": 0.45,
+    "a": 1.0
+  },
+  "damaged": {
+    "r": 0.1925,
+    "g": 0.165,
+    "b": 0.14400000000000002,
+    "a": 1.0
+  },
+  "erodeBelow": 0.6
+}
