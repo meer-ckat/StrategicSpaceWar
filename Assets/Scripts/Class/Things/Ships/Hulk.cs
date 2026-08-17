@@ -49,6 +49,12 @@ public class Hulk : Thing
         base.Awake();
         _structure = GetComponent<HullStructure>();
 
+        // 우주에 아래가 없다. 프로젝트 중력이 0이라 이 줄이 없어도 지금은 안 떨어지지만,
+        // 몸을 만드는 세 자리(Ship.Awake, HullStructure.MakeDebris, 여기)가 같은 말을 해야
+        // 나중에 중력을 쓰는 무엇이 생겨도 함선과 구조물이 안 딸려간다.
+        if (TryGetComponent(out Rigidbody2D body))
+            body.gravityScale = 0f;
+
         // 함선의 Awake와 같은 순서다. 심고 -> 격자를 도장하고 -> 구조에 넘긴다.
         // 세 단계 전부 Transform만 받으므로 Ship이 없어도 그대로 돈다.
         if (!ShipBuilder.SpawnFrom(transform, structureDefName, this))
@@ -69,8 +75,8 @@ public class Hulk : Thing
 
         // 파단 때 Breakaway가 조각 크기 비율로 질량을 나눠 주므로, 시작 질량만 판 수에
         // 비례시켜 두면 쪼개진 뒤에도 계속 맞는다.
-        var body = GetComponent<Rigidbody2D>();
-        body.mass = Mathf.Max(1f, (armorAt.Count + doorAt.Count) * massPerPlate);
+        var b = GetComponent<Rigidbody2D>();
+        b.mass = Mathf.Max(1f, (armorAt.Count + doorAt.Count) * massPerPlate);
     }
 
     public override void OnTick()

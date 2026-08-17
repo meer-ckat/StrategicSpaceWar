@@ -262,8 +262,18 @@ public class StoryScriptManager : MonoBehaviour
     // 수명
     // =========================================================
 
+    /// <summary>
+    /// 씬의 대사창. <see cref="Battle"/>·<see cref="Campaign"/>과 같은 규칙으로 둔다 -
+    /// 대사를 띄우고 싶은 쪽이 이 오브젝트를 찾아다니지 않아도 되게.
+    ///
+    /// null이 정상이다. 대사창이 없는 씬에서도 전투는 돌아야 한다.
+    /// </summary>
+    public static StoryScriptManager current;
+
     private void OnEnable()
     {
+        current = this;
+
         if (!reactToSimulation)
             return;
 
@@ -275,6 +285,9 @@ public class StoryScriptManager : MonoBehaviour
     {
         RunLog.onEntry -= OnRunEntry;
         Battle.onAnyEnd -= OnBattleEnd;
+
+        if (current == this)
+            current = null;
     }
 
     private void Start()

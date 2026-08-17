@@ -1,0 +1,11 @@
+{
+  "defName": "run-cleared",
+  "lines": [
+    { "message": "<color=#8fd3ff>Shell integrity lost.</color> It's coming apart along both cuts.", "author": "TACTICAL", "duration": 4, "intensity": 1.6 },
+    { "message": "The amplification is gone. Whatever it was holding, it isn't holding it now.", "author": "ENGINEERING", "duration": 5, "intensity": 1.3, "wait": 2 },
+    { "message": "Two halves, drifting apart. Nothing left to close.", "author": "TACTICAL", "duration": 4, "intensity": 1.1 },
+    { "message": "That was ours. We built it, and we designed the thing it became.", "author": "CAPTAIN", "duration": 6, "intensity": 1.0, "wait": 3 },
+    { "message": "<color=grey>Atria Control, this is patrol. The site is dark.</color>", "author": "COMMS", "duration": 5, "intensity": 0.8 },
+    { "message": "Log it and take us home.", "author": "CAPTAIN", "duration": 4, "intensity": 0.9 }
+  ]
+}

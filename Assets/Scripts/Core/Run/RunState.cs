@@ -18,12 +18,62 @@ using UnityEngine;
 public static class RunState
 {
     private const string FileName = "run-ship.json";
+    private const string ProgressName = "run-progress.txt";
 
     private static string FilePath =>
         Path.Combine(Application.persistentDataPath, FileName);
 
-    /// <summary>저장된 런이 있는가.</summary>
-    public static bool Exists => File.Exists(FilePath);
+    private static string ProgressPath =>
+        Path.Combine(Application.persistentDataPath, ProgressName);
+
+    /// <summary>
+    /// 이어갈 런이 있는가. **두 파일이 다 있어야 한다.**
+    ///
+    /// 한쪽만 남는 것은 정상이 아니다 - 손으로 지웠거나, 두 번의 쓰기 사이에서 끊겼거나,
+    /// 동기화가 반만 됐거나. 그때 배 파일만 읽으면 **상한 배로 1구역부터** 다시 시작하고,
+    /// 진행도만 읽으면 멀쩡한 배로 6구역에서 시작한다. 둘 다 조용하다는 것이 문제다.
+    ///
+    /// 그래서 반쪽은 런이 아니라고 본다. 시끄럽게 지우고 처음부터 간다 - 틀린 런을 이어가는
+    /// 것보다 낫고, 무엇보다 "어? 왜 배가 부서져 있지"를 디버깅할 일이 없어진다.
+    /// </summary>
+    public static bool Exists
+    {
+        get
+        {
+            bool ship = File.Exists(FilePath);
+            bool progress = File.Exists(ProgressPath);
+
+            if (ship == progress)
+                return ship;
+
+            Debug.LogWarning(
+                $"[RunState] 런 파일이 반쪽이다 (배 {ship}, 진행도 {progress}). " +
+                "이어갈 수 없으니 지우고 처음부터 간다.");
+
+            Clear();
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 지금 몇 구역인가. 0부터.
+    ///
+    /// **배 파일에 안 넣는다.** <see cref="Save"/>는 설계도 원문에 placements만 갈아끼우는
+    /// 비파괴 병합이고, 그래야 손으로 튜닝한 배 수치가 글자 하나까지 살아남는다. 진행도를
+    /// 거기 얹으면 그 병합이 진행도까지 건드리게 된다. 배는 병합이 필요하고 진행도는 그냥
+    /// 숫자라, 파일을 나누는 것이 둘 다 단순해지는 길이다.
+    /// </summary>
+    public static int Sector
+    {
+        // Exists를 탄다. 배 파일과 짝이 안 맞으면 여기서도 0이어야 하고, 그 판정을
+        // 두 벌로 두면 언젠가 한쪽만 고친다.
+        get =>
+            Exists && int.TryParse(File.ReadAllText(ProgressPath).Trim(), out int at)
+                ? Mathf.Max(0, at)
+                : 0;
+
+        set => File.WriteAllText(ProgressPath, Mathf.Max(0, value).ToString());
+    }
 
     /// <summary>
     /// 지금 이 배의 상태를 그대로 뜬다. <see cref="Battle.onEnd"/>에서 부른다.
@@ -81,11 +131,21 @@ public static class RunState
         return def;
     }
 
-    /// <summary>런이 끝났다. 다음은 다른 함장이고, 그 배는 설계도 그대로다.</summary>
+    /// <summary>
+    /// 런이 끝났다. 다음은 다른 함장이고, 그 배는 설계도 그대로다.
+    ///
+    /// 진행도도 같이 지운다. **런 파일의 주인이 하나여야** 배는 새것인데 구역은 6인
+    /// 상태가 존재할 자리가 없다.
+    /// </summary>
     public static void Clear()
     {
-        if (Exists)
+        // **Exists를 쓰면 안 된다.** 반쪽일 때 Exists가 Clear를 부르므로 서로를 부르며
+        // 스택을 넘긴다. 지우는 쪽은 파일을 곧이곧대로 본다.
+        if (File.Exists(FilePath))
             File.Delete(FilePath);
+
+        if (File.Exists(ProgressPath))
+            File.Delete(ProgressPath);
 
         RunLog.Clear();
     }
