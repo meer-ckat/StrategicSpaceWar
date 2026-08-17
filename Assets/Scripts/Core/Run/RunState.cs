@@ -39,10 +39,10 @@ public static class RunState
         public int salvage;
     }
 
-    private static string FilePath =>
+    internal static string FilePath =>
         Path.Combine(Application.persistentDataPath, FileName);
 
-    private static string ProgressPath =>
+    internal static string ProgressPath =>
         Path.Combine(Application.persistentDataPath, ProgressName);
 
     /// <summary>
@@ -55,23 +55,22 @@ public static class RunState
     /// 그래서 반쪽은 런이 아니라고 본다. 시끄럽게 지우고 처음부터 간다 - 틀린 런을 이어가는
     /// 것보다 낫고, 무엇보다 "어? 왜 배가 부서져 있지"를 디버깅할 일이 없어진다.
     /// </summary>
-    public static bool Exists
+    /// 이어갈 런이 있는가. 아무것도 안 바꾼다.
+    /// 이어갈 런이 있는가. **아무것도 안 바꾼다.**
+    public static bool Exists => File.Exists(FilePath) && File.Exists(ProgressPath);
+
+    /// 반쪽이면 지운다. 런이 시작될 때 딱 한 번 부른다 - 읽을 때마다 부르면
+    /// Save 직후의 정상 반쪽까지 사고로 보고 지운다.
+    public static void ValidateOrClear()
     {
-        get
-        {
-            bool ship = File.Exists(FilePath);
-            bool progress = File.Exists(ProgressPath);
+        bool ship = File.Exists(FilePath);
+        bool progress = File.Exists(ProgressPath);
 
-            if (ship == progress)
-                return ship;
+        if (ship == progress)
+            return;
 
-            Debug.LogWarning(
-                $"[RunState] 런 파일이 반쪽이다 (배 {ship}, 진행도 {progress}). " +
-                "이어갈 수 없으니 지우고 처음부터 간다.");
-
-            Clear();
-            return false;
-        }
+        Debug.LogWarning($"[RunState] 런 파일이 반쪽이다 (배 {ship}, 진행도 {progress}). 지우고 처음부터 간다.");
+        Clear();
     }
 
     /// <summary>
@@ -114,13 +113,20 @@ public static class RunState
     private static Progress Read()
     {
         if (!Exists)
+        {
             return new Progress();
+        }
 
-        return JsonUtility.FromJson<Progress>(File.ReadAllText(ProgressPath)) ?? new Progress();
+        string raw = File.ReadAllText(ProgressPath);
+
+        return JsonUtility.FromJson<Progress>(raw) ?? new Progress();
     }
 
-    private static void Write(Progress p) =>
-        File.WriteAllText(ProgressPath, JsonUtility.ToJson(p, prettyPrint: true));
+    private static void Write(Progress p)
+    {
+        string json = JsonUtility.ToJson(p, prettyPrint: true);
+        File.WriteAllText(ProgressPath, json);
+    }
 
     /// <summary>
     /// 지금 이 배의 상태를 그대로 뜬다. <see cref="Battle.onEnd"/>에서 부른다.
@@ -128,13 +134,19 @@ public static class RunState
     public static bool Save(Ship ship)
     {
         if (ship == null)
+        {
+            Debug.LogError("[RunState] 저장할 플레이어 함선이 없다.");
             return false;
+        }
 
         string origin = string.IsNullOrEmpty(ship.shipDefName) ? ship.name : ship.shipDefName;
         ShipDef damaged = ShipExporter.Export(ship.transform, origin);
 
         if (damaged == null)
+        {
+            Debug.LogError($"[RunState] '{origin}' export 실패. 손상이 안 남는다.");
             return false;
+        }
 
         damaged.basedOn = origin;
 
@@ -169,6 +181,7 @@ public static class RunState
     {
         if (!Exists)
             return null;
+    
 
         ShipDef def = ShipDef.Parse(File.ReadAllText(FilePath), FileName);
 
@@ -248,6 +261,7 @@ public static class RunState
         if (!Exists)
         {
             Debug.Log("[RunState] 저장된 런이 없다.");
+            Clear();
             return;
         }
 

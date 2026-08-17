@@ -16,7 +16,7 @@ using Core;
 /// 하나만 코드에 박으면 나머지 셋은 반드시 `if (isFinalStage)`로 들어온다. 술어 하나를
 /// 필드로 들고 있으면 목표가 늘어도 **틱 루프는 그대로다** - 다른 함수를 대입할 뿐이다.
 /// </summary>
-public sealed class Battle : TickBehaviour
+public sealed class Battle
 {
     public static Battle current;
 
@@ -50,7 +50,7 @@ public sealed class Battle : TickBehaviour
     /// </summary>
     private bool _sawHostile;
 
-    private void Awake()
+    public Battle()
     {
         current = this;
 
@@ -59,13 +59,7 @@ public sealed class Battle : TickBehaviour
         objective ??= NoHostilesLeft;
     }
 
-    private void OnDestroy()
-    {
-        if (current == this)
-            current = null;
-    }
-
-    public override void OnTick()
+    public void Tick()
     {
         if (Ended)
             return;
@@ -84,7 +78,10 @@ public sealed class Battle : TickBehaviour
 
         // 이긴 전투의 결과만 들고 간다. 진 전투는 런이 끝난 것이라 다음 함장은 새 배로 온다.
         if (won)
-            RunState.Save(Player());
+        {
+            if (!RunState.Save(Player()))
+                Debug.LogError("[Battle] 승리했는데 저장 실패. 손상이 다음 구역으로 안 넘어간다.");    
+        }
         else
             RunState.Clear();
 

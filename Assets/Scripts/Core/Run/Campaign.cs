@@ -38,11 +38,14 @@ public sealed class Campaign : TickBehaviour
 
     public SectorDef Current =>
         _def != null && _sector >= 0 && _sector < _def.sectors.Count ? _def.sectors[_sector] : null;
+        
+    private Battle _battle;
 
     private void Awake()
     {
         current = this;
         _def = CampaignDef.Load();
+        RunState.ValidateOrClear();
         _sector = Mathf.Clamp(RunState.Sector, 0, (_def?.sectors.Count ?? 1) - 1);
 
         Battle.onAnyEnd += OnBattleEnd;
@@ -69,14 +72,15 @@ public sealed class Campaign : TickBehaviour
 
     public override void OnTick()
     {
-        if (_wait < 0)
-            return;
+        if (_wait >= 0)
+        {
+            if (--_wait > 0) return;
+            _wait = -1;
+            Begin();
+            return;      // 막간이 먼저. Begin()이 방금 만든 _battle을 같은 틱에 안 돌린다
+        }
 
-        if (--_wait > 0)
-            return;
-
-        _wait = -1;
-        Begin();
+        _battle?.Tick();
     }
 
     /// <summary>
@@ -114,12 +118,12 @@ public sealed class Campaign : TickBehaviour
         foreach (SpawnDef spawn in sector.spawns)
             Spawn(spawn);
 
-        var battle = gameObject.AddComponent<Battle>();
+        _battle = new Battle();
 
         // Awake가 이미 NoHostilesLeft를 넣었다. 표적이 있는 구역에서만 덮는다 -
         // ??= 가 아니라 대입이라 순서가 문제되지 않는다.
         if (_targets.Count > 0)
-            battle.objective = TargetsDown;
+            _battle.objective = TargetsDown;
 
         if (!string.IsNullOrEmpty(sector.script))
             StoryScriptManager.current?.Play(sector.script);
@@ -177,7 +181,7 @@ public sealed class Campaign : TickBehaviour
         _sector++;
         RunState.Sector = _sector;
 
-        Destroy(battle);
+        _battle = null;
 
         // **마지막 구역이었어도 같은 길로 간다.** Begin이 "구역이 더 없다"를 이미 알고
         // 있으므로 여기서 또 세면 끝을 아는 자리가 둘이 된다.
