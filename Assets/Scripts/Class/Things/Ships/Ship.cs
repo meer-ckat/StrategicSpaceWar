@@ -58,8 +58,6 @@ public partial class Ship : Thing
     {
         get
         {
-            bool any = false;
-
             for (int i = 0; i < shipCriticals.Count; i++)
             {
                 CriticalModule module = shipCriticals[i];
@@ -67,15 +65,22 @@ public partial class Ship : Thing
                 if (module == null || !module.providesPower || !StillAboard(module, this))
                     continue;
 
-                any = true;
-
                 if (!module.Neutralized)
                     return true;
             }
 
-            return !any;
+            // **"지금 목록에 없다"를 세면 안 된다.** 터진 원자로는 판과 함께 잔해로 떠나거나
+            // 파괴돼서 목록에서 사라진다. 남은 것을 세는 것으로 판단하면 원자로가 전멸한
+            // 배가 "원자로를 안 단 설계"로 읽혀서 전기가 되살아나고, 다 터졌는데 계속
+            // 조타하고 조준하는 배가 된다.
+            //
+            // 설계에 원자로가 있었는지는 Awake가 적어 둔다. 그 사실은 안 변한다.
+            return !_needsPower;
         }
     }
+
+    /// <summary>설계에 발전하는 모듈이 하나라도 있었는가. Awake가 한 번 정하고 안 바뀐다.</summary>
+    private bool _needsPower;
 
     /// <summary>
     /// 조타·사격·수리가 되는가. **저장값이 아니라 파생값이다.**
@@ -175,6 +180,21 @@ public partial class Ship : Thing
         if (shipGuns.Count == 0) shipGuns = new List<Gun>(GetComponentsInChildren<Gun>());
         if (shipCriticals.Count == 0)
             shipCriticals = new List<CriticalModule>(GetComponentsInChildren<CriticalModule>());
+
+        // **설계에 원자로가 있었는가.** 지금 목록을 세는 것으로는 이 질문에 답할 수 없다 -
+        // 터진 원자로는 판과 함께 잔해로 떠나거나 파괴돼서 목록에서 사라지고, 그러면
+        // "원자로를 아예 안 단 설계"와 글자 그대로 같아 보인다. 설계 사실은 안 변하므로
+        // 여기서 한 번만 적어 둔다.
+        _needsPower = false;
+
+        for (int i = 0; i < shipCriticals.Count; i++)
+        {
+            if (shipCriticals[i] != null && shipCriticals[i].providesPower)
+            {
+                _needsPower = true;
+                break;
+            }
+        }
 
         BuildRooms();
 
@@ -284,6 +304,32 @@ public partial class Ship : Thing
     public bool CrewAlive { get; private set; } = true;
 
     /// <summary>
+    /// 지금 쏠 수 있는 포탑이 하나라도 있는가.
+    ///
+    /// **`StillAboard`가 여기 있어야 한다.** 포탑이 잔해에 실려 100 m 밖으로 날아가도
+    /// <see cref="shipGuns"/>의 참조는 그대로 살아 있어서, null도 아니고 Neutralized도
+    /// 아니다. 안 거르면 판 세 장짜리 조각이 "우리 배엔 아직 주포가 있다"고 말한다.
+    ///
+    /// 읽는 쪽이 둘이라 프로퍼티다 - <see cref="IsCombatEffective"/>는 "아직 적인가"를,
+    /// <see cref="ShipAi"/>는 "거리를 둘 것인가 들이받을 것인가"를 이 값 하나로 정한다.
+    /// 두 벌로 두면 언젠가 한쪽만 고친다.
+    /// </summary>
+    public bool HasUsableGun
+    {
+        get
+        {
+            for (int i = 0; i < shipGuns.Count; i++)
+            {
+                if (shipGuns[i] != null && !shipGuns[i].Neutralized
+                    && StillAboard(shipGuns[i], this))
+                    return true;
+            }
+
+            return false;
+        }
+    }
+
+    /// <summary>
     /// 아직 상대할 가치가 있는가. 저장된 상태가 아니라 파생값이다 - 쏠 수도, 움직일 수도,
     /// 들이받을 수도 없는 배가 잔해다. AI가 시체를 계속 쏘지 않게 하는 것이 이 값의 일이다.
     /// </summary>
@@ -295,11 +341,8 @@ public partial class Ship : Thing
             if (!CrewAlive || !HasPower)
                 return false;
 
-            for (int i = 0; i < shipGuns.Count; i++)
-            {
-                if (shipGuns[i] != null && !shipGuns[i].Neutralized)
-                    return true;
-            }
+            if (HasUsableGun)
+                return true;
 
             // 포탑이 다 죽어도 움직일 수 있으면 충각이 남아 있다.
             return AvailableThrust(true) > 0f || AvailableThrust(false) > 0f;

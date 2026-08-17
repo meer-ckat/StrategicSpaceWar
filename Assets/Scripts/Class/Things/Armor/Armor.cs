@@ -52,6 +52,13 @@ public abstract class Armor : Thing
     // 선체에 "판 사라졌다"를 다시 신고한다.
     private bool _collapsed;
 
+    /// <summary>
+    /// 지금 주저앉는 중인가. 붕괴가 치명 모듈을 터뜨리고, 그 유폭이 이 판을 다시 때리며
+    /// 같은 자리로 돌아오기 때문에 있다. <see cref="_collapsed"/>로 대신할 수 없다 -
+    /// 그것을 미리 세우면 잔해로 간 판이 다시는 피해를 못 받는다.
+    /// </summary>
+    private bool _collapsing;
+
     // 서브셀 격자는 콜라이더 위에 얹힌다. 손으로 적은 크기가 콜라이더와 어긋나면 진입점이
     // 엉뚱한 서브셀에 떨어지고 채널이 판 바깥까지 흘러나간다. 그래서 적지 않고 읽는다.
     private Vector2 _cellSize = Vector2.one;
@@ -315,8 +322,14 @@ public abstract class Armor : Thing
         // _collapsed 확인이 여기 있는 이유: KillOrphans가 죽인 칸이 임계를 넘겨 이미
         // 판을 무너뜨렸을 수 있다. 그때 이 아래를 또 타면 붕괴 파편이 두 번 나가고
         // Destroy가 두 번 불린다.
-        if (_collapsed || _dead < Mathf.CeilToInt(SubCount * Ballistics.PlateCollapseFraction))
+        // _collapsing은 재진입 막이다. 아래에서 치명 모듈을 터뜨리면 그 폭발이 이 판을
+        // 다시 때리며 여기로 돌아오는데, 그때 이 블록을 또 타면 판이 잔해로 떨어진 뒤에
+        // 한 번 더 떨어지려 든다.
+        if (_collapsed || _collapsing
+            || _dead < Mathf.CeilToInt(SubCount * Ballistics.PlateCollapseFraction))
             return;
+
+        _collapsing = true;
 
         // 이웃에게 "네 안쪽 면이 방금 바깥이 됐다"고 알린다. 이게 절단면 발광의 전부다 -
         // 폴링도 탐색도 없이, 판이 죽는 그 순간에 정확히 닿아야 할 8장에게만 간다.
@@ -334,10 +347,30 @@ public abstract class Armor : Thing
         // **_collapsed를 안 세운다.** 이 판은 잔해에서 서브셀을 하나 더 잃으면 같은 검사에
         // 다시 걸리는데, 그때는 부모가 Hulk라 아래 함선 분기를 안 타고 원래 길로 간다.
         // 판은 잔해로 한 번 더 살고, 그 뒤로는 예전과 글자 그대로 같다.
+        // **볼트로 붙은 탄약고·원자로는 판과 함께 끝난다.** 구조가 절반 날아가 선체에서
+        // 뜯긴 판이 원자로를 온전히 붙들고 있을 수는 없다.
+        //
+        // 안 죽이면 판이 모듈을 태우고 잔해로 100 m 밖으로 날아가고, 배에는 구멍만 남는다.
+        // 그러다 한참 뒤에 그 잔해를 맞히면 거기서 유폭이 난다 - "사라졌는데 나중에 터진다"가
+        // 그것이다. 죽이면 뜯기는 그 순간에 터진다.
+        //
+        // 이 호출이 유폭 연쇄를 통째로 여기서 시작한다. 위의 _collapsing이 그 연쇄가
+        // 이 판으로 돌아왔을 때를 막는다.
+        foreach (CriticalModule critical in GetComponentsInChildren<CriticalModule>())
+        {
+            if (critical != null)
+                critical.TakeDamage(float.MaxValue);
+        }
+
         if (GetComponentInParent<Ship>() != null
             && GetComponentInParent<HullStructure>() is HullStructure hull
             && hull.Shed(transform))
+        {
+            // 잔해로 갔다. 이 판은 아직 살아 있으므로 다음 피해를 받을 수 있어야 한다 -
+            // 그때는 부모가 Hulk라 위 분기를 안 타고 아래 원래 길로 간다.
+            _collapsing = false;
             return;
+        }
 
         _collapsed = true;
 
