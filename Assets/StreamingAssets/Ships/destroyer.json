@@ -1987,26 +1987,34 @@
     },
     {
       "def": "Magazine",
-      "col": 17,
+      "col": 20,
+      "row": 9,
+      "rot": 0.0,
+      "mountCol": 20,
+      "mountRow": 10
+    },
+    {
+      "def": "Magazine",
+      "col": 30,
+      "row": 4,
+      "rot": 0.0,
+      "mountCol": 30,
+      "mountRow": 3
+    },
+    {
+      "def": "Reactor",
+      "col": 9,
       "row": 11,
       "rot": 0.0,
-      "mountCol": 17,
+      "mountCol": 9,
       "mountRow": 10
     },
     {
       "def": "Reactor",
-      "col": 10,
-      "row": 11,
+      "col": 41,
+      "row": 9,
       "rot": 0.0,
-      "mountCol": 10,
-      "mountRow": 10
-    },
-    {
-      "def": "Reactor",
-      "col": 37,
-      "row": 11,
-      "rot": 0.0,
-      "mountCol": 37,
+      "mountCol": 41,
       "mountRow": 10
     }
   ]

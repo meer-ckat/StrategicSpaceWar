@@ -5,7 +5,8 @@
       "name": "감시소 17",
       "script": "sector-01",
       "spawns": [
-        { "ship": "scout", "team": "Enemy", "x": 320, "y": 0, "facing": -1 }
+        { "ship": "scout", "team": "Enemy", "x": 320, "y": 0, "facing": -1 },
+        { "ship": "dart", "team": "Enemy", "x": 360, "y": 35, "facing": -1 }
       ]
     },
     {
