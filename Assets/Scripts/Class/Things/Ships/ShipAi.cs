@@ -22,6 +22,12 @@ public sealed class ShipAi : TickBehaviour
     /// <summary>교전거리에서 이만큼은 벗어나야 추력을 넣는다. 없으면 목표 거리 위에서 떤다.</summary>
     [SerializeField] private float rangeTolerance = 5f;   // m
 
+    /// <summary>
+    /// 적이 이만큼은 옆으로 벗어나야 접근축의 부호를 바꾼다. 함선 반 척보다 넉넉해야 한다 -
+    /// 충각으로 겹쳐 있는 동안 부호가 안 떨려야 하기 때문이다.
+    /// </summary>
+    [SerializeField] private float signDeadband = 25f;    // m
+
     /// <summary>조준 오차가 이 각도를 넘으면 최대 입력. 안쪽에서는 비례해 줄인다.</summary>
     [SerializeField] private float turnBand = 15f;        // deg
 
@@ -77,11 +83,42 @@ public sealed class ShipAi : TickBehaviour
 
         // Drive()가 접근축을 월드 어느 쪽으로 밀지 알려준다. 이게 없으면 적이 왼쪽에
         // 있는 함선은 주기관으로 도망간다.
-        _ship.engagementSign = toTarget.x >= 0f ? 1f : -1f;
+        //
+        // **0 근처에서 그냥 부호를 읽으면 안 된다.** 추력은 월드 x축이고 이 값은 1비트라,
+        // 붙어 있는 동안 toTarget.x가 떨리면 추력이 매 틱 반대로 꺾인다 - 배가 좌우로 떨기만
+        // 하고 안 들어간다. 충각으로 파고들면 두 중심의 x가 겹치므로 거기가 정확히 그 자리다.
+        //
+        // 그래서 확실히 반대편에 있을 때만 바꾸고, 그 안쪽에서는 마지막으로 알던 쪽을
+        // 유지한다. 파고드는 중에 "저쪽은 오른쪽이었다"를 붙잡고 있는 것이 옳다.
+        if (Mathf.Abs(toTarget.x) > signDeadband)
+            _ship.engagementSign = toTarget.x >= 0f ? 1f : -1f;
 
-        _ship.SetPilotInput(
-            new Vector2(Approach(toTarget), 0f),   // y = 0: 회피 기동 없음
-            Turn(toTarget));
+        _ship.SetPilotInput(Thrust(toTarget), Turn(toTarget));
+    }
+
+    /// <summary>
+    /// 조종 입력. **포가 있느냐 없느냐가 축의 수를 정한다.**
+    ///
+    /// 포함은 접근축 하나만 쓴다 - 거리만 맞추면 포탑이 알아서 조준하므로 위아래로 맞출
+    /// 이유가 없다. 회피 기동은 아직 없다.
+    ///
+    /// 충각선은 표적에 **닿아야** 한다. 접근축만 밀면 위아래로 벌어진 만큼 그대로 옆을
+    /// 스쳐 지나가고, 영영 안 부딪힌다.
+    /// </summary>
+    private Vector2 Thrust(Vector2 toTarget)
+    {
+        if (_ship.HasUsableGun)
+            return new Vector2(Approach(toTarget), 0f);
+
+        Vector2 dir = toTarget.normalized;
+
+        // **x는 월드가 아니라 접근축이다** - Drive가 engagementSign을 곱해 월드로 보낸다.
+        // 그래서 부호가 아니라 크기만 준다. 부호까지 여기서 주면 적이 왼쪽에 있을 때
+        // 두 번 뒤집혀 도망간다.
+        //
+        // y는 월드 그대로다. Drive가 보조추진기로 밀고, 지금 엔진은 주기관과 보조가 같은
+        // 출력이라 위아래로 붙는 속도가 앞뒤와 다르지 않다.
+        return new Vector2(Mathf.Abs(dir.x), dir.y);
     }
 
     /// <summary>
@@ -90,6 +127,16 @@ public sealed class ShipAi : TickBehaviour
     /// </summary>
     private float Approach(Vector2 toTarget)
     {
+        // **포가 없으면 거리를 둘 이유가 없다.** 남은 무기가 뱃머리뿐인데 교전거리를 지키면
+        // 그냥 맞고만 있는 배가 된다. IsCombatEffective가 이미 "포탑이 다 죽어도 움직일 수
+        // 있으면 충각이 남아 있다"고 판정하는데, 그 판단이 조종에는 안 닿아 있었다.
+        //
+        // 거리를 0으로 두는 대신 계속 민다. RamImpact가 밀고 있는 힘을 예산으로 치기
+        // 때문이다 - 붙어서 멈춘 상태에서도 힘 x 거리가 판을 부순다. 붙자마자 추력을 끊으면
+        // 그 예산이 사라진다.
+        if (!_ship.HasUsableGun)
+            return 1f;
+
         float distance = toTarget.magnitude;
 
         if (distance > _ship.FightDistance + rangeTolerance)
