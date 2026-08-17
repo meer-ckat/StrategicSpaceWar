@@ -119,6 +119,97 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!1 &9404198
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 9404202}
+  - component: {fileID: 9404201}
+  - component: {fileID: 9404200}
+  - component: {fileID: 9404199}
+  m_Layer: 0
+  m_Name: GameObject
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &9404199
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9404198}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b9aa5d0e2a3f92d438297748231fdf6e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Hulk
+  defName: mirror
+  spawnTick: 0
+  structureDefName: Mirror
+  lifeTick: 0
+  massPerPlate: 10
+  breakawaySpeed: 2
+--- !u!114 &9404200
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9404198}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 282d5981c3ea8ed46bd1e63dcb88e03e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::HullStructure
+--- !u!50 &9404201
+Rigidbody2D:
+  serializedVersion: 5
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9404198}
+  m_BodyType: 1
+  m_Simulated: 1
+  m_UseFullKinematicContacts: 0
+  m_UseAutoMass: 0
+  m_Mass: 1
+  m_LinearDamping: 0
+  m_AngularDamping: 0.05
+  m_GravityScale: 0
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_Interpolate: 0
+  m_SleepingMode: 1
+  m_CollisionDetection: 0
+  m_Constraints: 0
+--- !u!4 &9404202
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9404198}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 50.77317, y: -30.11516, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &23980101
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -176,6 +267,97 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: df9397e7b317ce54e91f03c05d1dfc5c, type: 3}
+--- !u!1 &122241578
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 122241582}
+  - component: {fileID: 122241581}
+  - component: {fileID: 122241580}
+  - component: {fileID: 122241579}
+  m_Layer: 0
+  m_Name: GameObject (1)
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &122241579
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 122241578}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b9aa5d0e2a3f92d438297748231fdf6e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Hulk
+  defName: mirror
+  spawnTick: 0
+  structureDefName: asteroid
+  lifeTick: 0
+  massPerPlate: 10
+  breakawaySpeed: 2
+--- !u!114 &122241580
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 122241578}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 282d5981c3ea8ed46bd1e63dcb88e03e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::HullStructure
+--- !u!50 &122241581
+Rigidbody2D:
+  serializedVersion: 5
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 122241578}
+  m_BodyType: 0
+  m_Simulated: 1
+  m_UseFullKinematicContacts: 0
+  m_UseAutoMass: 0
+  m_Mass: 1
+  m_LinearDamping: 0
+  m_AngularDamping: 0.05
+  m_GravityScale: 0
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_Interpolate: 0
+  m_SleepingMode: 1
+  m_CollisionDetection: 0
+  m_Constraints: 0
+--- !u!4 &122241582
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 122241578}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 50.77317, y: -46.115158, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &131405135
 GameObject:
   m_ObjectHideFlags: 0
@@ -231,15 +413,14 @@ MonoBehaviour:
   shipArmors: []
   shipEngines: []
   shipGuns: []
-  shipDefName: frigate
+  shipCriticals: []
+  massPerPlate: 420
+  shipDefName: cruiser
   leakRate: 2
   doorRate: 1
-  isDriverReady: 1
-  isGunnerReady: 1
-  isEngineerReady: 1
   crews: 3
   team: 1
-  FightDistance: 200
+  FightDistance: 100
   DetectionDistance: 300
   engagementSign: 1
   breakawaySpeed: 2
@@ -564,7 +745,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &584317408
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -613,15 +794,14 @@ MonoBehaviour:
   shipArmors: []
   shipEngines: []
   shipGuns: []
+  shipCriticals: []
+  massPerPlate: 420
   shipDefName: frigate
   leakRate: 2
   doorRate: 1
-  isDriverReady: 1
-  isGunnerReady: 1
-  isEngineerReady: 1
   crews: 3
   team: 1
-  FightDistance: 200
+  FightDistance: 100
   DetectionDistance: 300
   engagementSign: 1
   breakawaySpeed: 2
@@ -1164,7 +1344,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &795710608
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1213,15 +1393,14 @@ MonoBehaviour:
   shipArmors: []
   shipEngines: []
   shipGuns: []
+  shipCriticals: []
+  massPerPlate: 420
   shipDefName: destroyer
   leakRate: 2
   doorRate: 1
-  isDriverReady: 1
-  isGunnerReady: 1
-  isEngineerReady: 1
   crews: 3
   team: 2
-  FightDistance: 200
+  FightDistance: 100
   DetectionDistance: 300
   engagementSign: 1
   breakawaySpeed: 2
@@ -1670,7 +1849,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 937543335}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b9f526c064b0d374fb5503a6875c37d8, type: 3}
   m_Name: 
@@ -1812,15 +1991,14 @@ MonoBehaviour:
   shipArmors: []
   shipEngines: []
   shipGuns: []
+  shipCriticals: []
+  massPerPlate: 420
   shipDefName: destroyer
   leakRate: 2
   doorRate: 1
-  isDriverReady: 1
-  isGunnerReady: 1
-  isEngineerReady: 1
   crews: 3
   team: 2
-  FightDistance: 200
+  FightDistance: 100
   DetectionDistance: 300
   engagementSign: 1
   breakawaySpeed: 2
@@ -2452,7 +2630,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1198815801
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2501,15 +2679,14 @@ MonoBehaviour:
   shipArmors: []
   shipEngines: []
   shipGuns: []
+  shipCriticals: []
+  massPerPlate: 420
   shipDefName: destroyer
   leakRate: 2
   doorRate: 1
-  isDriverReady: 1
-  isGunnerReady: 1
-  isEngineerReady: 1
   crews: 3
   team: 1
-  FightDistance: 200
+  FightDistance: 100
   DetectionDistance: 300
   engagementSign: 1
   breakawaySpeed: 2
@@ -7985,15 +8162,14 @@ MonoBehaviour:
   shipArmors: []
   shipEngines: []
   shipGuns: []
-  shipDefName: destroyer
+  shipCriticals: []
+  massPerPlate: 420
+  shipDefName: frigate
   leakRate: 2
   doorRate: 1
-  isDriverReady: 1
-  isGunnerReady: 1
-  isEngineerReady: 1
   crews: 3
   team: 2
-  FightDistance: 200
+  FightDistance: 100
   DetectionDistance: 300
   engagementSign: 1
   breakawaySpeed: 2
@@ -8148,7 +8324,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1606370178
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -8197,15 +8373,14 @@ MonoBehaviour:
   shipArmors: []
   shipEngines: []
   shipGuns: []
+  shipCriticals: []
+  massPerPlate: 420
   shipDefName: destroyer
   leakRate: 2
   doorRate: 1
-  isDriverReady: 1
-  isGunnerReady: 1
-  isEngineerReady: 1
   crews: 3
   team: 2
-  FightDistance: 200
+  FightDistance: 100
   DetectionDistance: 300
   engagementSign: 1
   breakawaySpeed: 2
@@ -8493,10 +8668,132 @@ MonoBehaviour:
   B: {fileID: 1198815808}
   ratio: 1.41
   minZoom: 20
-  maxZoom: 70
-  lookAhead: 100
+  maxZoom: 50
+  lookAhead: 200
   moveSmooth: 0.15
   zoomSmooth: 0.15
+--- !u!1 &1648365599
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1648365604}
+  - component: {fileID: 1648365603}
+  - component: {fileID: 1648365602}
+  - component: {fileID: 1648365601}
+  - component: {fileID: 1648365600}
+  m_Layer: 5
+  m_Name: ScriptEngine
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1648365600
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1648365599}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 23334b7a5ec1cc94490b984af634546c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::StoryScriptManager
+  origin: {x: 40, y: 120}
+  lineSize: {x: 900, y: 40}
+  spacing: 45
+  moveSpeed: 10
+  fadeSpeed: 6
+  spawnOffset: 20
+  leaveOffset: 15
+  fontSize: 18
+--- !u!114 &1648365601
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1648365599}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dc42784cf147c0c48a680349fa168899, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.GraphicRaycaster
+  m_IgnoreReversedGraphics: 1
+  m_BlockingObjects: 0
+  m_BlockingMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+--- !u!114 &1648365602
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1648365599}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0cd44c1031e13a943bb63640046fad76, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.CanvasScaler
+  m_UiScaleMode: 0
+  m_ReferencePixelsPerUnit: 100
+  m_ScaleFactor: 1
+  m_ReferenceResolution: {x: 800, y: 600}
+  m_ScreenMatchMode: 0
+  m_MatchWidthOrHeight: 0
+  m_PhysicalUnit: 3
+  m_FallbackScreenDPI: 96
+  m_DefaultSpriteDPI: 96
+  m_DynamicPixelsPerUnit: 1
+  m_PresetInfoIsWorld: 0
+--- !u!223 &1648365603
+Canvas:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1648365599}
+  m_Enabled: 1
+  serializedVersion: 3
+  m_RenderMode: 0
+  m_Camera: {fileID: 0}
+  m_PlaneDistance: 100
+  m_PixelPerfect: 0
+  m_ReceivesEvents: 1
+  m_OverrideSorting: 0
+  m_OverridePixelPerfect: 0
+  m_SortingBucketNormalizedSize: 0
+  m_VertexColorAlwaysGammaSpace: 0
+  m_AdditionalShaderChannelsFlag: 25
+  m_UpdateRectTransformForStandalone: 0
+  m_SortingLayerID: 0
+  m_SortingOrder: 0
+  m_TargetDisplay: 0
+--- !u!224 &1648365604
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1648365599}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 0, y: 0, z: 0}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0, y: 0}
+  m_AnchorMax: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: 0}
+  m_SizeDelta: {x: 0, y: 0}
+  m_Pivot: {x: 0, y: 0}
 --- !u!1 &1744936998
 GameObject:
   m_ObjectHideFlags: 0
@@ -8568,15 +8865,14 @@ MonoBehaviour:
   shipArmors: []
   shipEngines: []
   shipGuns: []
+  shipCriticals: []
+  massPerPlate: 420
   shipDefName: destroyer
   leakRate: 2
   doorRate: 1
-  isDriverReady: 1
-  isGunnerReady: 1
-  isEngineerReady: 1
   crews: 3
   team: 1
-  FightDistance: 200
+  FightDistance: 100
   DetectionDistance: 300
   engagementSign: 1
   breakawaySpeed: 2
@@ -8705,6 +9001,50 @@ Transform:
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 126.8, y: 20.3, z: 0}
   m_LocalScale: {x: -1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1765958145
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1765958147}
+  - component: {fileID: 1765958146}
+  m_Layer: 0
+  m_Name: BattleEngine
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1765958146
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1765958145}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 00567cd4e1b0a4b45a26f6a684b6b971, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Battle
+--- !u!4 &1765958147
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1765958145}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -6.75238, y: 3.65816, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
@@ -9342,3 +9682,7 @@ SceneRoots:
   - {fileID: 1012580035}
   - {fileID: 23980101}
   - {fileID: 805530278}
+  - {fileID: 9404202}
+  - {fileID: 122241582}
+  - {fileID: 1648365604}
+  - {fileID: 1765958147}

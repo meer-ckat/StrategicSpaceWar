@@ -1,0 +1,117 @@
+{
+  "defName": "prologue",
+  "lines": [
+    {
+      "message": "Ship link confirmed. <color=grey>Border patrol net online.</color>",
+      "author": "SYSTEM",
+      "duration": 3,
+      "intensity": 0.5,
+      "wait": 1
+    },
+    {
+      "message": "{0}, report comms status.",
+      "author": "ATRIA CONTROL",
+      "duration": 4,
+      "intensity": 0.8,
+      "wait": 0
+    },
+    {
+      "message": "Good. Navigation and fire control both nominal.",
+      "author": "CAPTAIN",
+      "duration": 4,
+      "intensity": 0.8,
+      "wait": 0
+    },
+    {
+      "message": "Understood. Watchposts 17, 19 and 22 have been silent for six hours.",
+      "author": "ATRIA CONTROL",
+      "duration": 5,
+      "intensity": 0.9,
+      "wait": 0
+    },
+    {
+      "message": "All three at once?",
+      "author": "CAPTAIN",
+      "duration": 3,
+      "intensity": 0.9,
+      "wait": 2
+    },
+    {
+      "message": "Yes. <color=yellow>Which is why you're going.</color>",
+      "author": "ATRIA CONTROL",
+      "duration": 4,
+      "intensity": 1.0,
+      "wait": 0
+    },
+    {
+      "message": "Royalist activity?",
+      "author": "CAPTAIN",
+      "duration": 3,
+      "intensity": 0.8,
+      "wait": 0
+    },
+    {
+      "message": "Heavier than usual. Not fleet strength.",
+      "author": "ATRIA CONTROL",
+      "duration": 4,
+      "intensity": 0.8,
+      "wait": 0
+    },
+    {
+      "message": "Check the watchposts. Recover survivors. Engage only as much as you must.",
+      "author": "ATRIA CONTROL",
+      "duration": 5,
+      "intensity": 0.9,
+      "wait": 0
+    },
+    {
+      "message": "\"As much as you must\" has always come expensive.",
+      "author": "CAPTAIN",
+      "duration": 4,
+      "intensity": 0.8,
+      "wait": 0
+    },
+    {
+      "message": "So <color=yellow>spend your ship carefully.</color> There is no replacement.",
+      "author": "ATRIA CONTROL",
+      "duration": 5,
+      "intensity": 1.1,
+      "wait": 3
+    },
+    {
+      "message": "Unidentified ship ahead. Range 14.2. Closing.",
+      "author": "TACTICAL",
+      "duration": 4,
+      "intensity": 1.0,
+      "wait": 0.3
+    },
+    {
+      "message": "No identification signal.",
+      "author": "TACTICAL",
+      "duration": 3,
+      "intensity": 1.0,
+      "wait": 0.3
+    },
+    {
+      "message": "<color=red>Gun ports opening.</color>",
+      "author": "TACTICAL",
+      "duration": 3,
+      "intensity": 1.5,
+      "wait": 0.3
+    },
+    {
+      "message": "Control, the survey is on hold.",
+      "author": "CAPTAIN",
+      "duration": 4,
+      "intensity": 1.0,
+      "wait": 0
+    },
+    {
+      "message": "<color=yellow>Battle stations.</color>",
+      "author": "CAPTAIN",
+      "duration": 4,
+      "intensity": 1.6,
+      "wait": 0
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "defName": "battle-lost",
+  "lines": [
+    { "message": "<color=red>Pressure lost in every compartment.</color> Bridge does not answer.", "author": "COMMS", "duration": 3.5, "intensity": 2.0 },
+    { "message": "<color=red>—signal lost—</color>", "author": "SYSTEM", "duration": 3, "intensity": 1.8, "wait": 3 },
+    { "message": "<color=grey>Atrian Navy loss record updated.</color>", "author": "SYSTEM", "duration": 4, "intensity": 0.5 },
+    { "message": "The next captain sails for the same coordinates.", "author": "FLEET COMMAND", "duration": 5, "intensity": 1.1 },
+    { "message": "<color=grey>This transmission survives only as a record.</color>", "author": "SYSTEM", "duration": 4, "intensity": 0.6 }
+  ]
+}

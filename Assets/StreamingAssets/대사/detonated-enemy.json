@@ -1,0 +1,13 @@
+{
+  "defName": "detonated-enemy",
+  "pickOne": true,
+  "cooldown": 6,
+  "lines": [
+    { "message": "<color=yellow>Cook-off.</color> Their ammunition went from inside.", "author": "TACTICAL", "duration": 3, "intensity": 1.4 },
+    { "message": "<color=yellow>{0}</color> detonating. The hull opened from within.", "author": "TACTICAL", "duration": 3.5, "intensity": 1.5 },
+    { "message": "We hit the magazine. That won't hold.", "author": "GUNNERY", "duration": 3, "intensity": 1.4 },
+    { "message": "<color=yellow>Secondary detonation confirmed.</color> Still spreading.", "author": "TACTICAL", "duration": 3.5, "intensity": 1.5 },
+    { "message": "Flame venting from the inside. That's a reactor.", "author": "ENGINEERING", "duration": 3.5, "intensity": 1.3 },
+    { "message": "At that angle the crew isn't getting out.", "author": "COMMS", "duration": 3.5, "intensity": 1.2 }
+  ]
+}

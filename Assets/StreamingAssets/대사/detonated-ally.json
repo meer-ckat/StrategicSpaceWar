@@ -1,0 +1,12 @@
+{
+  "defName": "detonated-ally",
+  "pickOne": true,
+  "cooldown": 5,
+  "lines": [
+    { "message": "<color=red>{0} cooking off!</color> Seal the bulkheads, now!", "author": "ENGINEERING", "duration": 3, "intensity": 2.0 },
+    { "message": "<color=red>The magazine went.</color> Clear the adjacent compartments.", "author": "ENGINEERING", "duration": 3.5, "intensity": 2.0 },
+    { "message": "<color=red>Reactor runaway.</color> We can't cut it off.", "author": "ENGINEERING", "duration": 3.5, "intensity": 1.9 },
+    { "message": "Internal detonation. <color=red>The hull pushed out from inside.</color>", "author": "TACTICAL", "duration": 3.5, "intensity": 1.8 },
+    { "message": "Captain, this ship won't hold much longer.", "author": "ENGINEERING", "duration": 3.5, "intensity": 1.6 }
+  ]
+}
