@@ -234,8 +234,22 @@ public static class DefKeys
     private static readonly Dictionary<string, Type> _typeCache = new();
 
     /// <summary>
-    /// 클래스 이름 -> Type. 같은 어셈블리면 GetType 한 번으로 끝나고, 아니면 전부 훑는다 -
-    /// URP의 Light2D처럼 남의 어셈블리에 있는 컴포넌트도 def가 부를 수 있어야 한다.
+    /// 클래스 이름 -> Type. 세 단계로 찾는다: `Type.GetType` → 어셈블리별 정규화 이름 →
+    /// **짧은 이름**.
+    ///
+    /// 세 번째가 이 함수의 이유다. `asm.GetType`은 네임스페이스까지 정확히 맞아야 하므로
+    /// URP의 Light2D를 붙이려면 def에 `UnityEngine.Rendering.Universal.Light2D`를 통째로
+    /// 적어야 했다. 남의 어셈블리에 있는 컴포넌트를 데이터로 붙일 수 있다는 것이 이 설계의
+    /// 값어치인데, 그 값을 쓰려면 매번 네임스페이스를 알아내야 하는 것은 앞뒤가 안 맞는다.
+    /// 이제 `"Light2D"` 한 마디면 된다.
+    ///
+    /// **Component만 본다.** 짧은 이름은 당연히 겹치기 쉬운데, 여기 오는 이름은 전부
+    /// thingClass 아니면 comps라 Component가 아닌 후보는 애초에 답이 될 수 없다. 이 한 줄이
+    /// 후보를 수천에서 수십으로 줄인다.
+    ///
+    /// 그래도 둘 이상이면 **아무거나 고르지 않고 거부한다.** 조용히 하나를 고르면 어느 쪽이
+    /// 걸릴지가 어셈블리 로드 순서에 달리고, 그건 기계마다 다를 수 있다. 정규화 이름을
+    /// 적으라고 말하고 물러난다.
     /// </summary>
     public static Type Resolve(string name)
     {
@@ -258,7 +272,75 @@ public static class DefKeys
             }
         }
 
+        found ??= ResolveShortName(name);
+
         _typeCache[name] = found;
         return found;
+    }
+
+    /// <summary>
+    /// 네임스페이스 없이 클래스 이름만으로 찾는다. 느리지만 이름 하나당 딱 한 번이고,
+    /// 결과는 <see cref="Resolve"/>가 캐시한다.
+    /// </summary>
+    private static Type ResolveShortName(string name)
+    {
+        // 이름이 이미 점을 포함하면 정규화 이름을 적은 것이고, 위에서 못 찾았다는 것은
+        // 진짜로 없다는 뜻이다. 여기서 뒷부분만 떼어 비슷한 것을 집어오면 오타가 다른
+        // 클래스로 조용히 성공한다 - def 검증이 막으려는 바로 그 실패다.
+        if (name.IndexOf('.') >= 0)
+            return null;
+
+        List<Type> matches = null;
+
+        foreach (Assembly asm in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            Type[] types;
+
+            // 어셈블리 하나가 의존성을 못 찾아 던져도 나머지는 멀쩡하다. 이 경우 e.Types에
+            // 성공한 것만 들어 있고 실패한 자리는 null이다.
+            try
+            {
+                types = asm.GetTypes();
+            }
+            catch (ReflectionTypeLoadException e)
+            {
+                types = e.Types;
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (Type type in types)
+            {
+                if (type == null || type.Name != name)
+                    continue;
+
+                if (!typeof(Component).IsAssignableFrom(type) || type.IsAbstract)
+                    continue;
+
+                (matches ??= new List<Type>()).Add(type);
+            }
+        }
+
+        if (matches == null)
+            return null;
+
+        if (matches.Count == 1)
+            return matches[0];
+
+        // 정렬해서 말한다. 순서가 뒤죽박죽이면 같은 에러가 실행마다 다르게 보인다.
+        matches.Sort((a, b) => string.CompareOrdinal(a.FullName, b.FullName));
+
+        var names = new List<string>(matches.Count);
+
+        foreach (Type type in matches)
+            names.Add(type.FullName);
+
+        Debug.LogError(
+            $"[Def] '{name}'이라는 클래스가 {matches.Count}개다: {string.Join(", ", names)}. " +
+            "어느 것인지 정할 수 없으니 def에 전체 이름을 적어라.");
+
+        return null;
     }
 }

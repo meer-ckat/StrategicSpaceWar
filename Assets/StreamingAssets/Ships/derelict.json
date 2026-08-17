@@ -2,10 +2,14 @@
   "defName": "derelict",
   "placements": [
     {
-      "def": "Armor mk5 slope",
+      "def": "Armor mk5",
       "col": 2,
       "row": 2,
       "rot": -45.0,
+      "size": {
+        "x": 1,
+        "y": 1.4142135
+      },
       "mountCol": -1,
       "mountRow": -1
     },
@@ -106,10 +110,14 @@
       "mountRow": -1
     },
     {
-      "def": "Armor mk5 slope",
+      "def": "Armor mk5",
       "col": 1,
       "row": 3,
       "rot": -45.0,
+      "size": {
+        "x": 1,
+        "y": 1.4142135
+      },
       "mountCol": -1,
       "mountRow": -1
     },
@@ -122,10 +130,14 @@
       "mountRow": -1
     },
     {
-      "def": "Armor mk5 slope",
+      "def": "Armor mk5",
       "col": 15,
       "row": 3,
       "rot": 45.0,
+      "size": {
+        "x": 1,
+        "y": 1.4142135
+      },
       "mountCol": -1,
       "mountRow": -1
     },
@@ -146,10 +158,14 @@
       "mountRow": -1
     },
     {
-      "def": "Armor mk5 slope",
+      "def": "Armor mk5",
       "col": 16,
       "row": 4,
       "rot": 45.0,
+      "size": {
+        "x": 1,
+        "y": 1.4142135
+      },
       "mountCol": -1,
       "mountRow": -1
     },
@@ -362,10 +378,14 @@
       "mountRow": -1
     },
     {
-      "def": "Armor mk5 slope",
+      "def": "Armor mk5",
       "col": 0,
       "row": 9,
       "rot": -45.0,
+      "size": {
+        "x": 1,
+        "y": 1.4142135
+      },
       "mountCol": -1,
       "mountRow": -1
     },
@@ -386,10 +406,14 @@
       "mountRow": -1
     },
     {
-      "def": "Armor mk5 slope",
+      "def": "Armor mk5",
       "col": 1,
       "row": 10,
       "rot": -45.0,
+      "size": {
+        "x": 1,
+        "y": 1.4142135
+      },
       "mountCol": -1,
       "mountRow": -1
     },
@@ -402,10 +426,14 @@
       "mountRow": -1
     },
     {
-      "def": "Armor mk5 slope",
+      "def": "Armor mk5",
       "col": 15,
       "row": 10,
       "rot": 45.0,
+      "size": {
+        "x": 1,
+        "y": 1.4142135
+      },
       "mountCol": -1,
       "mountRow": -1
     },
@@ -506,10 +534,14 @@
       "mountRow": -1
     },
     {
-      "def": "Armor mk5 slope",
+      "def": "Armor mk5",
       "col": 14,
       "row": 11,
       "rot": 45.0,
+      "size": {
+        "x": 1,
+        "y": 1.4142135
+      },
       "mountCol": -1,
       "mountRow": -1
     }

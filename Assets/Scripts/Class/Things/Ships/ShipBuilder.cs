@@ -29,6 +29,30 @@ public static class ShipBuilder
     /// </summary>
     private const float GridResidualEpsilon = 0.1f;
 
+    /// <summary>
+    /// 저장된 손상을 되돌려 놓는다. 1이면 새 배라 할 일이 없다.
+    ///
+    /// 판은 값을 그냥 놓는다(RestoreHealthFraction) - 피해를 다시 넣으면 서브셀이 실제로
+    /// 죽어서, 전투를 살아남은 판이 로드하자마자 무너진다. 모듈은 서브셀이 없어 TakeDamage로
+    /// 깎아도 같은 결과다.
+    /// </summary>
+    private static void Restore(Thing spawned, float hp)
+    {
+        if (spawned == null || hp >= 1f)
+            return;
+
+        if (spawned.TryGetComponent(out Armor plate))
+        {
+            plate.RestoreHealthFraction(hp);
+            return;
+        }
+
+        // 0까지 내리지 않는다. 탄약고는 0에서 유폭하므로 로드하자마자 배가 터진다 -
+        // 이미 터진 모듈은 애초에 배치에 없다.
+        if (spawned.TryGetComponent(out IDamageable module))
+            module.RestoreHealth01(Mathf.Max(0.01f, hp));
+    }
+
     private static bool StampsGrid(Component child, out bool isDoor)
     {
         isDoor = child.GetComponent<Door>() != null;
@@ -183,6 +207,21 @@ public static class ShipBuilder
     }
 
     /// <summary>
+    /// 이미 읽어 둔 def로 짓는다. 저장된 런처럼 파일 이름으로 못 찾는 def가 있어서 갈랐다.
+    /// </summary>
+    public static bool SpawnFrom(Transform hull, ShipDef def, Component pourInto)
+    {
+        if (def == null)
+            return false;
+
+        if (pourInto != null)
+            def.Apply(pourInto);
+
+        Spawn(hull, def);
+        return true;
+    }
+
+    /// <summary>
     /// 이름으로 설계도를 읽어 그대로 심는다. 함선과 Hulk가 같은 문으로 들어오게 하는 자리 -
     /// 두 곳에 적어두면 언젠가 한쪽만 고친다. 이름이 비어 있으면 아무것도 안 한다(씬 저작 모드).
     /// </summary>
@@ -243,8 +282,11 @@ public static class ShipBuilder
 
             // 자리와 각도를 스폰에 같이 넘긴다. def로 지은 물건은 전부 붙이고 자리를 잡은
             // 뒤에 활성화돼야 해서, 밖에서 나중에 옮기면 Awake가 이미 지나간 뒤가 된다.
+            // 자리는 격자가 정하고, 콜라이더는 배치가 덧쓸 수 있다. **오브젝트 위치에는
+            // p.offset을 안 더한다** - localPosition이 곧 칸 번호라 그걸 밀면 Stamp가 다른
+            // 칸을 읽는다. 미는 것은 콜라이더 offset뿐이다 (Placement.offset 참고).
             Thing spawned = DefDatabase.Spawn(
-                p.def, hull, map.ToLocal(cell.x, cell.y), p.rot);
+                p.def, hull, map.ToLocal(cell.x, cell.y), p.rot, p.size, p.offset);
 
             if (spawned == null)
             {
@@ -252,6 +294,10 @@ public static class ShipBuilder
                 missing++;
                 continue;
             }
+
+            // **활성화가 끝난 뒤에 바른다.** ThingDef.Spawn이 오브젝트를 켜면서 Awake가
+            // 돌고, Armor.Awake는 서브셀을 전부 만땅으로 초기화한다. 그 전에 넣으면 지워진다.
+            Restore(spawned, p.hp);
 
             if (StampsGrid(spawned, out _))
                 plateAt[cell] = spawned.transform;

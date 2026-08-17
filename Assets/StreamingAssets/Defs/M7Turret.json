@@ -15,15 +15,15 @@
       "y": 0
     }
   },
-  "projectile": "Railgun Bullet",
-  "muzzleSpeed": 900,
-  "roundsPerMinute": 300,
+  "projectile": "105mm",
+  "muzzleSpeed": 1200,
+  "roundsPerMinute": 30,
   "aim": 0,
   "slewRate": 30,
   "fireArc": 2,
   "muzzleOffset": 1,
   "friendlyCheckRange": 100,
-  "maxHealth": 60,
+  "maxHealth": 250,
   "tint": {
     "r": 0.78,
     "g": 0.8,

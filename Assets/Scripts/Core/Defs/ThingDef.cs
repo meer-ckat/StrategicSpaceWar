@@ -58,7 +58,12 @@ public class ThingDef
     /// 부르는데, 그러면 stats가 들어가기 전에 Armor.Awake가 돌아서 판이 기본값 체력으로
     /// 태어난다. 위치까지 다 잡은 뒤에 한 번에 켜는 것이 유일하게 안전한 순서다.
     /// </summary>
-    public Thing Spawn(Transform parent, Vector2 localPosition, float rotationZ)
+    public Thing Spawn(
+        Transform parent,
+        Vector2 localPosition,
+        float rotationZ,
+        Vector2 sizeOverride = default,
+        Vector2 offsetShift = default)
     {
         if (_mainType == null)
             return null;
@@ -85,11 +90,30 @@ public class ThingDef
         //
         // 있을 때는 컴포넌트보다 먼저 와야 한다. Armor.Awake가 이걸 읽어 서브셀 격자와
         // 체력을 정하는데, 없으면 fallbackCellSize로 조용히 새어 나간다.
-        if (collider.size.x > 0f && collider.size.y > 0f)
+        // 배치가 크기를 말했으면 그것이 이긴다. 격자는 콜라이더를 안 보므로 같은 def가
+        // 자리마다 다른 크기로 서도 방·선체·파단은 아무것도 안 달라진다 - 경사장갑을 위해
+        // def를 한 벌 더 두지 않아도 되는 이유가 이 분리다. 자세한 것은 Placement.size.
+        Vector2 size = sizeOverride.x > 0f && sizeOverride.y > 0f ? sizeOverride : collider.size;
+
+        if (size.x > 0f && size.y > 0f)
         {
             BoxCollider2D box = go.AddComponent<BoxCollider2D>();
-            box.size = collider.size;
-            box.offset = collider.offset;
+            box.size = size;
+
+            // **배치의 offset은 칸 좌표계다. box.offset은 회전 뒤의 로컬 좌표계다.** 그냥
+            // 더하면 판이 기울어져 있을 때 엉뚱한 방향으로 민다 - 45도면 √2/2씩 새고,
+            // 접선 방향으로 세운 거울 판이면 반지름으로 밀라고 한 것이 원 둘레로 미끄러진다.
+            //
+            // def의 collider.offset은 def 자기 기하라 로컬이 맞다. 배치가 준 것만 되돌린다.
+            box.offset = collider.offset + Ballistics.Rotate(offsetShift, -rotationZ);
+        }
+        else if (offsetShift != Vector2.zero)
+        {
+            // 콜라이더가 없으면 밀 것이 없다. 조용히 버리면 증상이 "안 움직이는데?"뿐이고
+            // 콘솔에는 아무것도 없다 - 이 프로젝트에서 제일 비싼 실패 유형이다.
+            Debug.LogWarning(
+                $"[ThingDef] {source}: 배치가 offset {offsetShift}을 줬는데 콜라이더가 없어서 " +
+                "버린다. offset은 오브젝트가 아니라 콜라이더를 미는 값이다.");
         }
 
         // 그림은 전부 절차적이다. 스프라이트 자산이 없고, ArmorSkin 같은 부속이 콜라이더

@@ -1,7 +1,9 @@
-#if UNITY_EDITOR
 using System.Collections.Generic;
-using UnityEditor;
 using UnityEngine;
+
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 /// <summary>
 /// 씬에 손으로 지은 배 -> StreamingAssets/Ships/&lt;defName&gt;.json.
@@ -13,6 +15,7 @@ using UnityEngine;
 /// </summary>
 public static class ShipExporter
 {
+#if UNITY_EDITOR
     [MenuItem("Tools/Ship/Export Selected Ship To Json")]
     private static void ExportSelected()
     {
@@ -44,6 +47,48 @@ public static class ShipExporter
                   $"Ship의 shipDefName에 '{def.defName}'을 넣으면 이걸로 짓는다.");
 
         Verify(ship.transform, def);
+    }
+#endif
+
+    /// <summary>
+    /// 남은 체력 비율. **부서진 것은 애초에 여기 안 온다** - 판은 죽으면서 GameObject째
+    /// 사라지고, 그 빈 칸이 곧 뚫린 구멍이다. 여기서 재는 것은 살아남았지만 상한 것뿐이다.
+    /// </summary>
+    private static float HealthOf(Transform child)
+    {
+        if (child.TryGetComponent(out Armor plate))
+            return plate.HealthFraction;
+
+        if (child.TryGetComponent(out IDamageable module))
+            return module.Health01;
+
+        return 1f;
+    }
+
+    /// <summary>
+    /// 씬의 콜라이더가 def의 기본값과 다르면 그 차이를 배치에 적는다. **같으면 0으로 둬서
+    /// 배치가 조용하다** - 판 241개가 전부 자기 크기를 적고 있으면 진짜로 특별한 자리가
+    /// 어디인지 안 보인다.
+    ///
+    /// 이것이 있어야 `Armor mk5` 하나로 경사판까지 뽑을 수 있다. 없으면 씬에서 콜라이더를
+    /// 키워도 export가 그 사실을 버려서, 다시 지은 배는 전부 정사각형이 된다.
+    /// </summary>
+    private static void CaptureCollider(Transform child, Placement placement)
+    {
+        if (!child.TryGetComponent(out BoxCollider2D box))
+            return;
+
+        ThingDef def = DefDatabase.Get(placement.def);
+
+        if (def == null)
+            return;
+
+        if (box.size != def.collider.size)
+            placement.size = box.size;
+
+        // Spawn이 칸 좌표계 -> 로컬로 돌려서 넣는다. 뽑을 때 되돌려야 왕복이 닫힌다.
+        if (box.offset != def.collider.offset)
+            placement.offset = Ballistics.Rotate(box.offset - def.collider.offset, placement.rot);
     }
 
     /// <summary>
@@ -93,13 +138,17 @@ public static class ShipExporter
             if (child.GetComponent<Armor>() == null && child.GetComponent<Door>() == null)
                 unmounted++;
 
-            def.placements.Add(new Placement
+            var placement = new Placement
             {
                 def = thing.defName,
                 col = cell.x,
                 row = cell.y,
                 rot = child.localEulerAngles.z,
-            });
+                hp = HealthOf(child),
+            };
+
+            CaptureCollider(child, placement);
+            def.placements.Add(placement);
         }
 
         // 모듈은 자기가 붙을 판의 자식으로 들어가 있어야 한다. 씬에서 그렇게 놓는 것이
@@ -120,15 +169,19 @@ public static class ShipExporter
 
                 Vector2Int cell = map.ToCell(hull.InverseTransformPoint(module.position));
 
-                def.placements.Add(new Placement
+                var placement = new Placement
                 {
                     def = thing.defName,
                     col = cell.x,
                     row = cell.y,
                     rot = module.eulerAngles.z - hull.eulerAngles.z,
+                    hp = HealthOf(module),
                     mountCol = plateCell.x,
                     mountRow = plateCell.y,
-                });
+                };
+
+                CaptureCollider(module, placement);
+                def.placements.Add(placement);
             }
         }
 
@@ -158,6 +211,13 @@ public static class ShipExporter
 
         return def;
     }
+
+    // 여기부터 아래는 에디터 전용이다. **클래스를 닫는 중괄호는 이 안에 두지 않는다** -
+    // 클래스 몸통은 위에서 가드 밖으로 열렸으므로, 그 중괄호가 #if 안에 있으면 빌드에서
+    // 클래스가 안 닫혀 CS1513이 난다. 에디터에서는 UNITY_EDITOR가 늘 켜져 있어 영영 안
+    // 보이는 종류의 실패다. RunState.Save가 Export를 런타임에 부르므로 이 파일은 빌드에서도
+    // 컴파일돼야 한다.
+#if UNITY_EDITOR
 
     /// <summary>파일 이름이 될 수 있게. 공백은 밑줄, 나머지 특수문자는 버린다.</summary>
     private static string Sanitise(string name)
@@ -222,5 +282,6 @@ public static class ShipExporter
             Object.DestroyImmediate(probe);
         }
     }
-}
+
 #endif
+}

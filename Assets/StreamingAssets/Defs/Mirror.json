@@ -15,8 +15,8 @@
       "y": 0
     }
   },
-  "rha": 2000,
-  "hpPerSquareMetre": 30,
+  "rha": 0.1,
+  "hpPerSquareMetre": 0.1,
   "plateThickness": 0.05,
   "fallbackCellSize": {
     "x": 1,

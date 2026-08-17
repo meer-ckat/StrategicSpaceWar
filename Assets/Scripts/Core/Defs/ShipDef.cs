@@ -18,6 +18,47 @@ public class Placement
     public int row;
     public float rot;          // 도
 
+    /// <summary>
+    /// 남은 체력 비율(0~1). 1이면 멀쩡한 새 배다.
+    ///
+    /// **손상된 배는 새 포맷이 아니다** - 배치가 적은 ShipDef에 이 숫자 하나가 붙은 것이다.
+    /// 부서진 판은 배치에서 그냥 빠지고(그게 뚫린 구멍이다), 상한 판만 이 값을 든다.
+    ///
+    /// 서브셀 36칸 패턴은 안 담는다. 담으면 판당 36개 x 241판이고, 눈에 남는 것은 뚫린
+    /// 구멍이지 판 안쪽 1 m 미만의 얼룩이 아니다. 대가는 "어느 모서리가 갈렸나"가 사라지는 것.
+    /// </summary>
+    public float hp = 1f;
+
+    /// <summary>
+    /// 이 자리에서만 쓰는 콜라이더 크기. **0이면 def의 값을 쓴다.**
+    ///
+    /// 이것이 성립하는 이유는 격자가 콜라이더를 안 보기 때문이다 - 방·선체·파단은 col/row만
+    /// 읽고, 콜라이더는 탄도와 그림에만 간다. 그래서 같은 판이 자리마다 다른 크기를 가져도
+    /// 위상은 하나도 안 바뀐다.
+    ///
+    /// 대가로 def 하나가 줄어든다: `Armor mk5`와 `Armor mk5 slope`는 이 숫자 하나만 달랐다
+    /// (1x1 대 1x1.414). 두 벌을 두면 rha·hp·색을 고칠 때마다 두 파일을 고쳐야 하고,
+    /// 언젠가 한쪽만 고친다.
+    ///
+    /// 체력도 따라온다 - `hpPerSquareMetre`가 m²당이라 넓은 판이 저절로 튼튼하다.
+    /// </summary>
+    public Vector2 size;
+
+    /// <summary>
+    /// 콜라이더를 칸 중심에서 이만큼(m) 민다. def의 offset에 **더해진다.**
+    ///
+    /// **오브젝트는 안 옮긴다.** 판의 localPosition이 곧 칸 번호라 그걸 밀면 격자가 통째로
+    /// 어긋난다. 미는 것은 콜라이더뿐이고, 서브셀 격자(<see cref="Armor"/>)도 그림
+    /// (<see cref="ArmorSkin"/>)도 콜라이더 offset을 이미 읽으므로 셋이 같이 움직인다.
+    /// 경사판이 칸 밖으로 걸쳐 나가야 할 때 쓴다.
+    ///
+    /// **이 값은 칸 좌표계다 - <see cref="rot"/>과 무관하다.** 판을 45도 돌렸다고 "위로 0.3"이
+    /// 대각선으로 새면 배치를 쓰는 쪽이 매번 삼각함수를 들고 있어야 한다. 실제 콜라이더
+    /// offset은 회전 뒤의 로컬 좌표계라, <see cref="ThingDef.Spawn"/>이 -rot으로 돌려서 넣고
+    /// <see cref="ShipExporter"/>가 +rot으로 되돌려 뽑는다.
+    /// </summary>
+    public Vector2 offset;
+
     /// <summary>이 모듈이 볼트로 붙은 판의 칸. -1이면 선체 직속(= 판이 죽어도 안 죽는다).</summary>
     public int mountCol = -1;
     public int mountRow = -1;
@@ -86,21 +127,30 @@ public class ShipDef
             return null;
         }
 
-        string text = File.ReadAllText(path);
+        return Parse(File.ReadAllText(path), Path.GetFileName(path));
+    }
+
+    /// <summary>
+    /// 원문 -> ShipDef. **읽는 자리가 둘이라 여기 있다** - StreamingAssets의 설계도와
+    /// persistentDataPath의 런 상태. 검증을 한쪽에만 두면 나머지 한쪽은 오타를 조용히
+    /// 기본값으로 묻는다. 어디서 왔든 같은 문을 통과해야 그 구멍이 안 생긴다.
+    /// </summary>
+    public static ShipDef Parse(string text, string source)
+    {
         var def = JsonUtility.FromJson<ShipDef>(text);
 
         if (def == null || def.placements == null || def.placements.Count == 0)
         {
-            Debug.LogError($"[ShipDef] {path}를 읽었지만 배치가 하나도 없다.");
+            Debug.LogError($"[ShipDef] {source}를 읽었지만 배치가 하나도 없다.");
             return null;
         }
 
         def.raw = text;
-        def.source = Path.GetFileName(path);
+        def.source = source;
 
         // ThingDef와 같은 이유로 같은 검증을 탄다. 부어넣을 대상이 Ship과 Hulk 둘이라 둘 다
         // 아는 필드면 통과시킨다 - 운석 def에 drag를 적어도 조용히 묻히지 않는다.
-        if (DefKeys.HasUnknown(text, def.source, HeaderKeys, typeof(Ship), typeof(Hulk)))
+        if (DefKeys.HasUnknown(text, source, HeaderKeys, typeof(Ship), typeof(Hulk)))
             return null;
 
         return def;

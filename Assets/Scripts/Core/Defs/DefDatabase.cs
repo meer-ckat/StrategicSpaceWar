@@ -29,6 +29,20 @@ public static class DefDatabase
     }
 
     /// <summary>
+    /// def 자체를 본다. export가 필요로 한다 - 씬의 콜라이더가 def의 기본값과 다를 때만
+    /// 배치에 적으려면 기본값이 뭐였는지를 알아야 한다.
+    /// </summary>
+    public static ThingDef Get(string defName)
+    {
+        Load();
+
+        if (string.IsNullOrEmpty(defName))
+            return null;
+
+        return _defs.TryGetValue(defName, out ThingDef def) ? def : null;
+    }
+
+    /// <summary>
     /// 물건 하나를 만들어 parent 밑 그 자리에 놓는다. 없으면 null이고, 부르는 쪽이 시끄럽게
     /// 실패할 책임을 진다.
     ///
@@ -36,7 +50,13 @@ public static class DefDatabase
     /// 활성화돼야 한다. 밖에서 나중에 옮기면 Awake가 이미 지나간 뒤가 된다.
     /// parent가 null이면 로컬 좌표가 곧 월드 좌표다 - 탄이 그 경우다.
     /// </summary>
-    public static Thing Spawn(string defName, Transform parent, Vector2 localPosition, float rotationZ)
+    public static Thing Spawn(
+        string defName,
+        Transform parent,
+        Vector2 localPosition,
+        float rotationZ,
+        Vector2 sizeOverride = default,
+        Vector2 offsetShift = default)
     {
         Load();
 
@@ -44,7 +64,7 @@ public static class DefDatabase
             return null;
 
         return _defs.TryGetValue(defName, out ThingDef def)
-            ? def.Spawn(parent, localPosition, rotationZ)
+            ? def.Spawn(parent, localPosition, rotationZ, sizeOverride, offsetShift)
             : null;
     }
 

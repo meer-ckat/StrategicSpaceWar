@@ -1,5 +1,5 @@
 {
-  "defName": "45mm",
+  "defName": "105mm",
   "thingClass": "AutoCannonProjectile",
   "comps": [
     "SolidSkin",
@@ -16,12 +16,12 @@
       "y": 0
     }
   },
-  "mass": 0.3,
-  "caliber": 45,
-  "shatterVelocity": 2500,
+  "mass": 4,
+  "caliber": 105,
+  "shatterVelocity": 2000,
   "penetrationK": 0.18,
   "lifeTick": 600,
-  "muzzleSpeed": 300,
+  "muzzleSpeed": 1200,
   "armorLayer": {
     "m_Bits": 64
   },
