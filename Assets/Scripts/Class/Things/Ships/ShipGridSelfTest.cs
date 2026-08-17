@@ -154,6 +154,56 @@ public static class ShipGridSelfTest
                                       && map.cells[1, 1] == ShipGrid.Cell.Exterior);
         }
 
+        // 방을 다시 지어도 공기는 상태로 남아야 한다. Room 생성자가 만 기압으로 시작하므로
+        // 그냥 두면 선체가 갈라질 때마다 진공이던 방이 다시 숨을 쉬고, 벽은 여전히 뚫려
+        // 있으니 또 샌다 - "채워지고 새는" 증상이 그것이다.
+        {
+            var before = ShipGrid.ParseMap(Lines(
+                "#####",
+                "#...#",
+                "#####"));
+
+            List<Room> was = ShipGrid.BuildRooms(before, null, null);
+            was[0].air = 0f;                       // 우주로 다 샜다
+
+            var after = ShipGrid.ParseMap(Lines(
+                "#####",
+                "#...#",
+                "#####"));
+
+            List<Room> now = ShipGrid.BuildRooms(after, null, null);
+            Check("rebuild: fresh room starts full", Mathf.Approximately(now[0].Pressure, 1f));
+
+            ShipGrid.CarryAir(before, was, after, now);
+            Check("rebuild: vacuum stays vacuum", Mathf.Approximately(now[0].Pressure, 0f));
+        }
+
+        // 그리고 **칸 번호로 옮기면 안 된다.** Stamp가 원점을 살아남은 판의 극값에서 뽑기
+        // 때문에 조각이 떨어지면 남은 칸의 번호가 통째로 밀린다. 아래는 그 상황이다 -
+        // 넓은 격자의 오른쪽 방만 남았는데, 번호로 맞추면 왼쪽(진공)의 공기를 가져온다.
+        {
+            var wide = ShipGrid.ParseMap(Lines(
+                "#########",
+                "#...#...#",
+                "#########"));
+
+            List<Room> was = ShipGrid.BuildRooms(wide, null, null);
+            was[0].air = 0f;                       // 왼쪽 방은 진공, 오른쪽은 만 기압 그대로
+
+            var narrow = ShipGrid.ParseMap(Lines(
+                "#####",
+                "#...#",
+                "#####"));
+
+            List<Room> now = ShipGrid.BuildRooms(narrow, null, null);
+            ShipGrid.CarryAir(wide, was, narrow, now);
+
+            // 좁은 격자의 세 칸은 로컬 x가 -1, 0, +1이다. 넓은 격자에서 그 자리는
+            // 왼쪽 방의 끝 칸(진공) / 가운데 벽(없음) / 오른쪽 방의 첫 칸(만 기압)이다.
+            Check($"rebuild: 원점이 밀려도 로컬 좌표로 따라간다 (got {now[0].air:0.###})",
+                Mathf.Approximately(now[0].air, 1f));
+        }
+
         StampTest();
         MirroredHullTest();
         OffGridPlateTest();

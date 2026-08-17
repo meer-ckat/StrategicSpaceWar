@@ -148,7 +148,10 @@ public partial class Ship : Thing
 
         // 설계도가 제일 먼저다. drag·angleAccel 같은 수치가 def에서 오므로 리지드바디에
         // 옮겨 담기 전에 들어와 있어야 하고, 자식도 여기서 갈아엎으니 목록을 걷기 전이다.
-        if (ShipBuilder.SpawnFrom(transform, shipDefName, this))
+        //
+        // 저장된 런이 있으면 그것이 이긴다. 전투 결과를 안고 다음 구역으로 가는 것이
+        // 이 게임의 규칙이라, 설계도로 다시 짓는 것은 런이 끝났을 때뿐이다.
+        if (ShipBuilder.SpawnFrom(transform, RunShipFor(shipDefName), this))
         {
             // 인스펙터에 남아 있던 목록은 방금 지운 자식을 가리킨다.
             shipArmors.Clear();
@@ -180,6 +183,24 @@ public partial class Ship : Thing
         rig.mass = Mathf.Max(1f, shipArmors.Count * massPerPlate);
 
         _wasEffective = IsCombatEffective;
+    }
+
+    /// <summary>
+    /// 플레이어 함선이고 저장된 런이 있으면 그 def를, 아니면 설계도를 돌려준다.
+    ///
+    /// AI 함선은 항상 설계도다 - 적은 매 전투 새로 나온다. 손상을 들고 가는 것은
+    /// 플레이어 한 척뿐이고, 그게 이 게임에서 배 한 척이 특별한 유일한 자리다.
+    /// </summary>
+    private ShipDef RunShipFor(string designName)
+    {
+        ShipDef design = string.IsNullOrEmpty(designName) ? null : ShipDef.Load(designName);
+
+        if (!IsPlayerControlled)
+            return design;
+
+        ShipDef saved = RunState.Load();
+
+        return saved ?? design;
     }
 
     public override void OnTick()
@@ -227,6 +248,9 @@ public partial class Ship : Thing
         // 조종간을 놓은 채로 마지막 입력이 남아 있으면 시체가 계속 가속한다.
         thrustInput = Vector2.zero;
         angleInput = 0f;
+
+        // CrewAlive가 걸쇠라 이 자리는 배 한 척당 정확히 한 번이다.
+        RunLog.CrewLost(this);
     }
 
     /// <summary>
@@ -240,7 +264,14 @@ public partial class Ship : Thing
         bool effective = IsCombatEffective;
 
         if (_wasEffective && !effective)
+        {
             SoundManager.AudioShot("Critical", transform.position);
+
+            // 런 기록도 여기서 적는다. **이 걸쇠가 이미 상태를 사건으로 바꿔 놓았기
+            // 때문이다** - IsCombatEffective를 매 틱 읽으면 같은 죽음을 60번 적고,
+            // 원자로를 수리해 되살아난 배의 죽음까지 남는다.
+            RunLog.Finished(this);
+        }
 
         _wasEffective = effective;
     }
@@ -281,7 +312,12 @@ public partial class Ship : Thing
     /// </summary>
     void BuildRooms()
     {
-        rooms.Clear();
+        // 다시 짓기 **전에** 들고 있던 격자와 방을 잡아 둔다. 이 둘이 있어야 옛 기압을
+        // 새 방으로 옮길 수 있다 - 없으면(= 처음 짓는 배) 새 방이 만 기압으로 태어난다.
+        ShipGrid.Map old = _map;
+        List<Room> oldRooms = rooms;
+
+        rooms = new List<Room>();
         roomsOfDoor.Clear();
 
         var armorAt = new Dictionary<Vector2Int, Armor>();
@@ -296,6 +332,9 @@ public partial class Ship : Thing
         }
 
         rooms = ShipGrid.BuildRooms(_map, armorAt, doorAt);
+
+        // 파단으로 다시 지은 것이면 진공은 진공으로 남아야 한다.
+        ShipGrid.CarryAir(old, oldRooms, _map, rooms);
 
         _structure.Build(_map, breakawaySpeed);
 

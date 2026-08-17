@@ -220,6 +220,52 @@ public static class ShipGrid
     }
 
     /// <summary>
+    /// 옛 방들의 기압을 새 방들로 옮겨 담는다. <see cref="BuildRooms"/> 직후에 부른다.
+    ///
+    /// **공기는 상태다.** 방은 다시 지을 때마다 새 객체이고 <see cref="Room"/> 생성자는
+    /// 만 기압으로 시작하므로, 그냥 두면 선체가 갈라질 때마다 진공이던 방이 다시 숨을 쉰다.
+    /// 채워지고 새고 또 채워지는 증상이 그것이다.
+    ///
+    /// **칸 번호가 아니라 로컬 좌표를 열쇠로 쓴다.** <see cref="ShipBuilder.Stamp"/>가 원점을
+    /// 살아남은 판의 극값에서 뽑기 때문에, 뱃머리가 떨어져 나가면 남은 칸의 번호가 통째로
+    /// 밀린다. 같은 방이 (3,4)였다가 (0,4)가 되는 것이라 번호로 맞추면 엉뚱한 방의 공기를
+    /// 붓는다. 판의 로컬 좌표는 재부모화를 겪지 않은 쪽에서는 안 변한다.
+    ///
+    /// 옛 방에 없던 칸은 0이다 - 방이 아니었다면 우주였고, 우주는 가져올 공기가 없다.
+    /// </summary>
+    public static void CarryAir(Map from, List<Room> fromRooms, Map to, List<Room> toRooms)
+    {
+        if (from == null || to == null || fromRooms == null || toRooms == null)
+            return;
+
+        var was = new Dictionary<Vector2Int, float>();
+
+        foreach (Room room in fromRooms)
+        {
+            float pressure = room.Pressure;
+
+            foreach (Vector2Int c in room.cells)
+                was[Anchor(from, c)] = pressure;
+        }
+
+        foreach (Room room in toRooms)
+        {
+            float air = 0f;
+
+            // 부피가 아니라 칸별 기압의 합이다. 벽이 사라져 두 방이 하나가 되면 이것이
+            // 곧 섞인 결과고, 따로 섞는 코드가 필요 없다.
+            foreach (Vector2Int c in room.cells)
+                air += was.TryGetValue(Anchor(to, c), out float p) ? p : 0f;
+
+            room.air = air;
+        }
+    }
+
+    /// <summary>칸의 로컬 좌표를 정수로 굳힌 것. 격자가 밀려도 같은 칸은 같은 값이 나온다.</summary>
+    private static Vector2Int Anchor(Map map, Vector2Int cell) =>
+        Vector2Int.RoundToInt(map.ToLocal(cell.x, cell.y) / CellSize);
+
+    /// <summary>
     /// 공기가 통하는 칸을 4방향으로 번진다. Wall에 닿으면 그 칸의 Armor를 방의 벽 목록에,
     /// Door에 닿으면 그 문을 방의 문 목록에 넣고 거기서 멈춘다.
     /// Exterior와 맵 밖은 막기만 하고 아무것도 기록하지 않는다 - 붙잡을 판이 없다.

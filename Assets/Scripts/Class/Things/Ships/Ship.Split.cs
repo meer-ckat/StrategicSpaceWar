@@ -31,5 +31,13 @@ public partial class Ship
         shipCriticals.AddRange(GetComponentsInChildren<CriticalModule>());
 
         BuildRooms();
+
+        // **목록을 다시 채우고 방을 다시 지은 뒤**에 알린다. TrySplitIfBroken 직후에 부르면
+        // 구독자가 보는 shipGuns·shipCriticals에 방금 잔해로 떠난 부품이 그대로 들어 있어서,
+        // IsCombatEffective를 읽는 쪽이 두 동강 난 배를 아직 멀쩡하다고 본다.
+        //
+        // 여기가 "갈라졌다"의 유일한 자리다. TrySplitIfBroken이 실제로 조각을 떼어냈을 때만
+        // true를 돌려주므로, 판이 죽을 때마다가 아니라 배가 갈라진 틱에만 적힌다.
+        RunLog.HullSplit(this);
     }
 }
