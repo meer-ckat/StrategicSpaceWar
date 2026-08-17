@@ -109,6 +109,8 @@ public sealed class Campaign : TickBehaviour
         _targets.Clear();
         _spawned.Clear();
 
+        Repair();
+
         foreach (SpawnDef spawn in sector.spawns)
             Spawn(spawn);
 
@@ -162,6 +164,16 @@ public sealed class Campaign : TickBehaviour
             return;
         }
 
+        // **잔해를 걷어내기 전에 센다.** Begin이 지난 구역의 소환물을 지우므로 여기가
+        // 마지막 기회다.
+        int taken = CountSalvage();
+
+        if (taken > 0)
+        {
+            RunState.Salvage += taken;
+            Debug.Log($"[Campaign] 노획 판 {taken}장 (누적 {RunState.Salvage}).");
+        }
+
         _sector++;
         RunState.Sector = _sector;
 
@@ -176,6 +188,62 @@ public sealed class Campaign : TickBehaviour
         // 여기서 바로 틀면 Campaign이 Awake, StoryScriptManager가 OnEnable이라 순서가
         // 뒤집혀서 마무리 대사가 교전 종료 보고보다 먼저 나온다.
         _wait = Mathf.Max(1, interludeTicks);
+    }
+
+    /// <summary>
+    /// 적 선체에 **남아 있는** 판을 센다. 그것이 이 구역에서 뜯어올 수 있는 전부다.
+    ///
+    /// 새 장부가 없다 - <see cref="HullStructure.AliveCount"/>가 함선에도 잔해에도 이미
+    /// 있고, 그 값이 곧 "아직 실물이 있는 칸"이다.
+    ///
+    /// **떨어져 나간 조각은 안 센다.** 배가 갈라지면 조각은 새 GameObject로 가고 여기
+    /// 목록에 없다. 흩어진 것은 못 줍는다는 뜻이고, 그래서 배를 반토막 내면 노획도 반이
+    /// 된다 - 충각으로 갈아버리면 아무것도 안 남는 것과 같은 방향이다.
+    /// </summary>
+    private int CountSalvage()
+    {
+        int plates = 0;
+
+        foreach (GameObject wreck in _spawned)
+        {
+            if (wreck != null && wreck.TryGetComponent(out HullStructure structure))
+                plates += structure.AliveCount;
+        }
+
+        return plates;
+    }
+
+    /// <summary>
+    /// 노획으로 상한 판을 고친다. 구역에 들어서기 **전**이라, 다음 전투는 고쳐진 배로 한다.
+    ///
+    /// 남는 노획은 그대로 들고 간다 - 고칠 것이 없어서 못 쓴 것을 버리면, 곱게 이긴 전투가
+    /// 보상이 아니라 낭비가 된다.
+    /// </summary>
+    private void Repair()
+    {
+        int budget = RunState.Salvage;
+
+        if (budget <= 0)
+            return;
+
+        Ship player = null;
+
+        for (int i = 0; i < Ship.All.Count; i++)
+        {
+            if (Ship.All[i] != null && Ship.All[i].IsPlayerControlled)
+                player = Ship.All[i];
+        }
+
+        if (player == null)
+            return;
+
+        int used = player.RepairPlates(budget);
+
+        if (used <= 0)
+            return;
+
+        RunState.Salvage = budget - used;
+        Debug.Log($"[Campaign] 판 {used}장 수리. 노획 {RunState.Salvage}장 남음.");
     }
 
     private void Spawn(SpawnDef spawn)

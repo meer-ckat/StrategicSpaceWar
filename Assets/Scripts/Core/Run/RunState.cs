@@ -18,7 +18,26 @@ using UnityEngine;
 public static class RunState
 {
     private const string FileName = "run-ship.json";
-    private const string ProgressName = "run-progress.txt";
+    private const string ProgressName = "run-progress.json";
+
+    /// <summary>
+    /// 배 말고 런이 들고 가는 것들. **배 파일과 따로 사는 이유는 <see cref="Save"/>가 설계도
+    /// 원문에 placements만 갈아끼우는 비파괴 병합이기 때문이다** - 여기 있는 값을 거기 얹으면
+    /// 그 병합이 진행도까지 건드린다.
+    /// </summary>
+    [System.Serializable]
+    private class Progress
+    {
+        public int sector;
+
+        /// <summary>
+        /// 뜯어 온 판. **전투가 끝났을 때 적 선체에 남아 있던 판 수다.**
+        ///
+        /// 그래서 어떻게 잡았느냐가 곧 보상이다 - 관통으로 승무원만 죽이면 선체가 멀쩡히
+        /// 남아 많이 뜯어오고, 충각으로 갈아버리면 가져올 것이 없다. 규칙을 따로 안 썼다.
+        /// </summary>
+        public int salvage;
+    }
 
     private static string FilePath =>
         Path.Combine(Application.persistentDataPath, FileName);
@@ -65,15 +84,43 @@ public static class RunState
     /// </summary>
     public static int Sector
     {
-        // Exists를 탄다. 배 파일과 짝이 안 맞으면 여기서도 0이어야 하고, 그 판정을
-        // 두 벌로 두면 언젠가 한쪽만 고친다.
-        get =>
-            Exists && int.TryParse(File.ReadAllText(ProgressPath).Trim(), out int at)
-                ? Mathf.Max(0, at)
-                : 0;
+        get => Read().sector;
 
-        set => File.WriteAllText(ProgressPath, Mathf.Max(0, value).ToString());
+        set
+        {
+            Progress p = Read();
+            p.sector = Mathf.Max(0, value);
+            Write(p);
+        }
     }
+
+    /// <summary>쓸 수 있는 노획. 판 한 장어치가 1이다.</summary>
+    public static int Salvage
+    {
+        get => Read().salvage;
+
+        set
+        {
+            Progress p = Read();
+            p.salvage = Mathf.Max(0, value);
+            Write(p);
+        }
+    }
+
+    /// <summary>
+    /// 진행도를 읽는다. **<see cref="Exists"/>를 탄다** - 배 파일과 짝이 안 맞으면 여기서도
+    /// 처음 상태여야 하고, 그 판정을 두 벌로 두면 언젠가 한쪽만 고친다.
+    /// </summary>
+    private static Progress Read()
+    {
+        if (!Exists)
+            return new Progress();
+
+        return JsonUtility.FromJson<Progress>(File.ReadAllText(ProgressPath)) ?? new Progress();
+    }
+
+    private static void Write(Progress p) =>
+        File.WriteAllText(ProgressPath, JsonUtility.ToJson(p, prettyPrint: true));
 
     /// <summary>
     /// 지금 이 배의 상태를 그대로 뜬다. <see cref="Battle.onEnd"/>에서 부른다.
@@ -162,4 +209,55 @@ public static class RunState
         return DefKeys.ReplaceTopLevelValue(
             designRaw, "placements", damagedJson.Substring(start, end - start + 1));
     }
+
+    // 여기부터 아래는 에디터 전용이다. **닫는 중괄호는 이 블록 밖에 있어야 한다** -
+    // 안에 두면 빌드에서 클래스가 안 닫혀 CS1513이 나는데, 에디터에서는 UNITY_EDITOR가
+    // 항상 정의돼 있어서 영영 안 보인다. ShipExporter가 실제로 그렇게 깨져 있었다.
+#if UNITY_EDITOR
+
+    /// <summary>
+    /// 저장된 런을 지운다. 다음 실행은 설계도 그대로, 1구역, 노획 0에서 시작한다.
+    ///
+    /// 파일이 persistentDataPath에 있고 그 경로가 AppData\LocalLow 밑이라 탐색기 기본
+    /// 설정에서 숨겨져 있다. 손으로 지우기 어려운 자리에 있는 것이 이 메뉴의 이유다.
+    /// </summary>
+    [UnityEditor.MenuItem("Tools/Run/Reset Run")]
+    public static void ResetRun()
+    {
+        bool had = File.Exists(FilePath) || File.Exists(ProgressPath);
+
+        Clear();
+
+        Debug.Log(had
+            ? $"[RunState] 런을 지웠다. 다음 실행은 1구역부터: {Application.persistentDataPath}"
+            : "[RunState] 지울 런이 없다. 이미 처음 상태다.");
+    }
+
+    /// <summary>저장 폴더를 연다. 숨은 폴더라 주소를 알아도 찾아 들어가기 번거롭다.</summary>
+    [UnityEditor.MenuItem("Tools/Run/Open Save Folder")]
+    public static void OpenSaveFolder()
+    {
+        Directory.CreateDirectory(Application.persistentDataPath);
+        UnityEditor.EditorUtility.RevealInFinder(Application.persistentDataPath);
+    }
+
+    /// <summary>지금 저장된 런이 무엇인지 한 줄로. 무엇을 지우는지 보고 나서 지우라고.</summary>
+    [UnityEditor.MenuItem("Tools/Run/Log Run State")]
+    public static void LogRunState()
+    {
+        if (!Exists)
+        {
+            Debug.Log("[RunState] 저장된 런이 없다.");
+            return;
+        }
+
+        ShipDef ship = Load();
+
+        Debug.Log(
+            $"[RunState] {Sector + 1}구역, 노획 {Salvage}장, " +
+            $"배 '{ship?.basedOn ?? "?"}' 판 {ship?.placements.Count ?? 0}장. " +
+            Application.persistentDataPath);
+    }
+
+#endif
 }
