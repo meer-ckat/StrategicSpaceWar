@@ -63,6 +63,10 @@ public class CriticalModule : Thing, IDamageable
 
     public override void OnTick() { }
 
+    /// <summary>로드 경로. 값을 그냥 놓는다 - TakeDamage의 부작용을 타지 않는다.</summary>
+    public void RestoreHealth01(float fraction)
+        => _health = maxHealth * UnityEngine.Mathf.Clamp01(fraction);
+
     public void TakeDamage(float amount)
     {
         if (amount <= 0f || _detonated)
@@ -122,5 +126,9 @@ public class CriticalModule : Thing, IDamageable
         }
 
         Debug.Log($"[{name}] 유폭. 피해 {blastDamage:0}.");
+
+        // _chain 상한에 걸려 위쪽 return으로 빠진 경우는 여기 안 온다 - 안 터진 유폭을
+        // 기록하면 연쇄 상한이 로그에서만 없던 일이 된다.
+        RunLog.Detonated(this);
     }
 }

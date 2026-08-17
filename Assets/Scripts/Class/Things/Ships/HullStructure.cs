@@ -205,11 +205,83 @@ public sealed class HullStructure : MonoBehaviour
         return false;
     }
 
+    /// <summary>
+    /// 판 한 장을 잔해로 떼어낸다. <see cref="Armor"/>가 주저앉을 때 부른다 - 지우는 대신
+    /// 떨어져 나가게 하는 것이 전부다.
+    ///
+    /// **<see cref="Breakaway"/>의 의식은 안 탄다.** 절단면 광원은 큰 단면이 실제로 생길 때
+    /// 하나만 놓는 것인데, 판마다 놓으면 충각 한 번에 40개가 생겨서 "판마다 Light2D를 달지
+    /// 않는다"는 규칙이 여기서 뒷문으로 깨진다. 로그도 마찬가지로 40줄이 된다.
+    /// </summary>
+    public bool Shed(Transform plate)
+    {
+        if (!_hasMap || plate == null || plate.parent != transform)
+            return false;
+
+        Vector2Int cell = _map.ToCell(plate.localPosition);
+
+        if (!_map.Inside(cell) || !_alive.Contains(cell))
+            return false;
+
+        // 떼어내기 전에 격자에서 지운다. MakeDebris가 _alive에서 빼주지만 맵은 안 건드린다 -
+        // 안 지우면 오버레이가 이미 뚫린 자리를 계속 갑판으로 그린다.
+        if (ShipGrid.Solid(_map.cells[cell.x, cell.y]))
+            _map.cells[cell.x, cell.y] = ShipGrid.Cell.Empty;
+
+        _dirty = true;
+
+        // **정적 버퍼를 안 쓴다.** 여기는 ApplyDamage 한가운데고, 그 아래로 붕괴 파편이
+        // 다른 판을 죽이며 재진입할 수 있다. GameObject 하나를 새로 만드는 값에 비하면
+        // 한 칸짜리 리스트 할당은 공짜고, 재진입 버그가 존재할 자리가 사라진다.
+        var chunk = new List<Vector2Int> { cell };
+        var byCell = new Dictionary<Vector2Int, Transform> { [cell] = plate };
+
+        return MakeDebris(chunk, byCell, _alive.Count, out _, out _);
+    }
+
     private void Breakaway(
         List<Vector2Int> chunk,
         Dictionary<Vector2Int, Transform> byCell,
         int totalAlive)
     {
+        if (!MakeDebris(chunk, byCell, totalAlive, out GameObject go, out Vector2 centre))
+            return;
+
+        // 절단면 광원. **여기 하나뿐이다** - 판마다 Light2D를 달면 한 척에 200개가 생긴다.
+        // 판의 적열은 SpriteRenderer.color의 HDR 값이 Bloom을 통해 내는 것이고, 실제 광원은
+        // 큰 단면이 실제로 생기는 이 순간에만 놓는다.
+        DefDatabase.Spawn("Cut Glow", null, centre, 0f);
+
+        // 조각이 클수록 낮게. 판 두 장이 떨어지는 것과 배가 반토막 나는 것은 같은 소리가 아니다.
+        SoundManager.AudioShot(
+            "Breakaway", centre, 1f, Mathf.Lerp(1.15f, 0.65f, Mathf.Clamp01(chunk.Count / 60f)));
+
+        // 갈라진 쪽 판들도 달아오른다. 반대쪽은 Armor가 죽으면서 이미 이웃에게 알렸지만,
+        // 이쪽은 죽은 판이 없이 떨어져 나온 것이라 알려줄 사람이 없다.
+        foreach (Vector2Int cell in chunk)
+        {
+            if (byCell.TryGetValue(cell, out Transform child) && child != null
+                && child.TryGetComponent(out Armor plate))
+                plate.AddHeat(Ballistics.HeatFromExposure * 0.5f);
+        }
+
+        Debug.Log($"[{name}] 선체 {chunk.Count}칸이 떨어져 나갔다.", go);
+    }
+
+    /// <summary>
+    /// 잔해 몸통을 만들고 판들을 옮겨 담는다. 여기까지가 파단과 판 한 장 떨어짐의 공통분모고,
+    /// 광원·소리·로그는 부르는 쪽이 정한다 - 한 장짜리는 그 의식을 치르면 안 된다.
+    /// </summary>
+    private bool MakeDebris(
+        List<Vector2Int> chunk,
+        Dictionary<Vector2Int, Transform> byCell,
+        int totalAlive,
+        out GameObject debris,
+        out Vector2 centre)
+    {
+        debris = null;
+        centre = transform.position;
+
         var go = new GameObject($"{name} Debris");
         go.transform.SetPositionAndRotation(transform.position, transform.rotation);
 
@@ -233,7 +305,7 @@ public sealed class HullStructure : MonoBehaviour
         body.mass = mass;
         _body.mass = Mathf.Max(1f, _body.mass - mass);
 
-        Vector2 centre = Vector2.zero;
+        Vector2 sum = Vector2.zero;
         int moved = 0;
 
         foreach (Vector2Int cell in chunk)
@@ -241,7 +313,7 @@ public sealed class HullStructure : MonoBehaviour
             if (!byCell.TryGetValue(cell, out Transform child) || child == null)
                 continue;
 
-            centre += (Vector2)child.position;
+            sum += (Vector2)child.position;
             moved++;
 
             child.SetParent(go.transform, worldPositionStays: true);
@@ -254,10 +326,10 @@ public sealed class HullStructure : MonoBehaviour
         if (moved == 0)
         {
             Destroy(go);
-            return;
+            return false;
         }
 
-        centre /= moved;
+        centre = sum / moved;
 
         // 배가 돌고 있었으면 그 자리의 접선 속도를 그대로 물려받는다. 안 그러면 회전 중에
         // 떨어진 조각이 제자리에 멈춰 서서 배가 조각을 통과하는 것처럼 보인다.
@@ -291,24 +363,7 @@ public sealed class HullStructure : MonoBehaviour
         hulk.lifeTick = Ballistics.DebrisLifeTick;
         hulk.breakawaySpeed = _breakawaySpeed;
 
-        // 절단면 광원. **여기 하나뿐이다** - 판마다 Light2D를 달면 한 척에 200개가 생긴다.
-        // 판의 적열은 SpriteRenderer.color의 HDR 값이 Bloom을 통해 내는 것이고, 실제 광원은
-        // 큰 단면이 실제로 생기는 이 순간에만 놓는다.
-        DefDatabase.Spawn("Cut Glow", null, centre, 0f);
-
-        // 조각이 클수록 낮게. 판 두 장이 떨어지는 것과 배가 반토막 나는 것은 같은 소리가 아니다.
-        SoundManager.AudioShot(
-            "Breakaway", centre, 1f, Mathf.Lerp(1.15f, 0.65f, Mathf.Clamp01(chunk.Count / 60f)));
-
-        // 갈라진 쪽 판들도 달아오른다. 반대쪽은 Armor가 죽으면서 이미 이웃에게 알렸지만,
-        // 이쪽은 죽은 판이 없이 떨어져 나온 것이라 알려줄 사람이 없다.
-        foreach (Vector2Int cell in chunk)
-        {
-            if (byCell.TryGetValue(cell, out Transform child) && child != null
-                && child.TryGetComponent(out Armor plate))
-                plate.AddHeat(Ballistics.HeatFromExposure * 0.5f);
-        }
-
-        Debug.Log($"[{name}] 선체 {chunk.Count}칸이 떨어져 나갔다.");
+        debris = go;
+        return true;
     }
 }

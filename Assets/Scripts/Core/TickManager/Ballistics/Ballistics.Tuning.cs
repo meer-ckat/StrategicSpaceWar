@@ -230,13 +230,19 @@ public static partial class Ballistics
     /// **반경을 정하는 것은 blastDamage가 아니라 아래 BlastCutoff다.** 0.65에 컷오프 0.05면
     /// 약 7 m에서 끊긴다. 세기를 올리면 그 원 안의 판이 더 확실히 죽을 뿐 원이 커지지 않는다.
     /// </summary>
-    public const float BlastFalloff = 0.3f;
+    public const float BlastFalloff = 0.8f;
 
     /// <summary>폭심 피해의 이 비율 아래로 떨어지면 멈춘다. 곧 폭발 반경.</summary>
     public const float BlastCutoff = 0.05f;
 
-    /// <summary>판 상한. 파편 연쇄 상한과 같은 이유다.</summary>
-    public const int BlastMaxPlates = 128;
+    /// <summary>
+    /// 판 상한. 파편 연쇄 상한과 같은 이유다.
+    ///
+    /// **BlastFalloff를 올리면 이것도 같이 봐야 한다.** 0.8이면 반경 13.4 m라 원 안에
+    /// 566칸이 들어가서, 128에서 끊으면 큰 폭발이 조용히 잘린다. 구축함이 241판이므로
+    /// 256이면 한 척을 통째로 덮고도 남는다.
+    /// </summary>
+    public const int BlastMaxPlates = 256;
 
     /// <summary>
     /// 자유 공간을 건너가는 유폭의 반경(m). **손으로 적는 값이 아니다** -

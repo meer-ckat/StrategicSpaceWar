@@ -19,6 +19,10 @@ public class Engine : Thing, IDamageable
         _health = maxHealth;
     }
 
+    /// <summary>로드 경로. 값을 그냥 놓는다 - TakeDamage의 부작용을 타지 않는다.</summary>
+    public void RestoreHealth01(float fraction)
+        => _health = maxHealth * UnityEngine.Mathf.Clamp01(fraction);
+
     public void TakeDamage(float amount)
     {
         if (amount <= 0f) return;

@@ -70,6 +70,41 @@ public abstract class Armor : Thing
     /// <summary>안 상한 상태의 명목 RHA.</summary>
     public float RHA => rha;
 
+    /// <summary>판에 남은 구조 비율(0~1). 런 사이에 손상을 들고 가는 값이 이것이다.</summary>
+    public float HealthFraction
+    {
+        get
+        {
+            float total = 0f;
+
+            for (int i = 0; i < SubCount; i++)
+                total += _hp[i];
+
+            return PlateHp > 0f ? total / PlateHp : 0f;
+        }
+    }
+
+    /// <summary>
+    /// 저장된 손상을 되돌려 놓는다. **피해를 다시 넣는 것이 아니다.**
+    ///
+    /// ApplyDamageEvenly로 되살리면 서브셀이 그 비율만큼 실제로 죽고, 0.4를 복원하려다
+    /// PlateCollapseFraction(0.5)을 넘겨 **전투에서 살아남은 판이 로드하자마자 무너진다.**
+    /// 여기는 피해 경로가 아니라 로드 경로라 값을 그냥 놓는다.
+    ///
+    /// Awake가 만땅으로 초기화하므로 **활성화된 뒤에** 불러야 한다.
+    /// </summary>
+    public void RestoreHealthFraction(float fraction)
+    {
+        float f = Mathf.Clamp01(fraction);
+
+        for (int i = 0; i < SubCount; i++)
+            _hp[i] = SubCellMaxHp * f;
+
+        _dead = 0;
+        AnyBreached = false;
+        DamageVersion++;
+    }
+
     protected override void Awake()
     {
         base.Awake();
@@ -283,8 +318,6 @@ public abstract class Armor : Thing
         if (_collapsed || _dead < Mathf.CeilToInt(SubCount * Ballistics.PlateCollapseFraction))
             return;
 
-        _collapsed = true;
-
         // 이웃에게 "네 안쪽 면이 방금 바깥이 됐다"고 알린다. 이게 절단면 발광의 전부다 -
         // 폴링도 탐색도 없이, 판이 죽는 그 순간에 정확히 닿아야 할 8장에게만 간다.
         foreach (Armor neighbour in Neighbours)
@@ -292,6 +325,21 @@ public abstract class Armor : Thing
             if (neighbour != null && SameBodyAs(neighbour))
                 neighbour.AddHeat(Ballistics.HeatFromExposure);
         }
+
+        // **함선에 붙어 있던 판은 지우지 않고 떼어낸다.** PlateCollapseFraction이 0.5라
+        // 주저앉는 판은 서브셀이 절반 살아 있다 - 그 재료를 파편으로 흩는 대신 판째로
+        // 떠나보내면 "재료는 어디론가 간다"가 눈에 보이는 물체로 남는다. 충각은 채널을
+        // 깨끗이 뚫어서 아무것도 안 끊으므로, 이 길이 없으면 맞은 배가 증발한다.
+        //
+        // **_collapsed를 안 세운다.** 이 판은 잔해에서 서브셀을 하나 더 잃으면 같은 검사에
+        // 다시 걸리는데, 그때는 부모가 Hulk라 아래 함선 분기를 안 타고 원래 길로 간다.
+        // 판은 잔해로 한 번 더 살고, 그 뒤로는 예전과 글자 그대로 같다.
+        if (GetComponentInParent<Ship>() != null
+            && GetComponentInParent<HullStructure>() is HullStructure hull
+            && hull.Shed(transform))
+            return;
+
+        _collapsed = true;
 
         // 남은 칸이 몇 개 있어도 판으로서는 이미 끝났다. 그 몫도 파편으로 나가야지,
         // 그냥 증발하면 서브셀 하나가 죽을 때마다 파편이 나오던 규칙이 여기서만 깨진다.

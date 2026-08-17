@@ -46,6 +46,13 @@ public static class RamImpact
 
     private static readonly HashSet<Armor> _seen = new();
 
+    /// <summary>
+    /// <see cref="FarthestReach"/>가 이 몸의 콜라이더를 받아 오는 자리. 함선 한 척이 판
+    /// 300장이고 모듈까지 붙으므로 넉넉히 잡는다. Punch가 OnTick에서만 불리고 재진입하지
+    /// 않으므로 정적이어도 안전하다 - Conduct/Radiate와 달리 이 안에서 피해가 안 나간다.
+    /// </summary>
+    private static readonly Collider2D[] _attached = new Collider2D[1024];
+
     // 접점마다 새로 만들면 한 번 부딪힐 때 최대 16쌍이 쓰레기가 된다. 충각은 난전에서
     // 매 틱 들어온다.
     private static readonly Queue<Armor> _wave = new();
@@ -57,11 +64,11 @@ public static class RamImpact
     private static int _conducting;
 
     /// <summary>
-    /// 유폭이 빈 공간으로 건너갈 때 쓰는 질의 버퍼. 반경 7 m 원이 덮는 1 m 칸이 약 154개고
-    /// 판은 그보다 많을 수 없으니, 두 배 넉넉하게 잡아 두면 마스크 없이도 안 잘린다.
+    /// 유폭이 빈 공간으로 건너갈 때 쓰는 질의 버퍼. **BlastRadius를 따라가야 한다** -
+    /// 반경 13.4 m 원이 덮는 1 m 칸이 약 566개고, 모듈 콜라이더까지 들어오므로 두 배 잡는다.
     /// 그래도 꽉 차면 Radiate가 경고한다 - 조용히 자르지 않는다.
     /// </summary>
-    private const int NearbyCapacity = 512;
+    private const int NearbyCapacity = 1152;
 
     private static readonly Collider2D[] _nearby = new Collider2D[NearbyCapacity];
 
@@ -103,11 +110,29 @@ public static class RamImpact
         float speed = velocity.magnitude;
         bool pushing = thrust.sqrMagnitude > 1f;
 
-        if (speed < Ballistics.RamMinSpeed && !pushing)
+        // **중심 속도만 보면 휘두르는 동작이 통째로 사라진다.** 접촉점의 실제 속도는
+        // v + ω x r이고, lance처럼 코가 중심에서 30 m 떨어진 배는 각속도 15도/초에서
+        // 접선속도가 7.9 m/s다 - RamMinSpeed보다 큰데 지금까지 0으로 세어졌다.
+        float omega = body.angularVelocity * Mathf.Deg2Rad;      // rad/s
+        Vector2 centre = body.worldCenterOfMass;
+        float rMax = FarthestReach(body, centre, out Vector2 farPoint);
+
+        // 이번 틱에 이 몸의 **어느 점이든** 나아갈 수 있는 최대 거리. 스윕 길이의 상한이다.
+        float reach = speed + Mathf.Abs(omega) * rMax;
+
+        if (reach < Ballistics.RamMinSpeed && !pushing)
             return;
 
-        // 서 있으면 진행 방향이 없다. 그때는 밀고 있는 쪽이 곧 파고드는 쪽이다.
-        Vector2 dir = speed > 1e-3f ? velocity / speed : thrust.normalized;
+        // 서 있으면 진행 방향이 없다. 도는 중이면 제일 먼 점의 접선이 곧 휘두르는 쪽이고,
+        // 그것도 없으면 밀고 있는 쪽이 파고드는 쪽이다.
+        Vector2 dir;
+
+        if (speed > 1e-3f)
+            dir = velocity / speed;
+        else if (Mathf.Abs(omega) * rMax > 1e-3f)
+            dir = (Ballistics.Rotate(farPoint - centre, 90f) * Mathf.Sign(omega)).normalized;
+        else
+            dir = thrust.normalized;
 
         if (dir.sqrMagnitude < 0.5f)
             return;
@@ -121,7 +146,8 @@ public static class RamImpact
         //
         // 거리는 이번 틱에 나아가는 만큼이다. 그 앞의 얇은 한 겹만 지워야 구멍이 배를
         // 따라 자란다.
-        float step = speed * Core.TickManager.TickDeltaTime + Ballistics.RamSkin;
+        float dt = Core.TickManager.TickDeltaTime;
+        float step = reach * dt + Ballistics.RamSkin;
         int n = body.Cast(dir, _punch, step);
 
         if (n == 0)
@@ -155,6 +181,18 @@ public static class RamImpact
             if (!_seen.Add(plate))
                 continue;
 
+            // **스윕 거리는 상한이지 이 점의 거리가 아니다.** step은 제일 빠른 점(회전이면
+            // 제일 먼 점) 기준이라, 중심 근처의 판까지 그만큼 앞을 지운다. 예전에 반폭짜리
+            // 원으로 쓸어서 "원격으로 터지는 것처럼 보인" 것과 같은 실수다.
+            //
+            // 그래서 점마다 진짜 속도로 다시 본다. 회전하는 몸에서는 코가 닿는 동안 허리는
+            // 아직 멀리 있고, 그것이 맞다.
+            Vector2 arm = _punch[i].point - centre;
+            Vector2 pointVelocity = velocity + Ballistics.Rotate(arm, 90f) * omega;
+
+            if (Vector2.Dot(pointVelocity, dir) * dt + Ballistics.RamSkin < _punch[i].distance)
+                continue;
+
             if (_plates.Count == 0)
                 where = _punch[i].point;
 
@@ -167,7 +205,13 @@ public static class RamImpact
         if (contacts == 0)
             return;
 
-        float motion = 0.5f * body.mass * speed * speed;
+        // **회전 운동에너지도 예산이다.** 여기서만 진짜 관성 모멘트를 쓴다 - Ship.Angle은
+        // 각속도를 직접 대입하고 관성 모멘트를 angleAccel에 녹여 두었지만, 그건 조종 모델의
+        // 사정이고 에너지는 리지드바디가 콜라이더에서 뽑아 둔 body.inertia가 진실이다.
+        float linear = 0.5f * body.mass * speed * speed;
+        float spin = 0.5f * body.inertia * omega * omega;
+        float motion = linear + spin;
+
         float press = Mathf.Max(0f, Vector2.Dot(thrust, dir)) * step;
 
         float pressEach = press * scale / contacts;
@@ -221,8 +265,10 @@ public static class RamImpact
 
         if (RamLog)
             Debug.Log(
-                $"[RAM] v={speed:F1} 접촉={contacts}장 충돌풀={pool:F0}(쓴 {fromMotion:F0}) "
-                + $"압력={press * scale:F1}(판당 {pressEach:F2}) step={step:F2}", body);
+                $"[RAM] v={speed:F1} w={body.angularVelocity:F1}도/s rMax={rMax:F1} "
+                + $"reach={reach:F1} 접촉={contacts}장 충돌풀={pool:F0}(쓴 {fromMotion:F0}, "
+                + $"선형 {linear / motion:P0}) 압력={press * scale:F1}(판당 {pressEach:F2}) "
+                + $"step={step:F2}", body);
 
         if (spent <= 0f)
             return;
@@ -256,15 +302,73 @@ public static class RamImpact
         // 배는 줄어든 속도로 그리로 들어가고, 거기서 제대로 부딪힌다.
         // **미는 힘으로 쓴 몫은 속도를 안 깎는다.** 이미 서 있는 배에서 뺄 속도가 없다.
         // 충돌 풀에서 나간 것만 감속한다 - 이제 둘이 따로 세어져 있어서 나눌 필요가 없다.
-        if (speed <= 1e-3f)
+        if (motion <= 0f)
             return;
 
         float joules = fromMotion / (Ballistics.DamageScale * Ballistics.RamDamageFraction);
 
-        float slowed = Mathf.Sqrt(
-            Mathf.Max(0f, speed * speed - 2f * joules / Mathf.Max(1f, body.mass)));
+        // **쓴 만큼을 두 운동에서 각각 뺀다.** 예산을 합쳐서 냈으니 청구서도 나눠서 물려야
+        // 한다 - 선형에만 물리면 도는 힘으로 부순 배가 영영 안 느려지고, 회전에만 물리면
+        // 직진으로 박은 배가 멀쩡히 계속 간다. 몫은 각자가 예산에 넣은 비율 그대로다.
+        if (speed > 1e-3f)
+        {
+            float paid = joules * (linear / motion);
 
-        body.linearVelocity *= slowed / speed;
+            float slowed = Mathf.Sqrt(
+                Mathf.Max(0f, speed * speed - 2f * paid / Mathf.Max(1f, body.mass)));
+
+            body.linearVelocity *= slowed / speed;
+        }
+
+        if (Mathf.Abs(omega) > 1e-4f && body.inertia > 1e-4f)
+        {
+            float paid = joules * (spin / motion);
+
+            float slowed = Mathf.Sqrt(
+                Mathf.Max(0f, omega * omega - 2f * paid / body.inertia));
+
+            body.angularVelocity = slowed * Mathf.Sign(omega) * Mathf.Rad2Deg;
+        }
+    }
+
+    /// <summary>
+    /// 중심에서 이 몸의 제일 먼 점까지의 거리. 회전이 한 틱에 닿을 수 있는 범위를 정한다.
+    ///
+    /// 콜라이더 bounds의 네 모서리를 본다. AABB라 회전한 판에서는 살짝 크게 나오는데,
+    /// 크게 나오는 쪽이 안전하다 - 이 값은 스윕 **상한**일 뿐이고, 실제로 어느 판이 닿는지는
+    /// 점마다 v + ω x r로 다시 거른다.
+    /// </summary>
+    private static float FarthestReach(Rigidbody2D body, Vector2 centre, out Vector2 farPoint)
+    {
+        farPoint = centre;
+
+        int n = body.GetAttachedColliders(_attached);
+        float best = 0f;
+
+        for (int i = 0; i < n; i++)
+        {
+            if (_attached[i] == null || !_attached[i].enabled)
+                continue;
+
+            Bounds b = _attached[i].bounds;
+
+            for (int corner = 0; corner < 4; corner++)
+            {
+                var p = new Vector2(
+                    (corner & 1) == 0 ? b.min.x : b.max.x,
+                    (corner & 2) == 0 ? b.min.y : b.max.y);
+
+                float d = (p - centre).sqrMagnitude;
+
+                if (d <= best)
+                    continue;
+
+                best = d;
+                farPoint = p;
+            }
+        }
+
+        return Mathf.Sqrt(best);
     }
 
     /// <summary>
