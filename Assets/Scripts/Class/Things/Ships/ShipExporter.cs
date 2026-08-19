@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using System.IO;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -36,6 +37,23 @@ public static class ShipExporter
             : Sanitise(ship.name);
 
         ShipDef def = Export(ship.transform, defName);
+
+        Directory.CreateDirectory(ShipDef.DirectoryPath);
+        string path = ShipDef.PathOf(defName);
+        string read = File.ReadAllText(path);
+
+        if(!string.IsNullOrEmpty(read))
+        {
+            bool s = EditorUtility.DisplayDialog("잠깐만", "현재 path에 이미 배가 있다. 업데이트 한 것이 아니라면 취소를 눌러라.", "승인", "취소");
+            if(!s)
+                return;
+            else
+            {
+                s = EditorUtility.DisplayDialog("마지막 확인", "진짜 할 것인가?", "승인", "취소");
+                if(!s)
+                    return;
+            }
+        }
 
         if (def == null)
             return;
@@ -94,25 +112,52 @@ public static class ShipExporter
     /// <summary>
     /// 자식들을 배치 리스트로. 판은 격자 칸으로, 모듈은 자기가 붙을 판과 함께.
     /// </summary>
-    public static ShipDef Export(Transform hull, string defName)
+    public static ShipDef Export(Transform hull, string defName, ShipDef authored = null)
     {
         var armorAt = new Dictionary<Vector2Int, Armor>();
         var doorAt = new Dictionary<Vector2Int, Door>();
 
-        ShipGrid.Map map = ShipBuilder.Stamp(hull, armorAt, doorAt);
+        (ShipGrid.Map map, Vector2Int mins)auth = (null,default);
+
+        if(authored != null)
+        {
+            if(hull != null)
+            {
+                if(hull.childCount <= 0)
+                    return null;
+            }
+            auth = ShipBuilder.AuthoredMap(authored, hull);
+        }
+    
+        ShipGrid.Map map = auth.map ?? ShipBuilder.Stamp(hull, armorAt, doorAt);
 
         if (map == null)
         {
             Debug.LogError($"[ShipExporter] {hull.name}에 판이 하나도 없다.");
             return null;
         }
-
+    
         var def = new ShipDef { defName = defName };
         int nameless = 0;
 
         // 선체 직속인데 판이 아닌 것 = 어느 벽에도 안 붙은 모듈. 벽이 부서져도 안 죽으므로
         // 거의 항상 저작 실수다.
         int unmounted = 0;
+        int outside = 0;
+
+        Vector2Int LocalToAuthored(Vector2 local, Transform owner)
+        {
+            Vector2Int cell = map.ToCell(local);
+            
+            if (!map.Inside(cell))
+            {
+                Debug.LogError($"[ShipExporter] '{owner.name}'이 설계도 격자 밖 {cell}에 있다.", owner);
+                outside++;
+            }
+            
+            return cell + auth.mins;
+        }
+        if(outside>0)Debug.LogWarning("hey hey your technical debt ready: " + outside);
 
         foreach (Transform child in hull)
         {
@@ -133,7 +178,7 @@ public static class ShipExporter
                 continue;
             }
 
-            Vector2Int cell = map.ToCell(child.localPosition);
+            Vector2Int cell = LocalToAuthored(child.localPosition, child);
 
             if (child.GetComponent<Armor>() == null && child.GetComponent<Door>() == null)
                 unmounted++;
@@ -158,7 +203,7 @@ public static class ShipExporter
             if (child == null || child.GetComponent<Armor>() == null)
                 continue;
 
-            Vector2Int plateCell = map.ToCell(child.localPosition);
+            Vector2Int plateCell = LocalToAuthored(child.localPosition, child);
 
             foreach (Transform module in child)
             {
@@ -167,7 +212,7 @@ public static class ShipExporter
                 if (thing == null || string.IsNullOrEmpty(thing.defName))
                     continue;
 
-                Vector2Int cell = map.ToCell(hull.InverseTransformPoint(module.position));
+                Vector2Int cell = LocalToAuthored(hull.InverseTransformPoint(module.position), module);
 
                 var placement = new Placement
                 {

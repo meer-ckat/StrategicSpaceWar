@@ -140,7 +140,8 @@ public static class RunState
         }
 
         string origin = string.IsNullOrEmpty(ship.shipDefName) ? ship.name : ship.shipDefName;
-        ShipDef damaged = ShipExporter.Export(ship.transform, origin);
+        ShipDef design = ShipDef.Load(origin);
+        ShipDef damaged = ShipExporter.Export(ship.transform, origin, design);
 
         if (damaged == null)
         {
@@ -153,7 +154,7 @@ public static class RunState
         string text = JsonUtility.ToJson(damaged, prettyPrint: true);
 
         // 설계도 원문 위에 배치만 얹는다. 이러면 배 수치가 글자 하나까지 그대로 따라온다.
-        ShipDef design = ShipDef.Load(origin);
+        Debug.Assert(design!=null); //이미 146줄에서 검사되는데 굳이? 일단 놔둘게.
 
         if (design != null && !string.IsNullOrEmpty(design.raw))
         {
