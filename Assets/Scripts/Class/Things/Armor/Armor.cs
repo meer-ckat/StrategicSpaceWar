@@ -298,8 +298,6 @@ public abstract class Armor : Thing
         if (amount <= 0f || _collapsed)
             return;
 
-        DamageLog.Hit(this);
-
         // 맞은 만큼 달아오른다. 서브셀 하나를 통째로 날리는 피해가 기준.
         AddHeat(amount / Mathf.Max(1e-3f, SubCellMaxHp) * Ballistics.HeatFromDamage);
         SoundManager.AudioShot("Penetrate", transform.position, Mathf.Clamp01(amount / 100f));
