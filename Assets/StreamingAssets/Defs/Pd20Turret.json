@@ -1,0 +1,27 @@
+{
+  "defName": "pd20",
+  "thingClass": "Gun",
+  "comps": [
+    "SolidSkin"
+  ],
+  "layer": "Module",
+  "collider": {
+    "size": { "x": 0.6, "y": 0.6 },
+    "offset": { "x": 0, "y": 0 }
+  },
+  "projectile": "20mm",
+  "muzzleSpeed": 1400,
+  "roundsPerMinute": 900,
+  "aim": 0,
+  "slewRate": 140,
+  "fireArc": 5,
+  "muzzleOffset": 0.6,
+  "friendlyCheckRange": 60,
+  "maxHealth": 90,
+  "tint": {
+    "r": 0.62,
+    "g": 0.66,
+    "b": 0.7,
+    "a": 1
+  }
+}
