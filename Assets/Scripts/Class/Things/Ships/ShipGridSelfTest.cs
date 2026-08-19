@@ -211,6 +211,7 @@ public static class ShipGridSelfTest
         AuthoredFrameTest();
         HullSkinSizeTest();
         StampFromDefTest();
+        RearSplitTest();
 
         Debug.Log($"[ShipGrid] {_pass} passed, {_fail} failed.");
     }
@@ -615,6 +616,158 @@ public static class ShipGridSelfTest
 
         // MarkExterior가 돌았고 배가 밀폐돼 있다는 뜻. 0이면 flood가 배 속까지 샜다.
         Check($"stamp from def: 실내 칸이 있다 (got {indoors})", indoors > 0);
+    }
+
+    /// <summary>
+    /// **#6이 구현되기 전에 먼저 쓴 테스트다.** `SplitRear`가 아직 던지므로 여기는 빨갛게
+    /// 시작한다 - 그게 정상이고, 구현이 끝나면 초록이 된다.
+    ///
+    /// 지키는 불변식 하나: **모든 후면 칸은 정확히 한 주인을 갖거나, 아무 주인도 없어서
+    /// 사라진다.** 계획 문서 §6(3)이 "통과 불가능"이라고 경고한 그 문장인데, 고아를
+    /// 삭제하기로 정해서 이제 성립한다.
+    /// </summary>
+    private static void RearSplitTest()
+    {
+        try
+        {
+            TwoLobesTest();
+            OrphanTest();
+        }
+        catch (System.NotImplementedException)
+        {
+            Check("rear split: SplitRear가 아직 구현되지 않았다", false);
+        }
+    }
+
+    /// <summary>
+    /// 허리가 잘린 배. 왼쪽 조각과 오른쪽 조각이 자기 쪽 후면만 가져가야 한다.
+    ///
+    /// 허리 칸(col 3,4)이 요점이다 - 어느 조각에도 판이 없지만 후면은 있다. col 3은
+    /// 왼쪽에서 1칸, col 4는 오른쪽에서 1칸이라 동점이 없다. 동점을 일부러 피한 것은
+    /// 이 케이스가 "가까운 쪽이 가져간다"만 시험하게 하려는 것이다.
+    /// </summary>
+    private static void TwoLobesTest()
+    {
+        ShipGrid.Map map = ShipGrid.ParseMap(Lines(
+            "########",
+            "#..##..#",
+            "########"));
+
+        var rear = new HashSet<Vector2Int>();
+
+        for (int col = 0; col < map.width; col++)
+        for (int row = 0; row < map.height; row++)
+        {
+            if (map.cells[col, row] != ShipGrid.Cell.Exterior)
+                rear.Add(new Vector2Int(col, row));
+        }
+
+        Check($"rear split: 이 픽스처는 후면이 24칸이다 (got {rear.Count})", rear.Count == 24);
+
+        // 허리(col 3,4)의 판이 죽었다고 치고 조각 둘을 손으로 만든다. SplitRear는 조각을
+        // 어떻게 얻었는지 모르는 순수 함수라 이렇게 넣어도 실제와 같은 입력이다.
+        var left = new List<Vector2Int>();
+        var right = new List<Vector2Int>();
+
+        for (int col = 0; col < map.width; col++)
+        for (int row = 0; row < map.height; row++)
+        {
+            if (!ShipGrid.Solid(map.cells[col, row]))
+                continue;
+
+            if (col <= 2) left.Add(new Vector2Int(col, row));
+            else if (col >= 5) right.Add(new Vector2Int(col, row));
+        }
+
+        var chunks = new List<List<Vector2Int>> { left, right };
+        List<HashSet<Vector2Int>> owned = ShipGrid.SplitRear(chunks, rear);
+
+        if (owned == null || owned.Count != 2)
+        {
+            Check($"rear split: 조각 수만큼 돌려준다 (got {owned?.Count ?? -1})", false);
+            return;
+        }
+
+        bool leftOk = true, rightOk = true;
+
+        foreach (Vector2Int c in owned[0]) leftOk &= c.x <= 3;
+        foreach (Vector2Int c in owned[1]) rightOk &= c.x >= 4;
+
+        Check($"rear split: 왼쪽 조각은 col<=3만 (got {owned[0].Count}칸)",
+            leftOk && owned[0].Count == 12);
+
+        Check($"rear split: 오른쪽 조각은 col>=4만 (got {owned[1].Count}칸)",
+            rightOk && owned[1].Count == 12);
+
+        // 여기가 §6(3)의 문장이다. 겹치면 후면 한 칸이 두 몸에 그려지고, 빠지면 사라진다.
+        var union = new HashSet<Vector2Int>(owned[0]);
+        int overlap = 0;
+
+        foreach (Vector2Int c in owned[1])
+        {
+            if (!union.Add(c))
+                overlap++;
+        }
+
+        Check($"rear split: 두 조각이 겹치지 않는다 (겹침 {overlap}칸)", overlap == 0);
+        Check($"rear split: 한 칸도 안 잃었다 ({union.Count}/{rear.Count})", union.Count == rear.Count);
+
+        // 결정론. 같은 입력이 같은 분배를 내야 리플레이가 어긋나지 않는다.
+        List<HashSet<Vector2Int>> again = ShipGrid.SplitRear(chunks, rear);
+
+        Check("rear split: 두 번 돌려도 같다",
+            again != null && again.Count == 2 &&
+            again[0].SetEquals(owned[0]) && again[1].SetEquals(owned[1]));
+    }
+
+    /// <summary>
+    /// 판이 한 장도 안 남은 영역의 후면은 주인이 없다. 삭제되어야 한다.
+    ///
+    /// 상자 둘이 우주(col 5)로 갈려 있다. 왼쪽 상자에만 조각을 주면 오른쪽 상자의 후면은
+    /// 어느 소스에서도 4방향으로 닿을 수 없다 - 사이가 Exterior라 그래프에 없기 때문이다.
+    /// </summary>
+    private static void OrphanTest()
+    {
+        ShipGrid.Map map = ShipGrid.ParseMap(Lines(
+            "#####.#####",
+            "#...#.#...#",
+            "#####.#####"));
+
+        var rear = new HashSet<Vector2Int>();
+        var left = new List<Vector2Int>();
+
+        for (int col = 0; col < map.width; col++)
+        for (int row = 0; row < map.height; row++)
+        {
+            var cell = new Vector2Int(col, row);
+
+            if (map.cells[col, row] != ShipGrid.Cell.Exterior)
+                rear.Add(cell);
+
+            if (col <= 4 && ShipGrid.Solid(map.cells[col, row]))
+                left.Add(cell);
+        }
+
+        Check($"rear split: 고아 픽스처의 후면은 30칸이다 (got {rear.Count})", rear.Count == 30);
+
+        var chunks = new List<List<Vector2Int>> { left };
+        List<HashSet<Vector2Int>> owned = ShipGrid.SplitRear(chunks, rear);
+
+        if (owned == null || owned.Count != 1)
+        {
+            Check("rear split: 조각 하나면 집합도 하나", false);
+            return;
+        }
+
+        Check($"rear split: 왼쪽 상자만 가져간다 (got {owned[0].Count}, 기대 15)",
+            owned[0].Count == 15);
+
+        bool onlyLeft = true;
+
+        foreach (Vector2Int c in owned[0])
+            onlyLeft &= c.x <= 4;
+
+        Check("rear split: 우주 건너편은 안 가져간다", onlyLeft);
     }
 
     private static string Lines(params string[] rows) => string.Join("\n", rows);

@@ -35,6 +35,7 @@ public sealed class HullStructure : MonoBehaviour
     /// 새로 만들므로 상관없다.
     /// </summary>
     private readonly HashSet<Vector2Int> _alive = new();
+    private readonly HashSet<Vector2Int> _rear = new();
 
     /// <summary>이 덩어리가 생길 때 붙어 있던 칸. 처음부터 떠 있던 칸은 떼어내지 않는다.</summary>
     private readonly HashSet<Vector2Int> _attached = new();
@@ -44,6 +45,8 @@ public sealed class HullStructure : MonoBehaviour
     private float _breakawaySpeed = 2f;
     private bool _dirty;
     private Rigidbody2D _body;
+    public IReadOnlyCollection<Vector2Int> Rear => _rear;
+    public static readonly List<HullStructure> All = new();
 
     private void Awake() => _body = GetComponent<Rigidbody2D>();
 
@@ -99,6 +102,40 @@ public sealed class HullStructure : MonoBehaviour
             _map.cells[cell.x, cell.y] = ShipGrid.Cell.Empty;
     }
 
+    private ShipGrid.Map _designMap;
+    public ShipGrid.Map DesignMap => _designMap;
+    private Texture2D _shipHullPng;
+    public Texture2D ShipHullPng => _shipHullPng;
+    public bool HasRear(Vector2Int cell) => _rear.Contains(cell);
+    public void SeedRear(ShipGrid.Map designMap, Texture2D shipHullPng)
+    {
+        if(_rear.Count > 0)
+            return;
+
+        _designMap = designMap;
+        _shipHullPng = shipHullPng;
+
+        for(int col = 0; col < designMap.width; col++)
+        {
+            for(int row = 0; row < designMap.height; row++)
+            {
+                ShipGrid.Cell c = designMap.cells[col,row];
+                if(ShipGrid.BackPlate(c))
+                    _rear.Add(new Vector2Int(col,row));
+            }
+        }
+    }
+
+    void OnEnable()
+    {
+        All.Add(this);
+    }
+
+    void OnDisable()
+    {
+        All.Remove(this);
+    }
+
     /// <summary>함선이 지어진 직후. 맵의 실물 칸과 본체 덩어리를 기록해 둔다.</summary>
     public void Build(ShipGrid.Map map, float breakawaySpeed)
     {
@@ -131,7 +168,6 @@ public sealed class HullStructure : MonoBehaviour
                 $"[{name}] 맵의 실물 칸이 처음부터 {chunks.Count}덩어리로 나뉘어 있다. " +
                 "본체가 아닌 덩어리는 파단 대상에서 제외한다.", this);
     }
-
     /// <summary>
     /// 떨어져 나온 조각. 맵만 물려받고, 살아 있는 칸도 붙어 있던 칸도 이 조각 자신이다 -
     /// 잔해에는 "원래 떠 있던 칸" 같은 게 없다.
@@ -140,21 +176,24 @@ public sealed class HullStructure : MonoBehaviour
     /// scale로 만들기 때문이다. 자식의 localPosition이 안 변하므로 chunk의 칸 좌표가
     /// 잔해 쪽에서도 그대로 통한다.
     /// </summary>
-    public void Adopt(ShipGrid.Map map, List<Vector2Int> chunk, float breakawaySpeed)
+    public void Adopt(ShipGrid.Map map, List<Vector2Int> chunk, HashSet<Vector2Int> owned, float breakawaySpeed, ShipGrid.Map designMap, Texture2D shiphullpng)
     {
         _map = map;
         _hasMap = true;
         _breakawaySpeed = breakawaySpeed;
+        _designMap = designMap;
+        _shipHullPng = shiphullpng;
 
         _alive.Clear();
         _attached.Clear();
 
         // 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
-        foreach (Vector2Int cell in chunk)
-        {
-            _alive.Add(cell);
-            _attached.Add(cell);
-        }
+        _rear.UnionWith(owned);// 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
+        foreach (Vector2Int cell in chunk)// 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
+        {// 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
+            _alive.Add(cell);// 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
+            _attached.Add(cell);// 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
+        }// 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
     }
 
     /// <summary>
@@ -174,10 +213,13 @@ public sealed class HullStructure : MonoBehaviour
         // 장부를 그대로 넘긴다. 예전에는 여기서 자식 2,000개를 훑어 살아 있는 칸을 다시
         // 세느라 GetComponent가 4,000번 넘게 나갔다 - 판 한 장 죽을 때마다.
         List<List<Vector2Int>> chunks = ShipGrid.BuildStructure(_map, _alive);
-
         // 한 덩어리면 아직 통째다
         if (chunks.Count <= 1)
             return false;
+
+        List<HashSet<Vector2Int>> owned = ShipGrid.SplitRear(chunks, _rear);
+
+        
 
         var byCell = new Dictionary<Vector2Int, Transform>();
 
@@ -200,12 +242,17 @@ public sealed class HullStructure : MonoBehaviour
         for (int i = 1; i < chunks.Count; i++)
         {
             if (!WasAttached(chunks[i]))
+            {
+                owned[0].UnionWith(owned[i]);
                 continue;
+            }
 
-            Breakaway(chunks[i], byCell, alive);
+            Breakaway(chunks[i], byCell, alive, owned[i]);
             broke = true;
         }
-
+        
+        _rear.Clear();
+        _rear.UnionWith(owned[0]);
         return broke;
     }
 
@@ -251,15 +298,15 @@ public sealed class HullStructure : MonoBehaviour
         var chunk = new List<Vector2Int> { cell };
         var byCell = new Dictionary<Vector2Int, Transform> { [cell] = plate };
 
-        return MakeDebris(chunk, byCell, _alive.Count, out _, out _);
+        return MakeDebris(chunk, byCell, _alive.Count, new HashSet<Vector2Int>(), out _, out _);
     }
 
     private void Breakaway(
         List<Vector2Int> chunk,
         Dictionary<Vector2Int, Transform> byCell,
-        int totalAlive)
+        int totalAlive, HashSet<Vector2Int> owned)
     {
-        if (!MakeDebris(chunk, byCell, totalAlive, out GameObject go, out Vector2 centre))
+        if (!MakeDebris(chunk, byCell, totalAlive, owned, out GameObject go, out Vector2 centre))
             return;
 
         // 조각이 실제로 떠난 뒤에 켠다. MakeDebris가 실패하면(옮길 판이 하나도 없으면)
@@ -294,7 +341,7 @@ public sealed class HullStructure : MonoBehaviour
     private bool MakeDebris(
         List<Vector2Int> chunk,
         Dictionary<Vector2Int, Transform> byCell,
-        int totalAlive,
+        int totalAlive, HashSet<Vector2Int> owned,
         out GameObject debris,
         out Vector2 centre)
     {
@@ -374,7 +421,7 @@ public sealed class HullStructure : MonoBehaviour
             _body.angularVelocity, -Ballistics.DebrisMaxSpin, Ballistics.DebrisMaxSpin);
 
         // 순서가 중요하다. Hulk.Awake가 HullStructure를 찾으므로 구조가 먼저 있어야 한다.
-        go.AddComponent<HullStructure>().Adopt(_map, chunk, _breakawaySpeed);
+        go.AddComponent<HullStructure>().Adopt(_map, chunk, owned, _breakawaySpeed, _designMap, _shipHullPng);
         Hulk hulk = go.AddComponent<Hulk>();
 
         // 배치해 둔 운석과 달리 잔해는 사라져야 한다. 영원히 두면 한 판이 끝날 때쯤

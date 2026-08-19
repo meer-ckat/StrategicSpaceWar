@@ -74,7 +74,8 @@ public static class ShipGrid
     };
 
     /// <summary>공기가 다니는 칸. 엔진은 이제 벽에 붙은 모듈이라 격자에 아예 안 나온다.</summary>
-    private static bool Passable(Cell c) => c == Cell.Empty;
+    public static bool Passable(Cell c) => c == Cell.Empty;
+    public static bool BackPlate(Cell c) => c != Cell.Exterior;
 
     /// <summary>
     /// 하중을 받는 칸. 공기가 다니는 그래프(Passable)와 정반대인 것이 요점이다 -
@@ -179,11 +180,86 @@ public static class ShipGrid
     };
 
     /// <summary>
+    /// 후면 칸을 조각들에게 나눠 준다. 반환의 i번째가 <paramref name="chunks"/>의 i번째가
+    /// 가져가는 후면 칸이다.
+    ///
+    /// **다중 소스 BFS.** 소스는 각 조각의 살아 있는 판 칸이고, 퍼지는 그래프는 설계도
+    /// 격자에서 <see cref="Cell.Exterior"/>가 아닌 칸을 **4방향**으로 이은 것이다.
+    /// 8방향으로 하면 계단식 절단면의 대각선을 타고 남의 조각으로 건너뛴다 - 방 BFS가
+    /// 4방향인 것과 같은 이유다.
+    ///
+    /// **어느 소스에도 안 닿은 칸은 어느 집합에도 안 들어간다 = 삭제된다.** 판이 한 장도
+    /// 없는 영역이 생길 수 있기 때문이다: 조각은 살아 있는 판에서 나오는데 후면은 설계도
+    /// (불변)에서 나오므로, 판이 전멸한 토막의 후면 칸은 주인이 없다. Armor에는 이 상황이
+    /// 존재할 수 없다 - 판이 0장이면 조각 자체가 안 생긴다.
+    ///
+    /// **동점은 조각 순서로 깬다.** 두 조각에서 같은 거리인 칸은 chunks에서 먼저 오는 쪽이
+    /// 가져간다. BuildStructure의 조각 순서가 결정론적이므로 여기 결과도 결정론적이고,
+    /// 그게 깨지면 리플레이가 어긋난다.
+    /// </summary>
+    /// <param name="design">설계도 격자. 판이 죽어도 안 변하는 쪽이다.</param>
+    /// <param name="chunks">구조 조각. <see cref="BuildStructure"/>의 반환값.</param>
+    /// <param name="rear">지금 이 몸이 들고 있는 후면 칸. 이미 갈라진 뒤라면 부분집합이다.</param>
+    public static List<HashSet<Vector2Int>> SplitRear(
+        List<List<Vector2Int>> chunks, HashSet<Vector2Int> rear)
+    {
+        var results = new List<HashSet<Vector2Int>>(chunks.Count);
+
+        // 용량이 아니라 개수다. new List(n)은 자리를 잡아둘 뿐이라 results[i]가 아직 없다.
+        for (int i = 0; i < chunks.Count; i++)
+            results.Add(new HashSet<Vector2Int>());
+
+        var queue = new Queue<Vector2Int>();
+        var owner = new Dictionary<Vector2Int, int>();
+
+        // **모든 조각의 씨앗을 먼저 다 넣는다.** 조각 하나씩 끝까지 퍼뜨리면 첫 조각이
+        // 전부 먹는다. 같이 퍼져야 "가까운 쪽이 가져간다"가 되고, 동점은 큐에 먼저 들어간
+        // 조각 - 즉 chunks 순서 - 이 이긴다.
+        for (int i = 0; i < chunks.Count; i++)
+        {
+            foreach (Vector2Int cell in chunks[i])
+            {
+                if (!rear.Contains(cell) || owner.ContainsKey(cell))
+                    continue;
+
+                owner[cell] = i;
+                results[i].Add(cell);
+                queue.Enqueue(cell);
+            }
+        }
+
+        while (queue.Count > 0)
+        {
+            Vector2Int at = queue.Dequeue();
+
+            // 방과 같은 4방향이다. 8방향으로 하면 계단식 절단면의 대각선을 타고 남의
+            // 조각으로 건너뛴다.
+            foreach (Vector2Int dir in Dirs)
+            {
+                Vector2Int next = at + dir;
+
+                // rear 밖이면 안 간다. 이 검사가 없으면 사방으로 영원히 번진다 -
+                // 격자 경계가 아니라 이 집합이 경계다.
+                if (!rear.Contains(next) || owner.ContainsKey(next))
+                    continue;
+
+                owner[next] = owner[at];
+                results[owner[next]].Add(next);
+                queue.Enqueue(next);
+            }
+        }
+
+        // 어느 씨앗에도 안 닿은 칸은 어느 집합에도 없다. 그것이 곧 삭제다 - 지우는 코드가
+        // 따로 없는 것이 요점이다.
+        return results;
+    }
+    /// <summary>
     /// 아직 살아 있는 실물 칸들을 8방향으로 이어 붙여 덩어리로 나눈다.
     /// 큰 것부터 정렬해서 돌려주므로 [0]이 본체다.
     /// </summary>
     public static List<List<Vector2Int>> BuildStructure(Map map, HashSet<Vector2Int> alive)
     {
+        
         var chunks = new List<List<Vector2Int>>();
         var visited = new HashSet<Vector2Int>();
         var queue = new Queue<Vector2Int>();

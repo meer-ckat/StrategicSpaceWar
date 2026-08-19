@@ -116,13 +116,14 @@ public partial class Ship : Thing
     readonly Dictionary<Door, List<Room>> roomsOfDoor = new();
 
     // 격자 원본. 방 BFS도, 선체 구조도, 오버레이도 전부 이걸 읽는다.
-    ShipGrid.Map _map;
+    ShipGrid.Map _map; 
 
     /// <summary>
     /// 읽기 전용. BuildRooms가 배를 다시 지을 때마다 **새 객체**가 되므로, 참조가 바뀌었는지
     /// 보는 것만으로 "배가 갈라졌다"를 알 수 있다 - RoomView가 그걸로 오버레이를 다시 굽는다.
     /// </summary>
-    public ShipGrid.Map Map => _map;
+    public ShipGrid.Map Map => _map;//Ship이 Map을 Filed로 든다.
+    public ShipGrid.Map DesignMap;
 
     // 물리가 진실이다. 예전엔 Ship이 velocity를 따로 들고 transform을 직접 옮겼는데,
     // 그러면 충돌이 밀어낸 결과를 다음 틱에 우리가 덮어써서 충각이 성립하지 않는다.
@@ -151,6 +152,9 @@ public partial class Ship : Thing
 
         IsPlayerControlled = GetComponent<PlayerInput>() != null && GetComponent<ShipAi>() == null;
 
+        if (IsPlayerControlled)
+            BindBoost();
+
         // RequireComponent는 에디터에서 스크립트를 붙일 때만 채워준다. 이미 저장된 씬의
         // 함선에는 없을 수 있어서, 없으면 여기서 만든다.
         _structure = GetComponent<HullStructure>() ?? gameObject.AddComponent<HullStructure>();
@@ -169,10 +173,12 @@ public partial class Ship : Thing
             shipGuns.Clear();
             shipCriticals.Clear();
         }
+        DesignMap = ShipBuilder.StampFromDef(design);
+
         if(design!=null&&!string.IsNullOrEmpty(design.hullSkin))
         {
             try{
-
+                
                 byte[] bytes = File.ReadAllBytes(ShipDef.SkinPathOf(design.hullSkin));
                 shipHullPng = new Texture2D(2, 2, TextureFormat.RGBA32, false);
                 bool ok = shipHullPng.LoadImage(bytes);
@@ -182,12 +188,15 @@ public partial class Ship : Thing
                     shipHullPng = null;
                     Debug.LogAssertion("I'm not fucking ok. IM NOT FUCKING OK. FIX. I couldnt load the image, and i fired from cpu. fuck it.");
                 }
+                
             }
             catch(Exception e)
             {
                 Debug.LogAssertion("Hell ye: " + e);
             }
         }
+        if(DesignMap!=null)
+            _structure.SeedRear(DesignMap, shipHullPng);
 
         rig.bodyType = RigidbodyType2D.Dynamic;
         rig.gravityScale = 0f;
@@ -549,6 +558,91 @@ public partial class Ship : Thing
     // AI 함선은 컴포넌트가 없으므로 두 필드를 직접 세팅하면 된다.
     public void OnMove(InputValue v)  => thrustInput = v.Get<Vector2>();
     public void OnAngle(InputValue v) => angleInput  = v.Get<float>();
+    public void OnFlip(InputValue v)  { if (v.isPressed) TryFlipFacing(); }
+
+    /// <summary>
+    /// 부스터 방아쇠. <see cref="BoosterComp"/>가 매 프레임 읽어서 자기 엔진의 추력을
+    /// 켰다 껐다 한다.
+    ///
+    /// 여기 상태가 하나뿐인 것이 요점이다 - 배가 "부스터를 몇 개 달았나"를 몰라도 되고,
+    /// 부스터가 잔해로 떠나도 이 값은 아무 뜻이 안 바뀐다.
+    /// </summary>
+    public bool Boosting { get; private set; }
+
+    /// <summary>
+    /// 누르고 있는 동안만 참이어야 하는 값이라 **메시지를 안 쓴다.**
+    ///
+    /// <c>PlayerInput</c>의 SendMessage는 누를 때는 오는데 뗄 때 안 오는 설정이 있다
+    /// (액션 타입과 interaction에 따라 canceled가 안 나간다). 그러면 <see cref="Boosting"/>이
+    /// true로 걸린 채 남아서 부스터가 영원히 켜진다.
+    ///
+    /// 매 프레임 액션의 현재 상태를 그냥 읽으면 "눌렸다/떼졌다"를 기억할 필요가 없고,
+    /// 기억하는 상태가 없으면 어긋날 상태도 없다. OnMove/OnAngle이 메시지를 쓰는 것은
+    /// 그쪽이 **값**이라 마지막으로 받은 값이 곧 지금 값이기 때문이다 - 방아쇠는 다르다.
+    /// </summary>
+    private InputAction _boostAction;
+
+    private void BindBoost()
+    {
+        var input = GetComponent<PlayerInput>();
+
+        if (input == null || input.actions == null)
+            return;
+
+        _boostAction = input.actions.FindAction("Boost", throwIfNotFound: false);
+
+        if (_boostAction == null)
+            Debug.LogWarning(
+                $"[{name}] 입력에 'Boost' 액션이 없다. InputSystem_Actions에 Button으로 " +
+                "추가하고 Shift를 바인딩해라. 없으면 부스터가 영영 안 켜진다.", this);
+    }
+
+    private void Update()
+    {
+        Boosting = _boostAction != null && _boostAction.IsPressed();
+    }
+
+    /// <summary>이 틱이 지나야 다시 뒤집을 수 있다. 연타로 판을 계속 순간이동시키지 못하게.</summary>
+    private long _flipReadyTick;
+
+    private const int FlipCooldownTicks = 60;
+
+    /// <summary>
+    /// 배가 바라보는 쪽을 좌우로 뒤집는다. 성공하면 true.
+    ///
+    /// **격자·방·이웃은 하나도 안 건드린다.** 전부 로컬 위상이고 반전은 월드에만 있다 -
+    /// 반대쪽에서 소환된 배가 이미 localScale.x = -1로 멀쩡히 도는 이유가 그것이다.
+    /// 여기서 하는 일은 그 값을 런타임에 한 번 더 뒤집는 것뿐이다.
+    ///
+    /// **닿아 있으면 거부한다.** 뒤집기는 연속 운동이 아니라 순간이동이라, 56칸짜리 배면
+    /// 뱃머리 판이 한 프레임에 수십 미터를 건너뛴다. 그때 다른 몸과 겹쳐 있으면 솔버가
+    /// 그 겹침을 폭발적으로 밀어내서 두 배가 서로를 쏘아 보낸다. 접촉이 없을 때만 하면
+    /// 그 상황이 아예 안 생긴다.
+    ///
+    /// <see cref="Physics2D.SyncTransforms"/>가 필수다. TickManager가 simulationMode를
+    /// Script로 잡아 두어서, 안 부르면 이번 틱의 탄과 레이캐스트가 **옛 자리의 판**을 본다.
+    ///
+    /// 남는 구멍 하나: 이미 날아오고 있던 탄은 표면을 건너뛰어 그냥 빗나간다. 크래시가
+    /// 아니라 "가끔 안 맞는다"이고, 접촉 검사로는 못 잡는다 - 탄은 콜라이더로 닿는 것이
+    /// 아니라 매 틱 레이캐스트이기 때문이다.
+    /// </summary>
+    public bool TryFlipFacing()
+    {
+        if (Core.TickManager.currentTick < _flipReadyTick)
+            return false;
+
+        if (rig == null || rig.IsTouchingLayers())
+            return false;
+
+        Vector3 scale = transform.localScale;
+        scale.x = -scale.x;
+        transform.localScale = scale;
+
+        Physics2D.SyncTransforms();
+
+        _flipReadyTick = Core.TickManager.currentTick + FlipCooldownTicks;
+        return true;
+    }
 
     /// <summary>
     /// AI가 조종간을 잡는 자리. PlayerInput의 OnMove/OnAngle과 같은 문으로 들어오므로,
