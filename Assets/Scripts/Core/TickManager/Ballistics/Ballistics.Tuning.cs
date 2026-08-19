@@ -247,7 +247,7 @@ public static partial class Ballistics
     /// **반경을 정하는 것은 blastDamage가 아니라 아래 BlastCutoff다.** 0.65에 컷오프 0.05면
     /// 약 7 m에서 끊긴다. 세기를 올리면 그 원 안의 판이 더 확실히 죽을 뿐 원이 커지지 않는다.
     /// </summary>
-    public const float BlastFalloff = 0.8f;
+    public const float BlastFalloff = 0.65f;
 
     /// <summary>폭심 피해의 이 비율 아래로 떨어지면 멈춘다. 곧 폭발 반경.</summary>
     public const float BlastCutoff = 0.05f;

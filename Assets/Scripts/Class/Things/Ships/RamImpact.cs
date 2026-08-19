@@ -527,7 +527,7 @@ public static class RamImpact
             Ballistics.BlastFalloff, Ballistics.BlastFalloff,
             Ballistics.BlastCutoff, Ballistics.BlastMaxPlates);
 
-        Radiate(origin, damage);
+        Radiate(origin, Mathf.Sqrt(damage));
     }
 
     /// <summary>

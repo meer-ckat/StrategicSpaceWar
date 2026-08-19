@@ -211,7 +211,7 @@ public class StoryScriptManager : MonoBehaviour
     /// 대사 뒤에 까는 판. **알파는 이 색에 들어 있고, 줄의 페이드가 한 번 더 곱해진다** -
     /// 판이 글자보다 늦게 사라지면 빈 판이 잠깐 떠 있다.
     /// </summary>
-    public Color plateColor = new(0.03f, 0.04f, 0.06f, 0.78f);
+    public Color plateColor = new(0.3f, 0.04f, 0.06f, 0.78f);
 
     public Vector2 platePadding = new(12f, 7f);
 

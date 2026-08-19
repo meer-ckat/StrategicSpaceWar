@@ -15,7 +15,7 @@
       "y": 0
     }
   },
-  "projectile": "105mm",
+  "projectile": "Railgun Bullet",
   "muzzleSpeed": 1200,
   "roundsPerMinute": 30,
   "aim": 0,
