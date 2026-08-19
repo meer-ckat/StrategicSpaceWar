@@ -293,7 +293,32 @@ public class StoryScriptManager : MonoBehaviour
     private void Start()
     {
         if (!string.IsNullOrWhiteSpace(openingScript))
-            Play(openingScript);
+            Play(openingScript, PlayerShipName());
+    }
+
+    /// <summary>
+    /// 프롤로그의 <c>{0}</c>에 넣을 이름. <see cref="RunLog"/>가 사건 대사에 쓰는 것과
+    /// **같은 규칙**이어야 한다 - 관제가 부르는 함명과 격침 보고의 함명이 다르면 두 대사가
+    /// 다른 배 이야기로 읽힌다.
+    ///
+    /// 못 찾으면 null이 아니라 총칭을 돌려준다. <see cref="Substitute"/>는 arg가 비면
+    /// 치환을 아예 안 해서, 화면에 <c>{0}</c>이 글자 그대로 뜬다.
+    ///
+    /// Start에서 부르는 것이 요점이다. Ship은 Awake에서 목록에 등록되므로 그때는 이미 있다.
+    /// </summary>
+    private static string PlayerShipName()
+    {
+        for (int i = 0; i < Ship.All.Count; i++)
+        {
+            Ship ship = Ship.All[i];
+
+            if (ship == null || !ship.IsPlayerControlled)
+                continue;
+
+            return string.IsNullOrEmpty(ship.shipDefName) ? ship.name : ship.shipDefName;
+        }
+
+        return "초계함";
     }
 
     // =========================================================

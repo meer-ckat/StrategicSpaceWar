@@ -3,10 +3,10 @@
   "pickOne": true,
   "cooldown": 4,
   "lines": [
-    { "message": "<color=red>{0}</color> not answering. No distress signal either.", "author": "COMMS", "duration": 3.5, "intensity": 1.6 },
-    { "message": "<color=red>{0}</color> combat ineffective. Recovery comes later.", "author": "TACTICAL", "duration": 3.5, "intensity": 1.4 },
-    { "message": "<color=red>{0}</color> has dropped out of formation. Close the gap.", "author": "CAPTAIN", "duration": 4, "intensity": 1.5 },
-    { "message": "There should still be people in there.", "author": "COMMS", "duration": 3, "intensity": 1.2 },
-    { "message": "<color=red>{0}</color> lost. Log it.", "author": "CAPTAIN", "duration": 3, "intensity": 1.4 }
+    { "message": "<color=red>{0}</color> 응답 없음. 조난 신호도 없습니다.", "author": "통신", "duration": 3.5, "intensity": 1.6 },
+    { "message": "<color=red>{0}</color> 전투불능. 수습은 나중입니다.", "author": "전술", "duration": 3.5, "intensity": 1.4 },
+    { "message": "<color=red>{0}</color> 대열 이탈. 간격 좁혀라.", "author": "함장", "duration": 4, "intensity": 1.5 },
+    { "message": "저 안에 아직 사람이 있을 겁니다.", "author": "통신", "duration": 3, "intensity": 1.2 },
+    { "message": "<color=red>{0}</color> 상실. 기록해라.", "author": "함장", "duration": 3, "intensity": 1.4 }
   ]
 }

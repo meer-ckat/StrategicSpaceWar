@@ -1,10 +1,10 @@
 {
   "defName": "battle-lost",
   "lines": [
-    { "message": "<color=red>Pressure lost in every compartment.</color> Bridge does not answer.", "author": "COMMS", "duration": 3.5, "intensity": 2.0 },
-    { "message": "<color=red>—signal lost—</color>", "author": "SYSTEM", "duration": 3, "intensity": 1.8, "wait": 3 },
-    { "message": "<color=grey>Atrian Navy loss record updated.</color>", "author": "SYSTEM", "duration": 4, "intensity": 0.5 },
-    { "message": "The next captain sails for the same coordinates.", "author": "FLEET COMMAND", "duration": 5, "intensity": 1.1 },
-    { "message": "<color=grey>This transmission survives only as a record.</color>", "author": "SYSTEM", "duration": 4, "intensity": 0.6 }
+    { "message": "<color=red>전 구역 기압 소실.</color> 함교 응답 없음.", "author": "통신", "duration": 3.5, "intensity": 2.0 },
+    { "message": "<color=red>—신호 두절—</color>", "author": "시스템", "duration": 3, "intensity": 1.8, "wait": 3 },
+    { "message": "<color=grey>아트리아 해군 손실 기록 갱신.</color>", "author": "시스템", "duration": 4, "intensity": 0.5 },
+    { "message": "다음 함장이 같은 좌표로 출항한다.", "author": "함대사령부", "duration": 5, "intensity": 1.1 },
+    { "message": "<color=grey>이 교신은 기록으로만 남는다.</color>", "author": "시스템", "duration": 4, "intensity": 0.6 }
   ]
 }

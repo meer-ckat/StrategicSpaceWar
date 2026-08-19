@@ -1,11 +1,11 @@
 {
   "defName": "run-cleared",
   "lines": [
-    { "message": "<color=#8fd3ff>Shell integrity lost.</color> It's coming apart along both cuts.", "author": "TACTICAL", "duration": 4, "intensity": 1.6 },
-    { "message": "The amplification is gone. Whatever it was holding, it isn't holding it now.", "author": "ENGINEERING", "duration": 5, "intensity": 1.3, "wait": 2 },
-    { "message": "Two halves, drifting apart. Nothing left to close.", "author": "TACTICAL", "duration": 4, "intensity": 1.1 },
-    { "message": "That was ours. We built it, and we designed the thing it became.", "author": "CAPTAIN", "duration": 6, "intensity": 1.0, "wait": 3 },
-    { "message": "<color=grey>Atria Control, this is patrol. The site is dark.</color>", "author": "COMMS", "duration": 5, "intensity": 0.8 },
-    { "message": "Log it and take us home.", "author": "CAPTAIN", "duration": 4, "intensity": 0.9 }
+    { "message": "<color=#8fd3ff>껍질 구조 붕괴.</color> 절단선 두 곳을 따라 벌어지고 있습니다.", "author": "전술", "duration": 4, "intensity": 1.6 },
+    { "message": "증폭이 멈췄습니다. 저것이 붙잡고 있던 게 뭐든, 이제 안 붙잡습니다.", "author": "기관", "duration": 5, "intensity": 1.3, "wait": 2 },
+    { "message": "두 조각으로 갈라져 멀어지는 중. 다시 닫힐 것은 없습니다.", "author": "전술", "duration": 4, "intensity": 1.1 },
+    { "message": "우리 것이었다. 우리가 지었고, 저것이 된 설계도 우리 것이었다.", "author": "함장", "duration": 6, "intensity": 1.0, "wait": 3 },
+    { "message": "<color=grey>아트리아 관제, 여기는 초계함. 시설은 정지했습니다.</color>", "author": "통신", "duration": 5, "intensity": 0.8 },
+    { "message": "기록하고 귀환한다.", "author": "함장", "duration": 4, "intensity": 0.9 }
   ]
 }

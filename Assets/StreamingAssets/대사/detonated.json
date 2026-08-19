@@ -3,8 +3,8 @@
   "pickOne": true,
   "cooldown": 8,
   "lines": [
-    { "message": "<color=yellow>Detonation somewhere.</color> Origin unidentified.", "author": "TACTICAL", "duration": 3, "intensity": 1.2 },
-    { "message": "One blast. Not ours, not theirs.", "author": "TACTICAL", "duration": 3.5, "intensity": 1.1 },
-    { "message": "Something adrift just went up. <color=grey>{0}</color>.", "author": "TACTICAL", "duration": 3, "intensity": 1.0 }
+    { "message": "<color=yellow>어딘가에서 유폭.</color> 발생원 미확인.", "author": "전술", "duration": 3, "intensity": 1.2 },
+    { "message": "폭발 한 건. 아군도 적함도 아닙니다.", "author": "전술", "duration": 3.5, "intensity": 1.1 },
+    { "message": "떠다니던 것이 터졌습니다. <color=grey>{0}</color>.", "author": "전술", "duration": 3, "intensity": 1.0 }
   ]
 }

@@ -3,10 +3,10 @@
   "pickOne": true,
   "cooldown": 8,
   "lines": [
-    { "message": "<color=red>Hull failure!</color> The aft section is tearing away.", "author": "ENGINEERING", "duration": 3.5, "intensity": 2.0 },
-    { "message": "<color=red>The ship has split.</color> Seal every bulkhead.", "author": "ENGINEERING", "duration": 3.5, "intensity": 2.0 },
-    { "message": "Structural link severed. We give up that section.", "author": "CAPTAIN", "duration": 4, "intensity": 1.7 },
-    { "message": "Was anyone in the part that came off?", "author": "COMMS", "duration": 3.5, "intensity": 1.5 },
-    { "message": "<color=red>{0}</color> has lost form. The controls aren't answering.", "author": "HELM", "duration": 4, "intensity": 1.8 }
+    { "message": "<color=red>선체 파단!</color> 후미가 떨어져 나갑니다.", "author": "기관", "duration": 3.5, "intensity": 2.0 },
+    { "message": "<color=red>배가 갈라졌습니다.</color> 격벽 전부 폐쇄.", "author": "기관", "duration": 3.5, "intensity": 2.0 },
+    { "message": "구조 연결 절단. 그 구역은 포기한다.", "author": "함장", "duration": 4, "intensity": 1.7 },
+    { "message": "떨어져 나간 쪽에 사람 있었습니까.", "author": "통신", "duration": 3.5, "intensity": 1.5 },
+    { "message": "<color=red>{0}</color> 형태 상실. 조종이 안 먹습니다.", "author": "조타", "duration": 4, "intensity": 1.8 }
   ]
 }

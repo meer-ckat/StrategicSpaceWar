@@ -3,11 +3,11 @@
   "pickOne": true,
   "cooldown": 6,
   "lines": [
-    { "message": "<color=yellow>Cook-off.</color> Their ammunition went from inside.", "author": "TACTICAL", "duration": 3, "intensity": 1.4 },
-    { "message": "<color=yellow>{0}</color> detonating. The hull opened from within.", "author": "TACTICAL", "duration": 3.5, "intensity": 1.5 },
-    { "message": "We hit the magazine. That won't hold.", "author": "GUNNERY", "duration": 3, "intensity": 1.4 },
-    { "message": "<color=yellow>Secondary detonation confirmed.</color> Still spreading.", "author": "TACTICAL", "duration": 3.5, "intensity": 1.5 },
-    { "message": "Flame venting from the inside. That's a reactor.", "author": "ENGINEERING", "duration": 3.5, "intensity": 1.3 },
-    { "message": "At that angle the crew isn't getting out.", "author": "COMMS", "duration": 3.5, "intensity": 1.2 }
+    { "message": "<color=yellow>유폭.</color> 적 탄약이 안에서 터졌습니다.", "author": "전술", "duration": 3, "intensity": 1.4 },
+    { "message": "<color=yellow>{0}</color> 유폭 중. 선체가 안쪽에서 열렸습니다.", "author": "전술", "duration": 3.5, "intensity": 1.5 },
+    { "message": "탄약고를 맞혔습니다. 저건 못 버팁니다.", "author": "포술", "duration": 3, "intensity": 1.4 },
+    { "message": "<color=yellow>2차 유폭 확인.</color> 아직 번지는 중.", "author": "전술", "duration": 3.5, "intensity": 1.5 },
+    { "message": "안에서 화염이 뿜어 나옵니다. 원자로입니다.", "author": "기관", "duration": 3.5, "intensity": 1.3 },
+    { "message": "저 각도면 승무원은 못 나옵니다.", "author": "통신", "duration": 3.5, "intensity": 1.2 }
   ]
 }

@@ -3,10 +3,10 @@
   "pickOne": true,
   "cooldown": 5,
   "lines": [
-    { "message": "<color=red>{0} cooking off!</color> Seal the bulkheads, now!", "author": "ENGINEERING", "duration": 3, "intensity": 2.0 },
-    { "message": "<color=red>The magazine went.</color> Clear the adjacent compartments.", "author": "ENGINEERING", "duration": 3.5, "intensity": 2.0 },
-    { "message": "<color=red>Reactor runaway.</color> We can't cut it off.", "author": "ENGINEERING", "duration": 3.5, "intensity": 1.9 },
-    { "message": "Internal detonation. <color=red>The hull pushed out from inside.</color>", "author": "TACTICAL", "duration": 3.5, "intensity": 1.8 },
-    { "message": "Captain, this ship won't hold much longer.", "author": "ENGINEERING", "duration": 3.5, "intensity": 1.6 }
+    { "message": "<color=red>{0} 유폭!</color> 격벽 닫아, 지금!", "author": "기관", "duration": 3, "intensity": 2.0 },
+    { "message": "<color=red>탄약고가 갔습니다.</color> 인접 구역 비우십시오.", "author": "기관", "duration": 3.5, "intensity": 2.0 },
+    { "message": "<color=red>원자로 폭주.</color> 차단이 안 됩니다.", "author": "기관", "duration": 3.5, "intensity": 1.9 },
+    { "message": "내부 폭발. <color=red>선체가 안에서 밀려 나갔습니다.</color>", "author": "전술", "duration": 3.5, "intensity": 1.8 },
+    { "message": "함장님, 이 배 오래 못 버팁니다.", "author": "기관", "duration": 3.5, "intensity": 1.6 }
   ]
 }

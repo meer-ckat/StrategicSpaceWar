@@ -2,113 +2,113 @@
   "defName": "prologue",
   "lines": [
     {
-      "message": "Ship link confirmed. <color=grey>Border patrol net online.</color>",
-      "author": "SYSTEM",
+      "message": "함선 링크 확인. <color=grey>국경 초계망 접속.</color>",
+      "author": "시스템",
       "duration": 3,
       "intensity": 0.5,
       "wait": 1
     },
     {
-      "message": "{0}, report comms status.",
-      "author": "ATRIA CONTROL",
+      "message": "{0}, 통신 상태 보고.",
+      "author": "아트리아 관제",
       "duration": 4,
       "intensity": 0.8,
       "wait": 0
     },
     {
-      "message": "Good. Navigation and fire control both nominal.",
-      "author": "CAPTAIN",
+      "message": "양호. 항법·사격통제 모두 정상입니다.",
+      "author": "함장",
       "duration": 4,
       "intensity": 0.8,
       "wait": 0
     },
     {
-      "message": "Understood. Watchposts 17, 19 and 22 have been silent for six hours.",
-      "author": "ATRIA CONTROL",
+      "message": "확인. 17·19·22 초소가 여섯 시간째 무응답이다.",
+      "author": "아트리아 관제",
       "duration": 5,
       "intensity": 0.9,
       "wait": 0
     },
     {
-      "message": "All three at once?",
-      "author": "CAPTAIN",
+      "message": "셋 다 한꺼번에 말입니까.",
+      "author": "함장",
       "duration": 3,
       "intensity": 0.9,
       "wait": 2
     },
     {
-      "message": "Yes. <color=yellow>Which is why you're going.</color>",
-      "author": "ATRIA CONTROL",
+      "message": "그렇다. <color=yellow>그래서 자네가 간다.</color>",
+      "author": "아트리아 관제",
       "duration": 4,
       "intensity": 1.0,
       "wait": 0
     },
     {
-      "message": "Royalist activity?",
-      "author": "CAPTAIN",
+      "message": "왕당파 활동입니까.",
+      "author": "함장",
       "duration": 3,
       "intensity": 0.8,
       "wait": 0
     },
     {
-      "message": "Heavier than usual. Not fleet strength.",
-      "author": "ATRIA CONTROL",
+      "message": "평소보다 무겁다. 함대 규모는 아니고.",
+      "author": "아트리아 관제",
       "duration": 4,
       "intensity": 0.8,
       "wait": 0
     },
     {
-      "message": "Check the watchposts. Recover survivors. Engage only as much as you must.",
-      "author": "ATRIA CONTROL",
+      "message": "초소를 확인하고 생존자를 수습해라. 교전은 필요한 만큼만.",
+      "author": "아트리아 관제",
       "duration": 5,
       "intensity": 0.9,
       "wait": 0
     },
     {
-      "message": "\"As much as you must\" has always come expensive.",
-      "author": "CAPTAIN",
+      "message": "\"필요한 만큼\"은 늘 비쌌습니다.",
+      "author": "함장",
       "duration": 4,
       "intensity": 0.8,
       "wait": 0
     },
     {
-      "message": "So <color=yellow>spend your ship carefully.</color> There is no replacement.",
-      "author": "ATRIA CONTROL",
+      "message": "그러니 <color=yellow>배를 아껴 써라.</color> 대체 함은 없다.",
+      "author": "아트리아 관제",
       "duration": 5,
       "intensity": 1.1,
       "wait": 3
     },
     {
-      "message": "Unidentified ship ahead. Range 14.2. Closing.",
-      "author": "TACTICAL",
+      "message": "전방 미확인 함선. 거리 14.2. 접근 중.",
+      "author": "전술",
       "duration": 4,
       "intensity": 1.0,
       "wait": 0.3
     },
     {
-      "message": "No identification signal.",
-      "author": "TACTICAL",
+      "message": "식별 신호 없음.",
+      "author": "전술",
       "duration": 3,
       "intensity": 1.0,
       "wait": 0.3
     },
     {
-      "message": "<color=red>Gun ports opening.</color>",
-      "author": "TACTICAL",
+      "message": "<color=red>포문 개방.</color>",
+      "author": "전술",
       "duration": 3,
       "intensity": 1.5,
       "wait": 0.3
     },
     {
-      "message": "Control, the survey is on hold.",
-      "author": "CAPTAIN",
+      "message": "관제, 정찰은 보류합니다.",
+      "author": "함장",
       "duration": 4,
       "intensity": 1.0,
       "wait": 0
     },
     {
-      "message": "<color=yellow>Battle stations.</color>",
-      "author": "CAPTAIN",
+      "message": "<color=yellow>전투 배치.</color>",
+      "author": "함장",
       "duration": 4,
       "intensity": 1.6,
       "wait": 0

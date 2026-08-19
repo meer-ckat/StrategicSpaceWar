@@ -12,8 +12,8 @@
   "cooldown": 0,
   "lines": [
     {
-      "message": "Control, we're picking up something. <color=yellow>It's not a distress signal.</color>",
-      "author": "PATROL 17",
+      "message": "관제, 뭔가 잡힙니다. <color=yellow>조난 신호가 아닙니다.</color>",
+      "author": "전술",
       "duration": 5,
       "intensity": 0.8,
       "wait": 0
@@ -60,7 +60,8 @@
 
 `wait`을 0으로 두면 자동으로 **타이핑이 끝나는 시간 + 0.6초**가 된다. 보통은 이걸로 충분하다.
 
-- 타이핑 속도는 초당 42자. 100자짜리 대사 ≈ 2.4초.
+- 타이핑 속도는 초당 42자. 100자짜리 대사 ≈ 2.4초. **한국어는 같은 뜻을 절반쯤의 글자로
+  쓰므로 타이핑이 빨리 끝난다** - `wait: 0`으로 두면 영어 대본보다 줄이 촘촘하게 온다.
 - `duration`이 타이핑 시간보다 짧으면 자동으로 늘어난다 (타이핑 시간 + 0.5초가 하한).
 - 뜸을 들이고 싶으면 `wait`을 크게 (`"wait": 3`).
 - 몰아치게 하려면 `wait`을 작게 (`"wait": 0.3`).
@@ -84,7 +85,7 @@
 `{0}`은 게임이 넘기는 값으로 바뀐다. 함선 이름 같은 것.
 
 ```json
-{ "message": "<color=red>{0}</color> not answering.", "author": "COMMS", "duration": 3 }
+{ "message": "<color=red>{0}</color> 응답 없음.", "author": "통신", "duration": 3 }
 ```
 
 ## 게임이 알아서 부르는 이름
@@ -127,12 +128,14 @@ SUPERRADIANCE(우주 함선 시뮬레이션 로그라이크)의 대사 JSON을 �
 }
 
 규칙:
-- 게임 내 표시 언어는 영어다. message와 author는 **영어로** 써라.
+- 게임 내 표시 언어는 한국어다. message와 author는 **한국어로** 써라.
 - message: 대사 본문. <color=yellow> <color=red> <color=grey> <b> <i> 사용 가능.
   강조할 구절만 색을 입히고, 한 줄 전체를 칠하지 마라.
-- author: 화자 이름. 대문자 호출부호를 쓴다. 함내 배치는
-  CAPTAIN / TACTICAL / GUNNERY / ENGINEERING / COMMS / HELM,
-  함외는 ATRIA CONTROL / FLEET COMMAND / SYSTEM. 화자가 없으면 빈 문자열.
+- author: 화자 이름. 함내 배치는
+  함장 / 전술 / 포술 / 기관 / 통신 / 조타,
+  함외는 아트리아 관제 / 함대사령부 / 시스템. 화자가 없으면 빈 문자열.
+- **`{0}` 뒤에 조사를 붙이지 마라.** 함선 이름의 받침에 따라 은/는, 이/가가 갈리는데
+  치환은 그걸 모른다. `{0} 대열 이탈.`처럼 명사로 끊어라 - 무전 말투와도 맞는다.
 - duration: 화면에 머무는 초. 짧은 대사 3, 보통 5, 긴 설명 6~7.
 - intensity: 0.5 시스템 로그 / 0.8~1.0 평범한 교신 / 1.4 이상은 화면이 흔들리므로
   대본당 두세 줄만 / 2.0 신호 두절 같은 결정적 순간.
