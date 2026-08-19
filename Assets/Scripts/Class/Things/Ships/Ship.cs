@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Core;
+using System.IO;
+using System;
 
 /// <summary>
 /// 함선 한 척. **abstract가 아니다** - 함선의 종류는 C# 클래스가 아니라 shipDefName이 정한다.
@@ -139,6 +141,8 @@ public partial class Ship : Thing
     public float engagementSign = 1f;
 
     Rigidbody2D rig;
+    [NonSerialized] private Texture2D shipHullPng;
+    public Texture2D ShipHullPng => shipHullPng;
 
     protected override void Awake()
     {
@@ -156,7 +160,8 @@ public partial class Ship : Thing
         //
         // 저장된 런이 있으면 그것이 이긴다. 전투 결과를 안고 다음 구역으로 가는 것이
         // 이 게임의 규칙이라, 설계도로 다시 짓는 것은 런이 끝났을 때뿐이다.
-        if (ShipBuilder.SpawnFrom(transform, RunShipFor(shipDefName), this))
+        var design = RunShipFor(shipDefName);
+        if (ShipBuilder.SpawnFrom(transform, design, this))
         {
             // 인스펙터에 남아 있던 목록은 방금 지운 자식을 가리킨다.
             shipArmors.Clear();
@@ -164,10 +169,28 @@ public partial class Ship : Thing
             shipGuns.Clear();
             shipCriticals.Clear();
         }
+        if(design!=null&&!string.IsNullOrEmpty(design.hullSkin))
+        {
+            try{
+
+                byte[] bytes = File.ReadAllBytes(ShipDef.SkinPathOf(design.hullSkin));
+                shipHullPng = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                bool ok = shipHullPng.LoadImage(bytes);
+                if(!ok)
+                {
+                    Destroy(shipHullPng);
+                    shipHullPng = null;
+                    Debug.LogAssertion("I'm not fucking ok. IM NOT FUCKING OK. FIX. I couldnt load the image, and i fired from cpu. fuck it.");
+                }
+            }
+            catch(Exception e)
+            {
+                Debug.LogAssertion("Hell ye: " + e);
+            }
+        }
 
         rig.bodyType = RigidbodyType2D.Dynamic;
         rig.gravityScale = 0f;
-
         // 항력을 물리에 넘긴다. 종단속도는 그대로 추력 / (질량 x drag).
         rig.linearDamping = drag;
 
@@ -550,6 +573,12 @@ public partial class Ship : Thing
     {
         All.Remove(this);
         base.OnDisable();
+    }
+
+    protected override void OnDestroy()
+    {
+        base.OnDestroy();
+        Destroy(shipHullPng);
     }
 
     /// <summary>

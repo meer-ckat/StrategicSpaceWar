@@ -29,10 +29,14 @@ public sealed class ArmorSkin : MonoBehaviour
     private Armor _armor;
     private Collider2D _collider;
     private SpriteRenderer _renderer;
+    private Texture2D _shipHullTexture;
+    private Ship ship;
+    private ShipGrid.Map _map;
 
     private Texture2D _texture;
     private Sprite _sprite;
     private Color32[] _buffer;
+    private Color32[] _art;
 
     // 판 모양과 픽셀-서브셀 대응은 한 번만 구한다. OverlapPoint를 피격마다 4천 번씩
     // 부르면 그림 때문에 시뮬레이션이 느려진다.
@@ -47,6 +51,12 @@ public sealed class ArmorSkin : MonoBehaviour
         _armor = GetComponent<Armor>();
         _collider = GetComponent<Collider2D>();
         _renderer = GetComponent<SpriteRenderer>();
+        ship = GetComponentInParent<Ship>();
+        if(ship!=null)
+        {
+            _shipHullTexture = ship.ShipHullPng;
+            _map = ship.Map;
+        }
 
         if (_armor == null || _collider == null)
         {
@@ -139,6 +149,7 @@ public sealed class ArmorSkin : MonoBehaviour
 
         _buffer = new Color32[w * h];
         _inside = new bool[w * h];
+        if(_shipHullTexture!=null)_art = new Color32[w*h];
         _sub = new int[w * h];
         _grain = new float[w * h];
 
@@ -159,6 +170,15 @@ public sealed class ArmorSkin : MonoBehaviour
                 _inside[i] = _collider.OverlapPoint(transform.TransformPoint(local));
                 _sub[i] = _armor.SubIndexAtLocal(local);
                 _grain[i] = rng.Next01();
+                if(_shipHullTexture != null)
+                {
+                Vector3 shipLocal = transform.localRotation * local + transform.localPosition;
+
+                float uvX = (shipLocal.x + _map.width  * 0.5f) / _map.width;
+                float uvY = (shipLocal.y + _map.height * 0.5f) / _map.height;
+
+               _art[i] = _shipHullTexture.GetPixelBilinear(uvX, uvY);
+                }
             }
         }
 
@@ -198,8 +218,8 @@ public sealed class ArmorSkin : MonoBehaviour
                 _buffer[i] = default;
                 continue;
             }
-
-            _buffer[i] = Color.Lerp(damaged, healthy, f);
+            
+            _buffer[i] = _art != null ? _art[i] : Color.Lerp(damaged, healthy, f);
         }
 
         _texture.SetPixels32(_buffer);
