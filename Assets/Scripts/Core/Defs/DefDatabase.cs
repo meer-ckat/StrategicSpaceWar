@@ -68,6 +68,20 @@ public static class DefDatabase
             : null;
     }
 
+    /// <summary>
+    /// 실린 def 전부. 이름을 모르는 채로 도는 유일한 경우가 에디터 도구라 여기만 쓴다 -
+    /// 게임 쪽은 항상 이름으로 하나를 집는다.
+    /// </summary>
+    public static IEnumerable<ThingDef> All
+    {
+        get
+        {
+            Load();
+
+            return _defs.Values;
+        }
+    }
+
     private static void Load()
     {
         if (_defs != null)
