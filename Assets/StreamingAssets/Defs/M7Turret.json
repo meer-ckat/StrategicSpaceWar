@@ -16,7 +16,7 @@
     }
   },
   "projectile": "105mm",
-  "muzzleSpeed": 1200,
+  "muzzleSpeed": 900,
   "roundsPerMinute": 300,
   "aim": 0,
   "slewRate": 30,

@@ -16,12 +16,12 @@
       "y": 0
     }
   },
-  "mass": 500,
-  "caliber": 800,
+  "mass": 40,
+  "caliber": 180,
   "shatterVelocity": 10000,
   "penetrationK": 0.18,
   "lifeTick": 1800,
-  "muzzleSpeed": 300,
+  "muzzleSpeed": 2500,
   "armorLayer": {
     "m_Bits": 64
   },

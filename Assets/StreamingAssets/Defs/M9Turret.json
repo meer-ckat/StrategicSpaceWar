@@ -6,11 +6,17 @@
   ],
   "layer": "Module",
   "collider": {
-    "size": { "x": 1.4, "y": 1.4 },
-    "offset": { "x": 0, "y": 0 }
+    "size": {
+      "x": 1.4,
+      "y": 1.4
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
   },
   "projectile": "155mm",
-  "muzzleSpeed": 1000,
+  "muzzleSpeed": 1140,
   "roundsPerMinute": 90,
   "aim": 0,
   "slewRate": 16,
