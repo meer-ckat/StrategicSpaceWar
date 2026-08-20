@@ -126,6 +126,36 @@ public abstract partial class Projectile
         // Snapshot for the readout after the channel is final, not before.
         for (int i = 0; i < PenetrationManager.LastChannel.Length; i++)
             PenetrationManager.LastChannel[i] = _surfaces.channel[0][i];
+
+        Explode(r);
+    }
+
+    /// <summary>
+    /// 고폭탄이 맞은 자리에서 터진다. <see cref="blastDamage"/>가 0이면 아무 일도 없다.
+    ///
+    /// **뚫든 못 뚫든 터진다.** 그것이 AP와 갈리는 지점이다 - 못 뚫는 장갑을 상대로도
+    /// 쓸 수단이 되고, 대신 뚫고 들어가 안쪽을 헤집는 일은 못 한다.
+    ///
+    /// 도탄은 예외다. 표면을 스치고 날아간 것이라 신관이 안 물렸다고 본다 - 그러면
+    /// 경사장갑이 고폭탄에도 값을 하고, 각도가 두 탄종 모두에 걸린다.
+    ///
+    /// **새 폭발 시스템이 없다.** 탄약고 유폭이 쓰는 RamImpact.Detonate를 그대로 부른다.
+    /// 이 게임에서 무엇이 터지는 방법은 하나뿐이어야 하고, 그래서 고폭탄도 유폭처럼
+    /// 구조를 타고 번지고(Conduct) 맞댄 적함에도 건너간다(Radiate).
+    ///
+    /// 터진 탄은 사라진다. 관통 상태를 들고 계속 나아가는 것은 AP의 일이다.
+    /// </summary>
+    private void Explode(in HitResult r)
+    {
+        if (blastDamage <= 0f || r.outcome == HitOutcome.Ricochet)
+            return;
+
+        if (_surfaces.count > 0 && _surfaces.armor[0] != null)
+            RamImpact.Detonate(_surfaces.armor[0], blastDamage);
+
+        // 관통했더라도 여기서 끝난다. 뚫고 들어가 안쪽을 헤집는 것은 AP의 일이고,
+        // 고폭탄은 터지면서 자기를 쓴다.
+        Destroy(gameObject);
     }
 
     /// <summary>

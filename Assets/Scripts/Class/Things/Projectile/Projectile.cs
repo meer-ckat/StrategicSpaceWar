@@ -32,6 +32,18 @@ public abstract partial class Projectile : Thing, ITickLate
     /// 0.18 puts every one of those inside 15%. Override per shell for anything exotic.
     /// </summary>
     public float penetrationK = 0.18f;
+    /// <summary>
+    /// 0보다 크면 고폭탄이다. 맞은 자리에서 터진다 - **뚫든 못 뚫든**.
+    ///
+    /// 새 폭발 시스템이 없다. <see cref="RamImpact.Detonate"/>가 탄약고·원자로 유폭에
+    /// 쓰는 그것을 그대로 부른다. 유폭이 "등방성 충각"이었던 것과 같은 재사용이다 -
+    /// 이 게임에서 무엇이 터지는 방법은 하나뿐이어야 한다.
+    ///
+    /// 값의 감은 CriticalModule과 같다: destroyer 기준 800이면 판 17장, 1600이면
+    /// 선체가 갈라진다. 포탄은 탄약고보다 한참 작아야 한다.
+    /// </summary>
+    public float blastDamage;
+
     public int lifeTick = 1800;          // 30 s
     public float muzzleSpeed = 900f;     // m/s, used only if nothing calls Launch
     public LayerMask armorLayer;    // 본체 레이캐스트 - Armor 레이어만

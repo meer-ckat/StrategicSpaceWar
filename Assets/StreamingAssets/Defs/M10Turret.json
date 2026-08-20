@@ -1,0 +1,27 @@
+{
+  "defName": "m10",
+  "thingClass": "Gun",
+  "comps": [
+    "SolidSkin"
+  ],
+  "layer": "Module",
+  "collider": {
+    "size": { "x": 1.9, "y": 1.2 },
+    "offset": { "x": 0.4, "y": 0 }
+  },
+  "projectile": "155mm HE",
+  "muzzleSpeed": 820,
+  "roundsPerMinute": 70,
+  "aim": 0,
+  "slewRate": 20,
+  "fireArc": 2.5,
+  "muzzleOffset": 1.5,
+  "friendlyCheckRange": 160,
+  "maxHealth": 380,
+  "tint": {
+    "r": 0.86,
+    "g": 0.74,
+    "b": 0.52,
+    "a": 1
+  }
+}
