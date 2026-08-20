@@ -108,6 +108,74 @@ public sealed class HitIndicatorUI : MonoBehaviour
     {
         if (view == null)
             view = Camera.main;
+
+        LoadIcons();
+    }
+
+    /// <summary>StreamingAssets/UI 아래. 함선 그림과 같은 폴더 규약이다.</summary>
+    private const string IconFolder = "UI";
+
+    /// <summary>여기서 만든 것만 치운다. 인스펙터로 꽂은 에셋을 지우면 프로젝트가 상한다.</summary>
+    private readonly System.Collections.Generic.List<Texture2D> _loadedIcons = new();
+
+    /// <summary>
+    /// 아이콘을 StreamingAssets에서 읽는다.
+    ///
+    /// **인스펙터로는 못 꽂는다.** StreamingAssets는 Unity가 임포트를 안 해서 그 안의 png는
+    /// Texture2D 에셋이 아니라 그냥 파일이다. 끌어다 놓을 것이 애초에 없다.
+    ///
+    /// 대신 얻는 것: 그림을 바꾸는 데 리임포트도 씬 저장도 필요 없다. 함선 그림(hullSkin)이
+    /// 같은 이유로 같은 길을 탄다.
+    ///
+    /// 인스펙터에 이미 꽂혀 있으면 그것이 이긴다 - 나중에 에셋으로 옮기고 싶어질 때
+    /// 이 코드를 지울 필요가 없다.
+    /// </summary>
+    private void LoadIcons()
+    {
+        if (penetratedIcon == null) penetratedIcon = LoadIcon("penetration.png");
+        if (blockedIcon == null) blockedIcon = LoadIcon("non_penetration.png");
+        if (ricochetIcon == null) ricochetIcon = LoadIcon("ricochet.png");
+    }
+
+    private Texture2D LoadIcon(string file)
+    {
+        string path = System.IO.Path.Combine(
+            Application.streamingAssetsPath, IconFolder, file);
+
+        if (!System.IO.File.Exists(path))
+        {
+            Debug.LogWarning($"[HitIndicatorUI] 아이콘이 없다: {path}", this);
+            return null;
+        }
+
+        // mipChain false - 화면에 원본 크기 근처로 그리는 UI라 밉맵이 하는 일이 없고
+        // 메모리만 33% 더 쓴다.
+        var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+        };
+
+        if (!texture.LoadImage(System.IO.File.ReadAllBytes(path)))
+        {
+            Debug.LogWarning($"[HitIndicatorUI] PNG로 못 읽는다: {path}", this);
+            Destroy(texture);
+            return null;
+        }
+
+        _loadedIcons.Add(texture);
+        return texture;
+    }
+
+    private void OnDestroy()
+    {
+        foreach (Texture2D texture in _loadedIcons)
+        {
+            if (texture != null)
+                Destroy(texture);
+        }
+
+        _loadedIcons.Clear();
     }
 
     private void Update()
@@ -321,6 +389,16 @@ public sealed class HitIndicatorUI : MonoBehaviour
                 if (indicator.mark.version != mark.version)
                 {
                     Write(indicator, mark);
+
+                    // **펀치 전에 1로 되돌린다.** PunchScale은 원래 크기가 아니라 부르는
+                    // 순간의 RenderScale을 기준으로 곱한다. 판 하나는 전투 중에 수십 번
+                    // 맞는데, 앞 펀치가 되돌아오기 전에 다음이 그 커진 값을 기준으로 잡으면
+                    // 되돌아갈 목표가 매번 커져서 아이콘이 화면을 덮을 때까지 자란다.
+                    //
+                    // 제대로 고치려면 트윈을 걷어내고 매 프레임 최종값을 대입해야 한다
+                    // (StoryScriptManager가 화자 이름을 부풀릴 때 쓰는 방식). 이 한 줄은
+                    // 그때까지의 걸쇠다.
+                    indicator.icon.RenderScale = Vector2.one;
 
                     indicator.icon.PunchScale(
                         0.18f,

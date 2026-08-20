@@ -115,6 +115,7 @@ public abstract partial class Projectile
             }
 
             armor.ApplyDamageAlong(channel, share);
+            DamageLog.Hit(armor, _surfaces.hitPoint, _surfaces.subIndex[i], r.outcome);
         }
 
         // Snapshot for the readout after the channel is final, not before.

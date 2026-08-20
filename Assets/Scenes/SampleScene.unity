@@ -498,14 +498,14 @@ MonoBehaviour:
   m_GameObject: {fileID: 937543335}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: da5c71bec4618b944bf08446707b86fa, type: 3}
+  m_Script: {fileID: 11500000, guid: c6f3a5e639c05b3449727e3b8bf6dc18, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::HitXrayUI
+  m_EditorClassIdentifier: Assembly-CSharp::HitIndicatorUI
   view: {fileID: 0}
   holdSeconds: 1.1
   layer: 90
   screenMargin: 16
-  minArrowLength: 24
+  minArrowLength: 28
   maxArrowLength: 140
   iconGap: 6
   iconSize: {x: 48, y: 32}
