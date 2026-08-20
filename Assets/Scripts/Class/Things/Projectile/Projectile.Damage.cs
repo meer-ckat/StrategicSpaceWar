@@ -115,6 +115,11 @@ public abstract partial class Projectile
             }
 
             armor.ApplyDamageAlong(channel, share);
+
+            // 앞판을 뚫었으면 그 자리 뒷벽까지 본다. 후면은 콜라이더가 없어서 위
+            // 레이캐스트에 절대 안 잡히므로, 관통이 확정된 이 자리에서 직접 물어야 한다.
+            if (r.outcome == HitOutcome.Penetrated)
+                HullStructure.PunchRear(_surfaces.hitPoint, r.penetrationAfter, share);
             DamageLog.Hit(armor, _surfaces.hitPoint, _surfaces.subIndex[i], r.outcome);
         }
 

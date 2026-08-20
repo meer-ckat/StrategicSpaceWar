@@ -41,7 +41,19 @@ public sealed class HullStructure : MonoBehaviour
     /// **서브셀은 없다.** 후면 그림이 칸 해상도라 칸 안을 표현할 데가 없다 - 시뮬레이션이
     /// 있지도 않은 정밀도를 들고 있으면 그 숫자는 언젠가 거짓말이 된다.
     /// </summary>
-    private readonly Dictionary<Vector2Int, float> _rear = new();
+    private readonly Dictionary<Vector2Int, RearCell> _rear = new();
+
+    /// <summary>
+    /// 후면 칸 하나가 아는 것. 체력과 유효 RHA, 둘 다 그 자리 판에서 나온다.
+    ///
+    /// 사전을 둘로 나누지 않는 이유: 같은 순간에 같은 자리에서 정해지는 두 값이라,
+    /// 나누면 언젠가 한쪽만 갱신하는 코드가 생긴다.
+    /// </summary>
+    public struct RearCell
+    {
+        public float hp;
+        public float rha;
+    }
 
     /// <summary>이 덩어리가 생길 때 붙어 있던 칸. 처음부터 떠 있던 칸은 떼어내지 않는다.</summary>
     private readonly HashSet<Vector2Int> _attached = new();
@@ -191,13 +203,13 @@ public sealed class HullStructure : MonoBehaviour
     /// </summary>
     public void DamageRear(Vector2Int cell, float amount)
     {
-        if (amount <= 0f || !_rear.TryGetValue(cell, out float health))
+        if (amount <= 0f || !_rear.TryGetValue(cell, out RearCell wall))
             return;
 
-        health -= amount;
+        wall.hp -= amount;
 
-        if (health > 0f)
-            _rear[cell] = health;
+        if (wall.hp > 0f)
+            _rear[cell] = wall;
         else
             _rear.Remove(cell);
     }
@@ -256,6 +268,39 @@ public sealed class HullStructure : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 앞판을 뚫은 탄이 뒷벽까지 갔다. 남은 관통력이 유효 RHA를 넘으면 그 칸이 뚫린다.
+    ///
+    /// **새 판정 함수를 안 만든다.** PenetrationManager.Resolve가 이미 답을 냈고
+    /// (penetrationAfter가 그 나머지다), 여기서는 그 숫자 하나를 벽과 견줄 뿐이다.
+    /// 판정 규칙이 두 벌이 되면 "왜 앞판은 뚫었는데 뒷벽 계산은 다르지"가 생긴다.
+    ///
+    /// **탄은 안 건드린다.** 후면은 깊이 방향의 벽이라 평면 안 궤적에 영향이 없다 -
+    /// 뚫고 나가도 속도도 관통력도 그대로고, 그래서 관통한 탄이 뒤에 선 배를 계속 맞힌다.
+    /// 물리적으로 완벽하진 않지만 이 게임에 Z가 없고, 일렬로 선 함대를 한 발이 꿰뚫는
+    /// 그림이 그 대가로 산다.
+    ///
+    /// 못 뚫으면 그만큼 깎기만 한다 - 여러 발이 같은 자리를 때리면 결국 열린다.
+    /// </summary>
+    public static void PunchRear(Vector2 worldPoint, float penetration, float damage)
+    {
+        for (int i = 0; i < All.Count; i++)
+        {
+            HullStructure body = All[i];
+
+            if (body == null || !body.CellAt(worldPoint, out Vector2Int cell))
+                continue;
+
+            if (!body._rear.TryGetValue(cell, out RearCell wall))
+                continue;
+
+            if (penetration >= wall.rha)
+                body._rear.Remove(cell);
+            else
+                body.DamageRear(cell, damage);
+        }
+    }
+
     /// <summary>파편 하나가 아무 판도 못 맞고 날아간 끝. 거기 벽이 있으면 박힌다.</summary>
     public static void SpallRear(Vector2 worldPoint, float amount)
     {
@@ -292,22 +337,29 @@ public sealed class HullStructure : MonoBehaviour
         new(1, 1), new(1, -1), new(-1, 1), new(-1, -1),
     };
 
-    private static float RearHealthAt(
-        Vector2Int cell, Dictionary<Vector2Int, float> plates, float fallback)
+    private static RearCell RearWallAt(
+        Vector2Int cell, Dictionary<Vector2Int, RearCell> plates, RearCell fallback)
     {
-        if (plates.TryGetValue(cell, out float own))
-            return own * Ballistics.RearHpFactor;
+        if (plates.TryGetValue(cell, out RearCell own))
+            return Thinned(own);
 
-        float best = 0f;
+        RearCell best = default;
 
         foreach (Vector2Int dir in Around)
         {
-            if (plates.TryGetValue(cell + dir, out float near) && near > best)
+            if (plates.TryGetValue(cell + dir, out RearCell near) && near.hp > best.hp)
                 best = near;
         }
 
-        return (best > 0f ? best : fallback) * Ballistics.RearHpFactor;
+        return Thinned(best.hp > 0f ? best : fallback);
     }
+
+    /// <summary>판 한 장을 후면 한 겹으로 얇게 만든다. 체력과 관통 저항이 따로 준다.</summary>
+    private static RearCell Thinned(RearCell plate) => new()
+    {
+        hp = plate.hp * Ballistics.RearHpFactor,
+        rha = plate.rha * Ballistics.RearRhaFactor,
+    };
 
     /// <summary>
     /// 칸 -> 그 자리 판의 체력. 살아 있는 자식에서 뽑는다 - SeedRear는 배가 지어진 뒤에
@@ -316,9 +368,9 @@ public sealed class HullStructure : MonoBehaviour
     /// **문은 뺀다.** Door도 Armor를 달고 있어서 컴포넌트로는 안 갈리는데, 후면은 외판이지
     /// 문이 아니다. 문 자리의 후면은 이웃 판을 따라간다.
     /// </summary>
-    private Dictionary<Vector2Int, float> PlateHealthByCell(ShipGrid.Map designMap)
+    private Dictionary<Vector2Int, RearCell> PlateHealthByCell(ShipGrid.Map designMap)
     {
-        var plates = new Dictionary<Vector2Int, float>();
+        var plates = new Dictionary<Vector2Int, RearCell>();
 
         if (designMap == null)
             return plates;
@@ -334,7 +386,7 @@ public sealed class HullStructure : MonoBehaviour
             Vector2Int cell = designMap.ToCell(child.localPosition);
 
             if (designMap.Inside(cell))
-                plates[cell] = plate.PlateHp;
+                plates[cell] = new RearCell { hp = plate.PlateHp, rha = plate.RHA };
         }
 
         return plates;
@@ -349,7 +401,10 @@ public sealed class HullStructure : MonoBehaviour
         _shipHullPng = shipHullPng;
 
         // 칸마다 다른 값을 준다. 판이 하나도 없으면(씬 저작 중인 배) 폴백 하나로 간다.
-        Dictionary<Vector2Int, float> plates = PlateHealthByCell(designMap);
+        Dictionary<Vector2Int, RearCell> plates = PlateHealthByCell(designMap);
+
+        // 판을 하나도 못 찾았을 때의 폴백. 씬에 손으로 짓는 중인 배가 그 경우다.
+        var bare = new RearCell { hp = Ballistics.RearHp, rha = Ballistics.RearHp };
 
         for(int col = 0; col < designMap.width; col++)
         {
@@ -359,7 +414,7 @@ public sealed class HullStructure : MonoBehaviour
                 if(ShipGrid.BackPlate(c))
                 {
                     var cell = new Vector2Int(col, row);
-                    _rear[cell] = RearHealthAt(cell, plates, Ballistics.RearHp);
+                    _rear[cell] = RearWallAt(cell, plates, bare);
                 }
             }
         }
@@ -415,7 +470,7 @@ public sealed class HullStructure : MonoBehaviour
     /// scale로 만들기 때문이다. 자식의 localPosition이 안 변하므로 chunk의 칸 좌표가
     /// 잔해 쪽에서도 그대로 통한다.
     /// </summary>
-    public void Adopt(ShipGrid.Map map, List<Vector2Int> chunk, Dictionary<Vector2Int, float> owned, float breakawaySpeed, ShipGrid.Map designMap, Texture2D shiphullpng)
+    public void Adopt(ShipGrid.Map map, List<Vector2Int> chunk, Dictionary<Vector2Int, RearCell> owned, float breakawaySpeed, ShipGrid.Map designMap, Texture2D shiphullpng)
     {
         _map = map;
         _hasMap = true;
@@ -429,7 +484,7 @@ public sealed class HullStructure : MonoBehaviour
         // 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
         // 체력까지 그대로 물려받는다. 집합만 넘기면 갈라지는 순간 상한 후면이 새것으로
         // 되살아난다 - 에러가 안 나서 "왜 잔해 뒷벽이 멀쩡하지"로만 보인다.
-        foreach (KeyValuePair<Vector2Int, float> pair in owned)
+        foreach (KeyValuePair<Vector2Int, RearCell> pair in owned)
             _rear[pair.Key] = pair.Value;
 
         // 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
@@ -472,7 +527,7 @@ public sealed class HullStructure : MonoBehaviour
         // 본체로 도로 돌아온다"다.
         List<HashSet<Vector2Int>> owned = ShipGrid.SplitRear(ToDesignCells(chunks), rearCells);
 
-        List<Dictionary<Vector2Int, float>> carried = WithHealth(owned);
+        List<Dictionary<Vector2Int, RearCell>> carried = WithHealth(owned);
 
         var byCell = new Dictionary<Vector2Int, Transform>();
 
@@ -498,7 +553,7 @@ public sealed class HullStructure : MonoBehaviour
             {
                 owned[0].UnionWith(owned[i]);
 
-                foreach (KeyValuePair<Vector2Int, float> pair in carried[i])
+                foreach (KeyValuePair<Vector2Int, RearCell> pair in carried[i])
                     carried[0][pair.Key] = pair.Value;
                 continue;
             }
@@ -509,7 +564,7 @@ public sealed class HullStructure : MonoBehaviour
         
         _rear.Clear();
 
-        foreach (KeyValuePair<Vector2Int, float> pair in carried[0])
+        foreach (KeyValuePair<Vector2Int, RearCell> pair in carried[0])
             _rear[pair.Key] = pair.Value;
         return broke;
     }
@@ -539,18 +594,18 @@ public sealed class HullStructure : MonoBehaviour
     }
 
     /// <summary>조각별 칸 집합에 지금 체력을 실어 준다. 순서는 그대로다.</summary>
-    private List<Dictionary<Vector2Int, float>> WithHealth(List<HashSet<Vector2Int>> owned)
+    private List<Dictionary<Vector2Int, RearCell>> WithHealth(List<HashSet<Vector2Int>> owned)
     {
-        var carried = new List<Dictionary<Vector2Int, float>>(owned.Count);
+        var carried = new List<Dictionary<Vector2Int, RearCell>>(owned.Count);
 
         for (int i = 0; i < owned.Count; i++)
         {
-            var slice = new Dictionary<Vector2Int, float>(owned[i].Count);
+            var slice = new Dictionary<Vector2Int, RearCell>(owned[i].Count);
 
             foreach (Vector2Int cell in owned[i])
             {
-                if (_rear.TryGetValue(cell, out float health))
-                    slice[cell] = health;
+                if (_rear.TryGetValue(cell, out RearCell wall))
+                    slice[cell] = wall;
             }
 
             carried.Add(slice);
@@ -601,13 +656,13 @@ public sealed class HullStructure : MonoBehaviour
         var chunk = new List<Vector2Int> { cell };
         var byCell = new Dictionary<Vector2Int, Transform> { [cell] = plate };
 
-        return MakeDebris(chunk, byCell, _alive.Count, new Dictionary<Vector2Int, float>(), out _, out _);
+        return MakeDebris(chunk, byCell, _alive.Count, new Dictionary<Vector2Int, RearCell>(), out _, out _);
     }
 
     private void Breakaway(
         List<Vector2Int> chunk,
         Dictionary<Vector2Int, Transform> byCell,
-        int totalAlive, Dictionary<Vector2Int, float> owned)
+        int totalAlive, Dictionary<Vector2Int, RearCell> owned)
     {
         if (!MakeDebris(chunk, byCell, totalAlive, owned, out GameObject go, out Vector2 centre))
             return;
@@ -644,7 +699,7 @@ public sealed class HullStructure : MonoBehaviour
     private bool MakeDebris(
         List<Vector2Int> chunk,
         Dictionary<Vector2Int, Transform> byCell,
-        int totalAlive, Dictionary<Vector2Int, float> owned,
+        int totalAlive, Dictionary<Vector2Int, RearCell> owned,
         out GameObject debris,
         out Vector2 centre)
     {

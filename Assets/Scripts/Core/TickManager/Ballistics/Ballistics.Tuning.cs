@@ -280,6 +280,15 @@ public static partial class Ballistics
     /// </summary>
     public const float RearMassShare = 0.2f;
 
+    /// <summary>
+    /// 후면의 유효 RHA = 그 자리 판 RHA x 이 값.
+    ///
+    /// 체력을 그 자리 판에서 뽑는 것(<c>HullStructure.RearHealthAt</c>)과 같은 규칙이다.
+    /// 후면은 반대편 외판이고, 앞을 뚫고 온 것이 거기까지 닿았다면 이미 많이 깎인 뒤라
+    /// 얇게 잡는다. 1로 두면 완전관통이 사실상 안 나온다.
+    /// </summary>
+    public const float RearRhaFactor = 0.5f;
+
     /// <summary>폭심 피해의 이 비율 아래로 떨어지면 멈춘다. 곧 폭발 반경.</summary>
     public const float BlastCutoff = 0.05f;
 
