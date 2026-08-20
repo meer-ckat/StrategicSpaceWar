@@ -380,7 +380,7 @@ MonoBehaviour:
   shipGuns: []
   shipCriticals: []
   massPerPlate: 420
-  shipDefName: destroyer
+  shipDefName: frigate
   leakRate: 2
   doorRate: 1
   crews: 0
@@ -508,7 +508,7 @@ MonoBehaviour:
   minArrowLength: 28
   maxArrowLength: 140
   iconGap: 6
-  iconSize: {x: 48, y: 32}
+  iconSize: {x: 102, y: 102}
   penetratedIcon: {fileID: 0}
   blockedIcon: {fileID: 0}
   ricochetIcon: {fileID: 0}

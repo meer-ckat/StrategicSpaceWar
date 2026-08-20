@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
 
@@ -151,6 +152,11 @@ public static class RunState
 
         damaged.basedOn = origin;
 
+        // 후면은 판과 반대로 **사라진 칸**을 적는다. 후면은 줄어들기만 하고 설계도를
+        // basedOn으로 되찾을 수 있어서, 온전한 배면 이 목록이 비고 한 판 싸운 배도 수십 개다.
+        var structure = ship.GetComponent<HullStructure>();
+        damaged.rearLost = structure != null ? structure.LostRear() : new List<Vector2Int>();
+
         string text = JsonUtility.ToJson(damaged, prettyPrint: true);
 
         // 설계도 원문 위에 배치만 얹는다. 이러면 배 수치가 글자 하나까지 그대로 따라온다.
@@ -158,7 +164,7 @@ public static class RunState
 
         if (design != null && !string.IsNullOrEmpty(design.raw))
         {
-            string merged = Merge(design.raw, text);
+            string merged = Merge(design.raw, damaged);
 
             if (merged != null)
                 text = merged;
@@ -166,7 +172,8 @@ public static class RunState
 
         File.WriteAllText(FilePath, text);
 
-        Debug.Log($"[RunState] 판 {damaged.placements.Count}개 저장: {FilePath}");
+        Debug.Log(
+            $"[RunState] 판 {damaged.placements.Count}개, 잃은 후면 {damaged.rearLost.Count}칸 저장: {FilePath}");
         return true;
     }
 
@@ -211,17 +218,46 @@ public static class RunState
         RunLog.Clear();
     }
 
-    /// <summary>설계도 원문의 placements를 손상된 쪽 것으로 갈아끼운다.</summary>
-    private static string Merge(string designRaw, string damagedJson)
-    {
-        int start = damagedJson.IndexOf('[');
-        int end = damagedJson.LastIndexOf(']');
+    // 배열 하나만 담은 껍데기. ToJson이 `{"placements":[...]}`를 내주므로 대괄호를 찾는
+    // 트릭이 명확해진다. ShipDef를 통째로 직렬화하면 배열이 둘이라(placements, rearLost)
+    // "첫 [ 부터 마지막 ] 까지"가 두 배열을 한 덩어리로 집어온다.
+    [System.Serializable] private class PlacementList { public List<Placement> placements; }
+    [System.Serializable] private class CellList { public List<Vector2Int> rearLost; }
 
-        if (start < 0 || end <= start)
+    private static string ArrayOf(string json)
+    {
+        int start = json.IndexOf('[');
+        int end = json.LastIndexOf(']');
+
+        return start < 0 || end <= start ? null : json.Substring(start, end - start + 1);
+    }
+
+    /// <summary>
+    /// 설계도 원문 위에 런 상태만 얹는다. 배 수치(drag, angleAccel...)는 글자 하나까지 그대로.
+    ///
+    /// `placements`는 설계도에 이미 있으니 갈아끼우고, `rearLost`는 **런 중에만 생기는 키라**
+    /// 설계도에 없어서 끼워 넣어야 한다. ReplaceTopLevelValue는 없는 키를 못 만든다 -
+    /// 그냥 두면 후면 손실이 조용히 저장에서 빠지고, 로그는 "판 N개 저장"을 멀쩡히 찍는다.
+    /// </summary>
+    private static string Merge(string designRaw, ShipDef damaged)
+    {
+        string placements = ArrayOf(
+            JsonUtility.ToJson(new PlacementList { placements = damaged.placements }));
+
+        if (placements == null)
             return null;
 
-        return DefKeys.ReplaceTopLevelValue(
-            designRaw, "placements", damagedJson.Substring(start, end - start + 1));
+        string merged = DefKeys.ReplaceTopLevelValue(designRaw, "placements", placements);
+
+        if (merged == null)
+            return null;
+
+        string rear = ArrayOf(
+            JsonUtility.ToJson(new CellList { rearLost = damaged.rearLost }));
+
+        return rear == null
+            ? merged
+            : DefKeys.UpsertTopLevelValue(merged, "rearLost", rear) ?? merged;
     }
 
     // 여기부터 아래는 에디터 전용이다. **닫는 중괄호는 이 블록 밖에 있어야 한다** -

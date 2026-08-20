@@ -107,6 +107,9 @@ public sealed class ShipPainter : EditorWindow
             if (GUILayout.Button("저장", EditorStyles.toolbarButton, GUILayout.Width(50f)))
                 Save();
 
+            if (GUILayout.Button("템플릿 뽑기", EditorStyles.toolbarButton, GUILayout.Width(90f)))
+                ExportTemplate();
+
             if (GUILayout.Button("비우기", EditorStyles.toolbarButton, GUILayout.Width(60f)))
             {
                 _plates.Clear();
@@ -283,7 +286,7 @@ public sealed class ShipPainter : EditorWindow
     };
 
     // =========================================================
-    // 밀폐 판정 - 격자의 MarkExterior와 같은 규칙(테두리에서 4방향)
+    // 밀폐 판정
     // =========================================================
 
     private bool Bounds(out Vector2Int min, out Vector2Int max)
@@ -301,42 +304,53 @@ public sealed class ShipPainter : EditorWindow
             r0 = Mathf.Min(r0, cell.y); r1 = Mathf.Max(r1, cell.y);
         }
 
+        // 판 바깥으로 한 겹. 그래야 테두리가 반드시 빈 칸이라 flood가 씨앗을 얻는다.
         min = new Vector2Int(c0 - 1, r0 - 1);
         max = new Vector2Int(c1 + 1, r1 + 1);
         return true;
     }
 
+    /// <summary>
+    /// 지금 찍힌 판으로 진짜 격자를 한 장 만든다.
+    ///
+    /// **밀폐 규칙을 여기서 다시 짜지 않는다.** 예전에는 이 창이 flood를 자기 손으로 돌렸는데,
+    /// 그러면 규칙이 두 곳에 산다 - 게임 쪽이 바뀌는 날 창만 옛 규칙으로 남아서 "창은
+    /// 밀폐됐다는데 게임은 샌다"가 된다. 실물 칸만 찍어 넘기면 <see cref="ShipGrid.MarkExterior"/>가
+    /// 나머지를 정한다.
+    ///
+    /// 문(Door)도 실물이라 공기를 막는다. 그래서 판이든 문이든 <see cref="ShipGrid.Cell.Wall"/>로
+    /// 찍는다 - 창이 답해야 하는 질문은 "여기가 막혀 있나"뿐이고, 문의 여닫힘은 런타임의 일이다.
+    /// </summary>
+    private ShipGrid.Map BuildMap(out Vector2Int min)
+    {
+        min = default;
+
+        if (!Bounds(out min, out Vector2Int max))
+            return null;
+
+        var map = new ShipGrid.Map(
+            max.x - min.x + 1, max.y - min.y + 1, Vector2.zero);
+
+        foreach (Vector2Int cell in _plates.Keys)
+            map.cells[cell.x - min.x, cell.y - min.y] = ShipGrid.Cell.Wall;
+
+        ShipGrid.MarkExterior(map);
+        return map;
+    }
+
     private HashSet<Vector2Int> Exterior()
     {
         var outside = new HashSet<Vector2Int>();
+        ShipGrid.Map map = BuildMap(out Vector2Int min);
 
-        if (!Bounds(out Vector2Int min, out Vector2Int max))
+        if (map == null)
             return outside;
 
-        var queue = new Queue<Vector2Int>();
-        Vector2Int seed = min;   // 판을 한 겹 넓혔으므로 모서리는 반드시 빈 칸이다
-
-        outside.Add(seed);
-        queue.Enqueue(seed);
-
-        Vector2Int[] dirs = { Vector2Int.right, Vector2Int.left, Vector2Int.up, Vector2Int.down };
-
-        while (queue.Count > 0)
+        for (int col = 0; col < map.width; col++)
+        for (int row = 0; row < map.height; row++)
         {
-            Vector2Int at = queue.Dequeue();
-
-            foreach (Vector2Int dir in dirs)
-            {
-                Vector2Int next = at + dir;
-
-                if (next.x < min.x || next.y < min.y || next.x > max.x || next.y > max.y)
-                    continue;
-
-                if (_plates.ContainsKey(next) || !outside.Add(next))
-                    continue;
-
-                queue.Enqueue(next);
-            }
+            if (map.cells[col, row] == ShipGrid.Cell.Exterior)
+                outside.Add(new Vector2Int(col + min.x, row + min.y));
         }
 
         return outside;
@@ -533,6 +547,123 @@ public sealed class ShipPainter : EditorWindow
           .Append(", \"rot\": 0.0, \"mountCol\": ").Append(mount.x)
           .Append(", \"mountRow\": ").Append(mount.y)
           .Append(" }");
+    }
+
+    // =========================================================
+    // 스킨 템플릿
+    // =========================================================
+
+    /// <summary>텍스처 한 변의 상한. 거울(241칸)을 뽑으려다 에디터가 죽는 걸 막는다.</summary>
+    private const int MaxTemplateSide = 8192;
+
+    /// <summary>
+    /// 그림 그릴 밑판을 PNG로 뽑는다. 격자선과 판 실루엣이 깔린 빈 캔버스다.
+    ///
+    /// **크기 계산을 여기서 다시 하지 않는다.** <see cref="ShipDef.Bbox"/>와
+    /// <see cref="ShipDef.PPU"/>를 그대로 쓴다 - 검증하는 쪽(<c>SkinIsValid</c>)과 같은
+    /// 두 값이라야 "템플릿대로 그렸는데 배가 안 실린다"가 안 생긴다.
+    ///
+    /// bbox가 판이 아니라 **배치 전체**라는 점이 중요하다. 판보다 바깥에 얹힌 모듈(다리 밑
+    /// 부스터 같은 것)이 캔버스를 한 칸 넓힌다.
+    ///
+    /// 파일 이름에 `_template`을 붙이는 것도 의도다. `_hull.png`로 뽑으면 hullSkin이 그걸
+    /// 가리키고 있어서 **격자선이 그대로 함선 그림이 된다.**
+    /// </summary>
+    private void ExportTemplate()
+    {
+        ShipDef def = ShipDef.Load(_shipName);
+
+        if (def == null)
+        {
+            _status = "설계도를 못 읽었다. 콘솔을 봐라.";
+            return;
+        }
+
+        RectInt box = def.Bbox();
+        int ppu = ShipDef.PPU;
+        int width = box.width * ppu;
+        int height = box.height * ppu;
+
+        if (width > MaxTemplateSide || height > MaxTemplateSide)
+        {
+            _status = $"{width}x{height}는 너무 크다. {MaxTemplateSide} 넘는 건 안 뽑는다.";
+            return;
+        }
+
+        // 칸 하나가 96x96이라 판마다 SetPixel을 부르면 543만 번이 된다. 배열 하나 채우고
+        // 마지막에 한 번만 올린다.
+        var pixels = new Color32[width * height];
+
+        var plateFill = new Color32(255, 255, 255, 26);
+        var moduleFill = new Color32(255, 150, 60, 90);
+        var gridLine = new Color32(255, 255, 255, 64);
+
+        foreach (Placement p in def.placements)
+        {
+            ThingDef thing = DefDatabase.Get(p.def);
+
+            bool isPlate = thing?.MainType != null
+                        && typeof(Armor).IsAssignableFrom(thing.MainType);
+
+            Fill(pixels, width, height, box, p.col, p.row, ppu,
+                isPlate ? plateFill : moduleFill);
+        }
+
+        // 격자선은 마지막에. 판 채움 위에 그어져야 칸 경계가 보인다.
+        for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+        {
+            // 텍스처 y는 아래에서 위로, 칸 row는 위에서 아래로. 위에서 센 줄로 되돌린다.
+            int fromTop = height - 1 - y;
+
+            if (x % ppu >= 2 && fromTop % ppu >= 2)
+                continue;
+
+            pixels[y * width + x] = gridLine;
+        }
+
+        var texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+        texture.SetPixels32(pixels);
+        texture.Apply(false);
+
+        string path = Path.Combine(ShipDef.DirectoryPath, $"{_shipName}_template.png");
+        File.WriteAllBytes(path, texture.EncodeToPNG());
+        DestroyImmediate(texture);
+        AssetDatabase.Refresh();
+
+        _status = $"{width}x{height} 템플릿을 {path}에 썼다. "
+                + $"({box.width}x{box.height}칸 x {ppu})";
+    }
+
+    /// <summary>
+    /// 칸 하나가 차지하는 96x96 픽셀 블록을 칠한다.
+    ///
+    /// **row는 아래로 증가하고 텍스처 y는 위로 증가한다.** 안 뒤집으면 템플릿이 위아래로
+    /// 뒤집혀 나오고, 그 위에 그린 그림이 통째로 뒤집힌 채 배에 붙는다.
+    /// </summary>
+    private static void Fill(
+        Color32[] pixels, int width, int height, RectInt box,
+        int col, int row, int ppu, Color32 colour)
+    {
+        int x0 = (col - box.xMin) * ppu;
+        int yTop = (row - box.yMin) * ppu;          // 위에서 센 픽셀
+        int y0 = height - yTop - ppu;               // 아래에서 센 픽셀
+
+        for (int y = y0; y < y0 + ppu; y++)
+        {
+            if (y < 0 || y >= height)
+                continue;
+
+            int rowStart = y * width;
+
+            for (int x = x0; x < x0 + ppu; x++)
+            {
+                if (x < 0 || x >= width)
+                    continue;
+
+                pixels[rowStart + x] = colour;
+            }
+        }
     }
 
     /// <summary>

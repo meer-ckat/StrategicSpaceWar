@@ -164,7 +164,16 @@ public partial class Ship : Thing
         //
         // 저장된 런이 있으면 그것이 이긴다. 전투 결과를 안고 다음 구역으로 가는 것이
         // 이 게임의 규칙이라, 설계도로 다시 짓는 것은 런이 끝났을 때뿐이다.
-        var design = RunShipFor(shipDefName);
+        // 설계도와 런 def를 갈라 든다. 판은 런 def로 짓고(부서진 자리가 비어야 한다),
+        // 후면은 설계도로 seed한다.
+        //
+        // **손상된 def로 seed하면 안 된다.** 죽은 판 자리가 Empty라 MarkExterior의 flood가
+        // 그 구멍으로 배 안에 들어가고, 실내가 Exterior로 표시돼서 후면이 통째로 사라진다.
+        // 증상은 "저장하고 열 때마다 후면이 저절로 줄어든다"인데, 줄어드는 자리가 뚫린 구멍
+        // 근처라 마치 그럴듯해 보인다.
+        ShipDef blueprint = string.IsNullOrEmpty(shipDefName) ? null : ShipDef.Load(shipDefName);
+        ShipDef design = RunShipFor(blueprint);
+
         if (ShipBuilder.SpawnFrom(transform, design, this))
         {
             // 인스펙터에 남아 있던 목록은 방금 지운 자식을 가리킨다.
@@ -173,7 +182,7 @@ public partial class Ship : Thing
             shipGuns.Clear();
             shipCriticals.Clear();
         }
-        DesignMap = ShipBuilder.StampFromDef(design);
+        DesignMap = ShipBuilder.StampFromDef(blueprint ?? design);
 
         if(design!=null&&!string.IsNullOrEmpty(design.hullSkin))
         {
@@ -195,8 +204,14 @@ public partial class Ship : Thing
                 Debug.LogAssertion("Hell ye: " + e);
             }
         }
-        if(DesignMap!=null)
+        if (DesignMap != null)
+        {
             _structure.SeedRear(DesignMap, shipHullPng);
+
+            // 씨앗은 언제나 설계도 전체다. 저장이 하는 일은 거기서 빼는 것뿐이라, 순서가
+            // 뒤집히면 SeedRear가 방금 뺀 칸을 도로 넣는다.
+            _structure.ForgetRear(design?.rearLost);
+        }
 
         rig.bodyType = RigidbodyType2D.Dynamic;
         rig.gravityScale = 0f;
@@ -243,10 +258,8 @@ public partial class Ship : Thing
     /// AI 함선은 항상 설계도다 - 적은 매 전투 새로 나온다. 손상을 들고 가는 것은
     /// 플레이어 한 척뿐이고, 그게 이 게임에서 배 한 척이 특별한 유일한 자리다.
     /// </summary>
-    private ShipDef RunShipFor(string designName)
+    private ShipDef RunShipFor(ShipDef design)
     {
-        ShipDef design = string.IsNullOrEmpty(designName) ? null : ShipDef.Load(designName);
-
         if (!IsPlayerControlled)
             return design;
 

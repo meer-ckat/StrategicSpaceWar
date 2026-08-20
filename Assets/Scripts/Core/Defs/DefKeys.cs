@@ -231,6 +231,47 @@ public static class DefKeys
         return null;
     }
 
+    /// <summary>
+    /// 있으면 갈아끼우고, 없으면 끼워 넣는다.
+    ///
+    /// <see cref="ReplaceTopLevelValue"/>는 **없는 키를 못 만든다** - 못 찾으면 null이다.
+    /// 그래서 설계도에 없던 키(런 중에만 생기는 상태)를 저장 파일에 얹으려면 이쪽이 필요하다.
+    /// 없이 하려면 설계도 아홉 개에 빈 값을 미리 적어둬야 하는데, 그러면 새 배를 만들 때마다
+    /// 사람이 그 한 줄을 기억해야 하고 잊으면 저장이 조용히 죽는다.
+    ///
+    /// **여는 중괄호 바로 뒤에 넣는다.** 끝에 넣으면 앞 항목에 쉼표를 붙여야 하는데 그 앞이
+    /// 공백인지 값인지 세어야 한다. 앞에 넣으면 뒤에 쉼표 하나만 찍으면 되고, 뒤에 최소
+    /// 한 항목이 있다는 것은 이미 아는 사실이다(키가 하나도 없는 def는 파싱을 못 통과한다).
+    /// </summary>
+    public static string UpsertTopLevelValue(string json, string key, string newValue)
+    {
+        string replaced = ReplaceTopLevelValue(json, key, newValue);
+
+        if (replaced != null)
+            return replaced;
+
+        if (string.IsNullOrEmpty(json))
+            return null;
+
+        int brace = json.IndexOf('{');
+
+        if (brace < 0)
+            return null;
+
+        // 뒤에 항목이 하나도 없으면 쉼표를 찍으면 안 된다. 여는 괄호 다음의 공백을 건너뛰고
+        // 닫는 괄호가 바로 나오는지 본다.
+        int after = brace + 1;
+
+        while (after < json.Length && char.IsWhiteSpace(json[after]))
+            after++;
+
+        bool empty = after >= json.Length || json[after] == '}';
+
+        return json.Substring(0, brace + 1)
+             + $"\n  \"{key}\": {newValue}{(empty ? "" : ",")}"
+             + json.Substring(brace + 1);
+    }
+
     private static readonly Dictionary<string, Type> _typeCache = new();
 
     /// <summary>

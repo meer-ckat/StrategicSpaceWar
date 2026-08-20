@@ -107,6 +107,51 @@ public sealed class HullStructure : MonoBehaviour
     private Texture2D _shipHullPng;
     public Texture2D ShipHullPng => _shipHullPng;
     public bool HasRear(Vector2Int cell) => _rear.Contains(cell);
+
+    /// <summary>
+    /// 저장에서 되살아난 배가 잃었던 후면을 다시 뺀다. <see cref="SeedRear"/> **뒤에** 부른다 -
+    /// 씨앗은 언제나 설계도 전체이고, 저장이 하는 일은 거기서 빼는 것뿐이다.
+    ///
+    /// 순서가 뒤집히면 아무 일도 안 일어난다. SeedRear가 _rear를 채우면서 방금 뺀 칸을
+    /// 도로 넣기 때문인데, 에러가 안 나서 "저장이 왜 안 먹지"로만 보인다.
+    /// </summary>
+    public void ForgetRear(List<Vector2Int> cells)
+    {
+        if (cells == null)
+            return;
+
+        for (int i = 0; i < cells.Count; i++)
+            _rear.Remove(cells[i]);
+    }
+
+    /// <summary>
+    /// 설계에는 있었는데 지금 이 몸에 없는 후면 칸. 저장에 적을 목록이다.
+    ///
+    /// 잔해로 떠난 칸과 고아로 지워진 칸이 여기 같이 들어온다 - 본체 입장에서 둘은 같은
+    /// 사실이다("내 것이 아니다"). 잔해가 어디로 갔는지는 저장하지 않는다. 다음 구역에
+    /// 잔해를 다시 띄우지 않기 때문이다.
+    /// </summary>
+    public List<Vector2Int> LostRear()
+    {
+        var lost = new List<Vector2Int>();
+
+        if (_designMap == null)
+            return lost;
+
+        for (int col = 0; col < _designMap.width; col++)
+        for (int row = 0; row < _designMap.height; row++)
+        {
+            if (!ShipGrid.BackPlate(_designMap.cells[col, row]))
+                continue;
+
+            var cell = new Vector2Int(col, row);
+
+            if (!_rear.Contains(cell))
+                lost.Add(cell);
+        }
+
+        return lost;
+    }
     public void SeedRear(ShipGrid.Map designMap, Texture2D shipHullPng)
     {
         if(_rear.Count > 0)
