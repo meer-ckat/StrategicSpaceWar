@@ -380,7 +380,7 @@ MonoBehaviour:
   shipGuns: []
   shipCriticals: []
   massPerPlate: 420
-  shipDefName: frigate
+  shipDefName: lance
   leakRate: 2
   doorRate: 1
   crews: 0

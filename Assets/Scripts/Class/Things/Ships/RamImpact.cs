@@ -175,6 +175,10 @@ public static class RamImpact
 
         Vector2 where = body.worldCenterOfMass;
 
+        // 첫 접촉까지의 실제 거리. 캐스트는 한 틱 앞을 미리 보므로 접촉점이 내 선체보다
+        // 한참 앞에 있을 수 있고, 그때 이 값이 없으면 내 뱃머리를 못 찾는다.
+        float reachedAt = 0f;
+
         // 거리순으로 오므로 앞에서부터 담긴다. 중복은 첫 번째(제일 가까운) 것만 남는다.
         for (int i = 0; i < n; i++)
         {
@@ -200,7 +204,10 @@ public static class RamImpact
                 continue;
 
             if (_plates.Count == 0)
+            {
                 where = _punch[i].point;
+                reachedAt = _punch[i].distance;
+            }
 
             _plates.Add(plate);
             _plateBodies.Add(_punch[i].rigidbody);
@@ -281,9 +288,23 @@ public static class RamImpact
 
         // 작용 반작용. 상대가 먹은 만큼 내 뱃머리도 되받는다 - 유리를 받으면 안 긁히고,
         // 장갑을 받으면 뱃머리가 날아간다. 분기문 없이 상대의 강도가 내 피해를 정한다.
-        Armor bow = OwnPlateNear(root, where - dir * 0.6f);
+        // **물러나는 거리가 속도를 따라가야 한다.** where는 캐스트가 맞힌 상대 표면의
+        // 점인데, 캐스트는 RamLookahead만큼 한 틱 앞을 미리 본다. 120 m/s면 접촉점이 내
+        // 선체보다 4 m 앞이라, 고정 0.6 m를 물러나면 아직 허공이고 내 판이 안 잡힌다.
+        //
+        // 증상이 고약했다: 저속에서는 반작용이 멀쩡히 들어가는데 고속에서만 조용히
+        // 사라져서, "빠르게 들이받으면 상대만 박살나고 나는 멀쩡하다"가 된다. 에러도
+        // 로그도 없다 - if (bow != null)이 통째로 건너뛰기 때문이다.
+        Armor bow = OwnPlateNear(root, where - dir * (reachedAt + 0.6f));
 
-        if (bow != null)
+        if (bow == null)
+        {
+            if (RamLog)
+                Debug.LogWarning(
+                    $"[RAM] 반작용을 받을 내 판을 못 찾았다. 접촉 {reachedAt:F2} m 앞, "
+                    + $"되받을 피해 {spent:F0}이 사라진다.", body);
+        }
+        else
         {
             bow.ApplyDamageEvenly(spent);
             Conduct(bow, dir, spent,

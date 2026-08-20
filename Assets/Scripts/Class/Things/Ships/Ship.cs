@@ -463,6 +463,18 @@ public partial class Ship : Thing
             // 선체째 떨어져 나갔든 방 입장에서는 똑같이 우주로 열린 것이다.
             breaches += room.boundaryPlates - standing;
 
+            // 뒤가 뚫린 칸도 구멍이다. **앞과 세는 방식이 다르다** - 전면 파공은 방을
+            // 둘러싼 판에서 나오지만(옆으로 뚫린 구멍), 후면은 방이 차지한 칸 자체가
+            // 구멍 후보다. 바닥이 없어진 셈이라 벽을 봐도 안 나온다.
+            //
+            // leakRate를 앞과 공유한다. 뒤 구멍이 다른 속도로 샐 이유가 없고, 상수를
+            // 하나 더 두면 "왜 뒤가 더 빨리 새지"를 두 곳에서 튜닝하게 된다.
+            for (int i = 0; i < room.cells.Count; i++)
+            {
+                if (_structure.RearBreached(room.cells[i]))
+                    breaches++;
+            }
+
             if (breaches > 0)
                 room.air = Mathf.Max(0f, room.air - breaches * leakRate * dt);
         }

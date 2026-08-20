@@ -115,6 +115,30 @@ public sealed class HullStructure : MonoBehaviour
     public bool HasRear(Vector2Int cell) => _rear.ContainsKey(cell);
 
     /// <summary>
+    /// 살아 있는 격자의 칸이 **뒤가 뚫려 있나**. 방이 물어보는 자리다.
+    ///
+    /// **좌표 변환이 여기 있는 이유**: Room.cells는 _map(Stamp가 만든 살아 있는 격자) 칸이고
+    /// _rear는 설계도 격자 칸이다. Stamp가 살아남은 판의 극값에서 원점을 잡으므로 판이
+    /// 죽으면 둘이 어긋나는데, 그걸 부르는 쪽마다 기억하게 두면 언젠가 한 곳이 잊는다.
+    /// #9의 파단이 정확히 그 실수였다.
+    ///
+    /// 설계에 애초에 후면이 없던 칸(격자 밖, 우주)은 뚫린 것이 아니다 - 뚫리려면 먼저
+    /// 있어야 한다.
+    /// </summary>
+    public bool RearBreached(Vector2Int liveCell)
+    {
+        if (_designMap == null || !_hasMap)
+            return false;
+
+        Vector2Int cell = _designMap.ToCell(_map.ToLocal(liveCell.x, liveCell.y));
+
+        if (!_designMap.Inside(cell) || !ShipGrid.BackPlate(_designMap.cells[cell.x, cell.y]))
+            return false;
+
+        return !_rear.ContainsKey(cell);
+    }
+
+    /// <summary>
     /// 저장에서 되살아난 배가 잃었던 후면을 다시 뺀다. <see cref="SeedRear"/> **뒤에** 부른다 -
     /// 씨앗은 언제나 설계도 전체이고, 저장이 하는 일은 거기서 빼는 것뿐이다.
     ///
