@@ -54,6 +54,21 @@ public sealed class HullStructure : MonoBehaviour
     public int AliveCount => _alive.Count;
 
     /// <summary>
+    /// 이 구조물이 두 덩어리 이상으로 갈라진 적이 있는가.
+    ///
+    /// **판이 몇 장 떨어져 나간 것과는 다른 사건이다.** <see cref="Shed"/>는 한 장을
+    /// 떼어내지만 남은 것은 여전히 한 덩어리고, 여기는 <see cref="Breakaway"/>에서만
+    /// 켜진다 - 구조 BFS가 실제로 두 성분을 찾았을 때다.
+    ///
+    /// 고리에 이 차이가 그대로 드러난다. 거울 껍질을 한 군데 끊으면 여전히 8방향으로 이어진
+    /// 호 하나라 안 갈라지고, **두 군데를 끊어야** 두 조각이 된다. 초복사가 껍질이 닫혀
+    /// 있어서 되는 것이라, "갈라졌다"가 곧 "시설이 죽었다"이다.
+    ///
+    /// 한 번 켜지면 안 꺼진다. 조각이 다시 붙는 일은 없다.
+    /// </summary>
+    public bool HasSplit { get; private set; }
+
+    /// <summary>
     /// Armor가 자기 마지막 서브셀을 잃을 때 부른다. 여기서 바로 BFS를 돌리지 않는 이유는,
     /// 이 호출이 파편 연쇄나 Physics2D.Simulate 콜백 한가운데서 오기 때문이다.
     ///
@@ -246,6 +261,10 @@ public sealed class HullStructure : MonoBehaviour
     {
         if (!MakeDebris(chunk, byCell, totalAlive, out GameObject go, out Vector2 centre))
             return;
+
+        // 조각이 실제로 떠난 뒤에 켠다. MakeDebris가 실패하면(옮길 판이 하나도 없으면)
+        // 갈라진 것이 아니다.
+        HasSplit = true;
 
         // 절단면 광원. **여기 하나뿐이다** - 판마다 Light2D를 달면 한 척에 200개가 생긴다.
         // 판의 적열은 SpriteRenderer.color의 HDR 값이 Bloom을 통해 내는 것이고, 실제 광원은

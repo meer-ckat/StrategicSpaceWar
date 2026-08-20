@@ -2467,35 +2467,43 @@
     },
     {
       "def": "Magazine",
-      "col": 10,
-      "row": 11,
+      "col": 32,
+      "row": 8,
       "rot": 0.0,
-      "mountCol": 10,
-      "mountRow": 10
-    },
-    {
-      "def": "Reactor",
-      "col": 24,
-      "row": 11,
-      "rot": 0.0,
-      "mountCol": 24,
-      "mountRow": 10
+      "mountCol": 33,
+      "mountRow": 8
     },
     {
       "def": "Magazine",
-      "col": 38,
+      "col": 21,
       "row": 11,
       "rot": 0.0,
-      "mountCol": 38,
+      "mountCol": 21,
       "mountRow": 10
     },
     {
       "def": "Reactor",
-      "col": 52,
-      "row": 11,
+      "col": 43,
+      "row": 12,
       "rot": 0.0,
-      "mountCol": 52,
-      "mountRow": 10
+      "mountCol": 43,
+      "mountRow": 13
+    },
+    {
+      "def": "Reactor",
+      "col": 53,
+      "row": 7,
+      "rot": 0.0,
+      "mountCol": 54,
+      "mountRow": 7
+    },
+    {
+      "def": "Reactor",
+      "col": 10,
+      "row": 12,
+      "rot": 0.0,
+      "mountCol": 10,
+      "mountRow": 13
     }
   ]
 }

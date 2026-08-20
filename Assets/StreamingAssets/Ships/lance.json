@@ -9,7 +9,7 @@
   "leakRate": 2,
   "doorRate": 1,
   "crews": 3,
-  "FightDistance": 0,
+  "FightDistance": 220,
   "DetectionDistance": 320,
   "breakawaySpeed": 2,
   "placements": [
@@ -2871,26 +2871,42 @@
     },
     {
       "def": "Reactor",
-      "col": 9,
+      "col": 10,
       "row": 9,
       "rot": 0.0000,
-      "mountCol": 9,
+      "mountCol": 10,
       "mountRow": 8
     },
     {
       "def": "Reactor",
-      "col": 26,
-      "row": 9,
+      "col": 25,
+      "row": 7,
       "rot": 0.0000,
-      "mountCol": 26,
+      "mountCol": 25,
+      "mountRow": 8
+    },
+    {
+      "def": "Reactor",
+      "col": 38,
+      "row": 7,
+      "rot": 0.0000,
+      "mountCol": 38,
       "mountRow": 8
     },
     {
       "def": "Magazine",
-      "col": 18,
+      "col": 17,
+      "row": 9,
+      "rot": 0.0000,
+      "mountCol": 17,
+      "mountRow": 8
+    },
+    {
+      "def": "Magazine",
+      "col": 31,
       "row": 7,
       "rot": 0.0000,
-      "mountCol": 18,
+      "mountCol": 31,
       "mountRow": 8
     }
   ]

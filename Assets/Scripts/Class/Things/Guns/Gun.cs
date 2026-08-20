@@ -180,13 +180,10 @@ public class Gun : Thing, IDamageable
         float dt = TickManager.TickDeltaTime;
         float error = Slew(target, dt);
 
-        // 방아쇠를 놓고 있는 동안에도 포신은 따라간다. 장전된 채로 대기시켜 두어야
-        // 당기는 순간 첫 발이 나가고, 기다린 시간만큼 연사가 쏟아지지도 않는다.
+        _pending = Mathf.Min(_pending + roundsPerMinute / 60f * dt, 1f);
+
         if (!WantsToFire)
-        {
-            _pending = 1f;
             return;
-        }
 
         // 1로 막아두는 이유: 조준하는 동안 쌓인 발사량이 조준선에 들어오는 순간
         // 한꺼번에 쏟아지는 것을 막는다. 대신 틱당 최대 한 발 - 3600 RPM이 천장이다.

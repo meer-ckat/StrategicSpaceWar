@@ -147,7 +147,12 @@ public static class RamImpact
         // 거리는 이번 틱에 나아가는 만큼이다. 그 앞의 얇은 한 겹만 지워야 구멍이 배를
         // 따라 자란다.
         float dt = Core.TickManager.TickDeltaTime;
-        float step = reach * dt + Ballistics.RamSkin;
+
+        // **솔버보다 한 틱 앞서 본다.** 딱 이번 틱 이동거리만 쓸면 판을 지우기 시작하는
+        // 그 틱에 솔버도 접촉을 잡아서, 얇은 것이 여러 개 겹친 자리(거울 잔해 구름)에서는
+        // 다 못 치운 나머지가 동시 접촉으로 배를 튕겨낸다.
+        float lead = dt * Ballistics.RamLookahead;
+        float step = reach * lead + Ballistics.RamSkin;
         int n = body.Cast(dir, _punch, step);
 
         if (n == 0)
@@ -190,7 +195,8 @@ public static class RamImpact
             Vector2 arm = _punch[i].point - centre;
             Vector2 pointVelocity = velocity + Ballistics.Rotate(arm, 90f) * omega;
 
-            if (Vector2.Dot(pointVelocity, dir) * dt + Ballistics.RamSkin < _punch[i].distance)
+            // 캐스트와 **같은 lead**를 쓴다. 여기만 dt로 두면 늘린 스윕을 도로 걸러낸다.
+            if (Vector2.Dot(pointVelocity, dir) * lead + Ballistics.RamSkin < _punch[i].distance)
                 continue;
 
             if (_plates.Count == 0)
@@ -521,7 +527,7 @@ public static class RamImpact
             Ballistics.BlastFalloff, Ballistics.BlastFalloff,
             Ballistics.BlastCutoff, Ballistics.BlastMaxPlates);
 
-        Radiate(origin, damage);
+        Radiate(origin, Mathf.Sqrt(damage));
     }
 
     /// <summary>

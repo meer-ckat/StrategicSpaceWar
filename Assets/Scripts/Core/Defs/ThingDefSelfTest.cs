@@ -154,7 +154,10 @@ public static class ThingDefSelfTest
         // 배는 뜨는데 판만 없다. Armor mk5 slope를 지우고 Placement.size로 옮길 때 실제로
         // 이 자리가 필요했다.
         foreach (string name in new[]
-                 { "destroyer", "frigate", "scout", "cruiser", "lance", "asteroid", "mirror", "derelict" })
+                 {
+                     "destroyer", "frigate", "scout", "cruiser", "lance", "dart",
+                     "asteroid", "mirror", "derelict",
+                 })
         {
             ShipDef ship = ShipDef.Load(name);
 

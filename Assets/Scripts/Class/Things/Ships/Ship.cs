@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Core;
+using System.IO;
+using System;
 
 /// <summary>
 /// 함선 한 척. **abstract가 아니다** - 함선의 종류는 C# 클래스가 아니라 shipDefName이 정한다.
@@ -58,8 +60,6 @@ public partial class Ship : Thing
     {
         get
         {
-            bool any = false;
-
             for (int i = 0; i < shipCriticals.Count; i++)
             {
                 CriticalModule module = shipCriticals[i];
@@ -67,15 +67,22 @@ public partial class Ship : Thing
                 if (module == null || !module.providesPower || !StillAboard(module, this))
                     continue;
 
-                any = true;
-
                 if (!module.Neutralized)
                     return true;
             }
 
-            return !any;
+            // **"지금 목록에 없다"를 세면 안 된다.** 터진 원자로는 판과 함께 잔해로 떠나거나
+            // 파괴돼서 목록에서 사라진다. 남은 것을 세는 것으로 판단하면 원자로가 전멸한
+            // 배가 "원자로를 안 단 설계"로 읽혀서 전기가 되살아나고, 다 터졌는데 계속
+            // 조타하고 조준하는 배가 된다.
+            //
+            // 설계에 원자로가 있었는지는 Awake가 적어 둔다. 그 사실은 안 변한다.
+            return !_needsPower;
         }
     }
+
+    /// <summary>설계에 발전하는 모듈이 하나라도 있었는가. Awake가 한 번 정하고 안 바뀐다.</summary>
+    private bool _needsPower;
 
     /// <summary>
     /// 조타·사격·수리가 되는가. **저장값이 아니라 파생값이다.**
@@ -134,6 +141,8 @@ public partial class Ship : Thing
     public float engagementSign = 1f;
 
     Rigidbody2D rig;
+    [NonSerialized] private Texture2D shipHullPng;
+    public Texture2D ShipHullPng => shipHullPng;
 
     protected override void Awake()
     {
@@ -151,7 +160,8 @@ public partial class Ship : Thing
         //
         // 저장된 런이 있으면 그것이 이긴다. 전투 결과를 안고 다음 구역으로 가는 것이
         // 이 게임의 규칙이라, 설계도로 다시 짓는 것은 런이 끝났을 때뿐이다.
-        if (ShipBuilder.SpawnFrom(transform, RunShipFor(shipDefName), this))
+        var design = RunShipFor(shipDefName);
+        if (ShipBuilder.SpawnFrom(transform, design, this))
         {
             // 인스펙터에 남아 있던 목록은 방금 지운 자식을 가리킨다.
             shipArmors.Clear();
@@ -159,10 +169,28 @@ public partial class Ship : Thing
             shipGuns.Clear();
             shipCriticals.Clear();
         }
+        if(design!=null&&!string.IsNullOrEmpty(design.hullSkin))
+        {
+            try{
+
+                byte[] bytes = File.ReadAllBytes(ShipDef.SkinPathOf(design.hullSkin));
+                shipHullPng = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                bool ok = shipHullPng.LoadImage(bytes);
+                if(!ok)
+                {
+                    Destroy(shipHullPng);
+                    shipHullPng = null;
+                    Debug.LogAssertion("I'm not fucking ok. IM NOT FUCKING OK. FIX. I couldnt load the image, and i fired from cpu. fuck it.");
+                }
+            }
+            catch(Exception e)
+            {
+                Debug.LogAssertion("Hell ye: " + e);
+            }
+        }
 
         rig.bodyType = RigidbodyType2D.Dynamic;
         rig.gravityScale = 0f;
-
         // 항력을 물리에 넘긴다. 종단속도는 그대로 추력 / (질량 x drag).
         rig.linearDamping = drag;
 
@@ -175,6 +203,21 @@ public partial class Ship : Thing
         if (shipGuns.Count == 0) shipGuns = new List<Gun>(GetComponentsInChildren<Gun>());
         if (shipCriticals.Count == 0)
             shipCriticals = new List<CriticalModule>(GetComponentsInChildren<CriticalModule>());
+
+        // **설계에 원자로가 있었는가.** 지금 목록을 세는 것으로는 이 질문에 답할 수 없다 -
+        // 터진 원자로는 판과 함께 잔해로 떠나거나 파괴돼서 목록에서 사라지고, 그러면
+        // "원자로를 아예 안 단 설계"와 글자 그대로 같아 보인다. 설계 사실은 안 변하므로
+        // 여기서 한 번만 적어 둔다.
+        _needsPower = false;
+
+        for (int i = 0; i < shipCriticals.Count; i++)
+        {
+            if (shipCriticals[i] != null && shipCriticals[i].providesPower)
+            {
+                _needsPower = true;
+                break;
+            }
+        }
 
         BuildRooms();
 
@@ -284,6 +327,32 @@ public partial class Ship : Thing
     public bool CrewAlive { get; private set; } = true;
 
     /// <summary>
+    /// 지금 쏠 수 있는 포탑이 하나라도 있는가.
+    ///
+    /// **`StillAboard`가 여기 있어야 한다.** 포탑이 잔해에 실려 100 m 밖으로 날아가도
+    /// <see cref="shipGuns"/>의 참조는 그대로 살아 있어서, null도 아니고 Neutralized도
+    /// 아니다. 안 거르면 판 세 장짜리 조각이 "우리 배엔 아직 주포가 있다"고 말한다.
+    ///
+    /// 읽는 쪽이 둘이라 프로퍼티다 - <see cref="IsCombatEffective"/>는 "아직 적인가"를,
+    /// <see cref="ShipAi"/>는 "거리를 둘 것인가 들이받을 것인가"를 이 값 하나로 정한다.
+    /// 두 벌로 두면 언젠가 한쪽만 고친다.
+    /// </summary>
+    public bool HasUsableGun
+    {
+        get
+        {
+            for (int i = 0; i < shipGuns.Count; i++)
+            {
+                if (shipGuns[i] != null && !shipGuns[i].Neutralized
+                    && StillAboard(shipGuns[i], this))
+                    return true;
+            }
+
+            return false;
+        }
+    }
+
+    /// <summary>
     /// 아직 상대할 가치가 있는가. 저장된 상태가 아니라 파생값이다 - 쏠 수도, 움직일 수도,
     /// 들이받을 수도 없는 배가 잔해다. AI가 시체를 계속 쏘지 않게 하는 것이 이 값의 일이다.
     /// </summary>
@@ -295,11 +364,8 @@ public partial class Ship : Thing
             if (!CrewAlive || !HasPower)
                 return false;
 
-            for (int i = 0; i < shipGuns.Count; i++)
-            {
-                if (shipGuns[i] != null && !shipGuns[i].Neutralized)
-                    return true;
-            }
+            if (HasUsableGun)
+                return true;
 
             // 포탑이 다 죽어도 움직일 수 있으면 충각이 남아 있다.
             return AvailableThrust(true) > 0f || AvailableThrust(false) > 0f;
@@ -507,6 +573,12 @@ public partial class Ship : Thing
     {
         All.Remove(this);
         base.OnDisable();
+    }
+
+    protected override void OnDestroy()
+    {
+        base.OnDestroy();
+        Destroy(shipHullPng);
     }
 
     /// <summary>

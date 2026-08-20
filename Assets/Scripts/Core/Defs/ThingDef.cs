@@ -52,6 +52,15 @@ public class ThingDef
     private Type[] _compTypes;
 
     /// <summary>
+    /// `thingClass`가 가리키는 실제 C# 타입. <see cref="Validate"/>가 한 번 풀어 둔 것이다.
+    ///
+    /// **타입만 내주고 판단은 밖에서 한다.** 여기에 `IsPlate` 같은 것을 두면 def 층이
+    /// `Armor`를 알아야 하고, 그러면 "물건 한 종류의 정의"가 함선 격자의 규칙까지 들고
+    /// 있게 된다. 지금은 def가 <see cref="Spawn"/>할 줄만 알면 된다.
+    /// </summary>
+    public Type MainType => _mainType;
+
+    /// <summary>
     /// 이 def대로 물건 하나를 만들어 parent 밑에 놓는다.
     ///
     /// **비활성으로 만들고 마지막에 켠다.** AddComponent는 오브젝트가 활성이면 Awake를 즉시

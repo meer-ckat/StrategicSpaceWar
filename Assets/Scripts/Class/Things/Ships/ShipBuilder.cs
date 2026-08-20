@@ -60,6 +60,71 @@ public static class ShipBuilder
     }
 
     /// <summary>
+    /// 오브젝트가 없을 때의 <see cref="StampsGrid"/>. **둘은 같은 규칙이어야 한다** -
+    /// 갈리는 순간 "지어진 배의 격자"와 "설계도의 격자"가 다른 물건이 되고, 후면 판이
+    /// 전면과 어긋난 자리에 생긴다. 한쪽을 고치면 반드시 다른 쪽도 고쳐라.
+    ///
+    /// 컴포넌트 대신 <see cref="ThingDef.MainType"/>을 본다. 이름이 아니라 타입인 것이
+    /// 중요하다 - `Armor`를 상속한 새 판(`BallisticArmor`)이 생겨도 저절로 따라온다.
+    /// </summary>
+    private static bool StampsGrid(ThingDef def, out bool isDoor)
+    {
+        isDoor = false;
+
+        if (def?.MainType == null)
+            return false;
+
+        isDoor = typeof(Door).IsAssignableFrom(def.MainType);
+        return isDoor || typeof(Armor).IsAssignableFrom(def.MainType);
+    }
+
+    /// <summary>
+    /// 오브젝트를 하나도 만들지 않고 배치 리스트만으로 격자를 찍는다.
+    ///
+    /// **<see cref="Stamp"/>가 답할 수 없는 질문에 답한다.** Stamp는 살아 있는 자식
+    /// 트랜스폼을 읽으므로 부서진 판이 있던 자리는 격자에서 그냥 사라진다. 후면 판은
+    /// 뚫린 구멍 뒤에도 있어야 하니 "설계가 여기 뭘 뒀나"를 아는 격자가 따로 필요하다.
+    ///
+    /// **틀과 내용이 다른 데서 온다.** 크기·원점은 <see cref="AuthoredMap"/>이 주는
+    /// authored bbox(= basedOn)이고, 칸 내용은 넘긴 def의 placements다. 그래서 손상
+    /// 저장본을 넣으면 **원본 크기 격자에 구멍이 뚫린 채로** 나오고, 설계도를 넣으면
+    /// 온전한 격자가 나온다. 부르는 쪽이 어느 쪽을 원하는지 def로 말한다.
+    ///
+    /// armorAt/doorAt은 안 준다 - 가리킬 오브젝트가 없다. 판 참조가 필요한 일
+    /// (WireNeighbours, 방 경계)은 여전히 Stamp의 몫이다.
+    /// </summary>
+    public static ShipGrid.Map StampFromDef(ShipDef def)
+    {
+        (ShipGrid.Map map, Vector2Int mins) authored = AuthoredMap(def);
+
+        if (authored.map == null)
+            return null;
+
+        foreach (Placement p in def.placements)
+        {
+            if (!StampsGrid(DefDatabase.Get(p.def), out bool isDoor))
+                continue;
+
+            var cell = new Vector2Int(p.col - authored.mins.x, p.row - authored.mins.y);
+
+            // authored bbox 밖은 손상 저장본에서도 안 생긴다. 생겼다면 배치가 원본과
+            // 다른 좌표계로 적힌 것이라, 조용히 건너뛰면 #1이 깨진 걸 여기서 묻는다.
+            if (!authored.map.Inside(cell))
+            {
+                Debug.LogError(
+                    $"[ShipBuilder] {def.defName}: '{p.def}'가 설계도 격자 밖 ({p.col},{p.row})에 있다.");
+                continue;
+            }
+
+            authored.map.cells[cell.x, cell.y] =
+                isDoor ? ShipGrid.Cell.Door : ShipGrid.Cell.Wall;
+        }
+
+        ShipGrid.MarkExterior(authored.map);
+        return authored.map;
+    }
+
+    /// <summary>
     /// 자식들의 위치에서 맵을 짓는다. 콜라이더는 절대 안 읽는다 - 2x2 경사장갑이 이웃 칸을
     /// 덮고 있어도 격자는 판의 위치 하나만 본다.
     ///
@@ -156,7 +221,6 @@ public static class ShipBuilder
 
         ShipGrid.MarkExterior(map);
         WireNeighbours(armorAt, doorAt);
-        Debug.Log("map exported");
         return map;
     }
 
@@ -206,6 +270,29 @@ public static class ShipBuilder
         }
     }
 
+    public static (ShipGrid.Map map, Vector2Int mins) AuthoredMap(ShipDef def, Transform hull = null)
+    {
+        if (def == null || def.placements == null || def.placements.Count == 0)
+        {
+            Debug.LogError("You bastard");
+            return (null, default);
+        }
+
+        if(hull != null) //좆까 내맘대로 할거임
+        {
+            if(hull.childCount <= 0)
+                return (null, default); //개같은
+        }
+
+        // basedOn이 비는 것은 사고가 아니라 Hulk다(운석·거울·폐위성). 손상 이력이 없으니
+        // 자기 placements가 곧 authored고, 폴백이 곧 정답이다.
+        ShipDef authored = string.IsNullOrEmpty(def.basedOn) ? def : ShipDef.Load(def.basedOn) ?? def;
+
+        RectInt box = authored.Bbox();
+
+        return (ShipGrid.Map.Centred(box.width, box.height), box.min);
+    }
+
     /// <summary>
     /// 이미 읽어 둔 def로 짓는다. 저장된 런처럼 파일 이름으로 못 찾는 def가 있어서 갈랐다.
     /// </summary>
@@ -247,30 +334,21 @@ public static class ShipBuilder
     /// </summary>
     public static void Spawn(Transform hull, ShipDef def)
     {
-        // 빈 리스트를 그냥 통과시키면 아래 min/max가 int.MaxValue인 채로 빼기에 들어가 뒤집힌다.
-        if (def == null || def.placements == null || def.placements.Count == 0)
+
+        var temp = AuthoredMap(def);
+        if(temp.map == null)
         {
-            Debug.LogError($"[ShipBuilder] {hull.name}에 심을 배치가 없다. 자식을 그대로 둔다.");
+            Debug.LogAssertion($"Fucking Error. Call Opus. hull:{hull.name}");
             return;
         }
-
         // Destroy는 프레임 끝까지 미뤄진다. 그 사이에 Stamp가 돌면 옛 자식과 새 자식을
         // 함께 읽어 칸이 겹친다. 여기서는 즉시 지워야 한다.
         for (int i = hull.childCount - 1; i >= 0; i--)
             Object.DestroyImmediate(hull.GetChild(i).gameObject);
 
-        int minCol = int.MaxValue, maxCol = int.MinValue;
-        int minRow = int.MaxValue, maxRow = int.MinValue;
-
-        foreach (Placement p in def.placements)
-        {
-            minCol = Mathf.Min(minCol, p.col);
-            maxCol = Mathf.Max(maxCol, p.col);
-            minRow = Mathf.Min(minRow, p.row);
-            maxRow = Mathf.Max(maxRow, p.row);
-        }
-
-        ShipGrid.Map map = ShipGrid.Map.Centred(maxCol - minCol + 1, maxRow - minRow + 1);
+        ShipGrid.Map map = temp.map;
+        int minCol = temp.mins.x;
+        int minRow = temp.mins.y;
 
         var plateAt = new Dictionary<Vector2Int, Transform>();
         var modules = new List<(Placement placement, Transform spawned)>();

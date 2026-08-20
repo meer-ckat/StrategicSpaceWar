@@ -131,7 +131,7 @@ public static partial class Ballistics
     /// 충돌 에너지 중 판이 실제로 먹는 몫. DamageScale을 그대로 통과하므로 포탄 피해와
     /// 같은 눈금 위에 있다 - 여기만 만지면 충각의 치명도를 따로 조절할 수 있다.
     /// </summary>
-    public const float RamDamageFraction = 1f;
+    public const float RamDamageFraction = 0.5f;
 
     /// <summary>
     /// 이 아래는 접촉이지 충각이 아니다(m/s). 없으면 나란히 떠 있기만 해도 장갑이 갈린다.
@@ -153,6 +153,23 @@ public static partial class Ballistics
     /// 실제 이동거리의 3배를 쓸었다. Unity의 기본 접촉 여유(0.01)보다는 커야 한다.
     /// </summary>
     public const float RamSkin = 0.04f;
+
+    /// <summary>
+    /// 충각이 몇 틱 앞을 미리 쓰는가. 1이면 딱 이번 틱 이동거리다.
+    ///
+    /// **1이면 솔버와 동시에 도착한다.** 판을 지우기 시작하는 그 틱에 솔버도 접촉을 잡으므로,
+    /// 얇은 것이 여러 개 겹쳐 있으면 한 틱에 다 못 치우고 남은 것들이 동시 접촉으로 배를
+    /// 밀어낸다. 거울이 잔해 구름으로 흩어진 자리에서 이게 나온다 - 빠를수록 한 틱에
+    /// 만나는 수가 많아지니 확률이 올라간다.
+    ///
+    /// 2면 한 틱 먼저 값을 치르기 시작한다. 앞질러 부수는 것이 아니다 - 실제로 지워지는
+    /// 것은 여전히 예산이 닿는 만큼뿐이고, <see cref="RamSpendPerTick"/>이 한 틱 지출을
+    /// 막고 있다. 늘어나는 것은 "부술 것을 언제부터 보기 시작하는가"뿐이다.
+    ///
+    /// 캐스트 거리와 판별 게이트가 **같은 값을 써야 한다.** 캐스트만 늘리면 게이트가
+    /// 늘어난 만큼을 도로 걸러내서 아무것도 안 바뀐다.
+    /// </summary>
+    public const float RamLookahead = 2f;
 
     /// <summary>
     /// 한 틱에 쏟을 수 있는 운동에너지의 최대 몫.
@@ -230,7 +247,7 @@ public static partial class Ballistics
     /// **반경을 정하는 것은 blastDamage가 아니라 아래 BlastCutoff다.** 0.65에 컷오프 0.05면
     /// 약 7 m에서 끊긴다. 세기를 올리면 그 원 안의 판이 더 확실히 죽을 뿐 원이 커지지 않는다.
     /// </summary>
-    public const float BlastFalloff = 0.8f;
+    public const float BlastFalloff = 0.65f;
 
     /// <summary>폭심 피해의 이 비율 아래로 떨어지면 멈춘다. 곧 폭발 반경.</summary>
     public const float BlastCutoff = 0.05f;

@@ -94,12 +94,58 @@ public class ShipDef
 
     public List<Placement> placements = new();
 
+    /// <summary>
+    /// 배치가 차지하는 칸 범위. **authored bbox의 유일한 정의다** - `ShipBuilder.AuthoredMap`이
+    /// 격자를 잡을 때도, 함선 그림 크기를 잴 때도 여기를 부른다. 두 곳에 적어두면 한쪽만
+    /// 고치는 날이 오고, 그때 증상은 "그림은 맞는데 배가 안 실린다"가 된다.
+    ///
+    /// def가 소유하는 이유: 범위는 placements의 성질이고 placements의 주인이 여기다.
+    /// ShipBuilder가 들고 있으면 def가 자기 크기를 물으려고 빌더를 불러야 한다.
+    /// </summary>
+    public RectInt Bbox()
+    {
+        if (placements == null || placements.Count == 0)
+            return default;
+
+        int minCol = int.MaxValue, maxCol = int.MinValue;
+        int minRow = int.MaxValue, maxRow = int.MinValue;
+
+        foreach (Placement p in placements)
+        {
+            minCol = Mathf.Min(minCol, p.col);
+            maxCol = Mathf.Max(maxCol, p.col);
+            minRow = Mathf.Min(minRow, p.row);
+            maxRow = Mathf.Max(maxRow, p.row);
+        }
+
+        return new RectInt(minCol, minRow, maxCol - minCol + 1, maxRow - minRow + 1);
+    }
+
     /// <summary>파일 원문. Ship 컴포넌트에 통째로 붓는다.</summary>
     [NonSerialized] public string raw;
 
     [NonSerialized] public string source;
 
-    private static readonly string[] HeaderKeys = { "defName", "basedOn", "placements" };
+    private static readonly string[] HeaderKeys = { "defName", "basedOn", "placements", "hullSkin" };
+
+    /// <summary>
+    /// 함선 그림 파일 이름. 배치와 같은 폴더(StreamingAssets/Ships)에 있다. 비어 있으면
+    /// 그림이 없는 배다 - 지금 아홉 척이 전부 그렇고, 그건 오류가 아니다.
+    ///
+    /// **ThingDef가 아니라 여기 있는 이유**: 텍스처는 배 한 척당 한 장이지 판 종류당이
+    /// 아니다. `Armor mk5`는 세 척이 같이 쓰는데 그림은 배마다 다르다.
+    /// </summary>
+    public string hullSkin;
+
+    /// <summary>
+    /// 함선 그림의 픽셀/미터. 캔버스 크기가 여기서 나온다 - authored 격자 W×H칸이면
+    /// PNG는 정확히 (W*PPU)x(H*PPU)여야 한다.
+    ///
+    /// **`ArmorSkin`의 48과 정수배로 묶여 있어야 한다.** 판 텍스처가 48/m인데 함선 그림이
+    /// 100/m이면 비가 2.083…이라 판마다 리샘플 오차가 남고, 증상은 판 경계마다 생기는
+    /// 이음매다. 96은 정확히 두 배라 안전하다. 바꿀 거면 48의 배수로.
+    /// </summary>
+    private const int PPU = 96;
 
     /// <summary>
     /// 배의 수치를 Ship(또는 Hulk)에 붓는다. 어느 필드가 넘어오는지는 그 컴포넌트가 정한다 -
@@ -127,7 +173,10 @@ public class ShipDef
             return null;
         }
 
-        return Parse(File.ReadAllText(path), Path.GetFileName(path));
+        ShipDef def = Parse(File.ReadAllText(path), Path.GetFileName(path));
+
+        // 그림 규격은 설계도를 읽는 이 자리에서만 본다. 이유는 SkinIsValid 주석에.
+        return SkinIsValid(def) ? def : null;
     }
 
     /// <summary>
@@ -154,6 +203,120 @@ public class ShipDef
             return null;
 
         return def;
+    }
+
+    /// <summary>
+    /// 함선 그림이 격자와 같은 크기인가. **순수 함수다 - 로그를 안 찍는다.**
+    ///
+    /// 판정과 보고의 주인이 갈려 있어야 한다. 여기서 <c>Debug.LogError</c>를 부르면
+    /// self-test가 실패 케이스를 돌릴 때마다 콘솔이 빨개져서, 테스트가 통과했는지 아닌지가
+    /// 로그로는 안 갈린다. 문장만 돌려주고 찍는 것은 부르는 쪽이 한다.
+    ///
+    /// <paramref name="ppu"/>는 인자다. 상수를 여기서 읽으면 테스트가 축척을 못 바꾸고,
+    /// "48만 허용"이라는 **정책이 순수 함수 안으로 새어든다.** 정책은 호출부가 정한다 -
+    /// <see cref="Load"/>가 항상 <see cref="PPU"/>를 넘기므로 다른 축척으로 그린 그림은
+    /// 픽셀 수가 안 맞아서 거부된다. 선언은 거짓말할 수 있고 픽셀 수는 못 한다.
+    /// </summary>
+    public static bool CheckTextureSize(
+        int bboxW, int bboxH, int ppu, int pngW, int pngH, out string reason)
+    {
+        if (ppu < 1 || bboxW < 1 || bboxH < 1)
+        {
+            reason = $"격자나 축척이 비었다. 칸 {bboxW}x{bboxH}, ppu {ppu}.";
+            return false;
+        }
+
+        int expectedW = bboxW * ppu;
+        int expectedH = bboxH * ppu;
+
+        if (pngW != expectedW || pngH != expectedH)
+        {
+            reason =
+                $"그림이 {expectedW}x{expectedH}여야 하는데 {pngW}x{pngH}다 " +
+                $"(격자 {bboxW}x{bboxH}칸 x {ppu}px).";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    /// <summary>
+    /// PNG의 가로세로만 읽는다. 앞 24바이트가 시그니처 + IHDR이고 거기 다 들어 있다.
+    ///
+    /// **텍스처를 만들지 않는 것이 요점이다.** <c>Texture2D.LoadImage</c>를 쓰면 검사하려고
+    /// 5376x1728을 디코드했다가 버려야 하고, 그러면 "이 텍스처의 주인이 누구냐"는 질문이
+    /// 여기서 생긴다 - 그건 그림을 실제로 붙이는 쪽의 일이다. 헤더만 읽으면 그 질문이
+    /// 존재하지 않는다.
+    /// </summary>
+    public static bool TryReadPngSize(string path, out int width, out int height)
+    {
+        width = 0;
+        height = 0;
+
+        if (!File.Exists(path))
+            return false;
+
+        var head = new byte[24];
+
+        using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read))
+        {
+            if (stream.Read(head, 0, head.Length) != head.Length)
+                return false;   // 24바이트도 안 되면 PNG가 아니다
+        }
+
+        // 시그니처 89 50 4E 47 0D 0A 1A 0A, 그다음 청크가 IHDR이어야 한다.
+        if (head[0] != 0x89 || head[1] != 0x50 || head[2] != 0x4E || head[3] != 0x47 ||
+            head[4] != 0x0D || head[5] != 0x0A || head[6] != 0x1A || head[7] != 0x0A ||
+            head[12] != 'I' || head[13] != 'H' || head[14] != 'D' || head[15] != 'R')
+            return false;
+
+        // **빅엔디안이다.** BitConverter는 리틀엔디안이라 그냥 쓰면 5376이 아니라
+        // 20억쯤 되는 숫자가 나온다.
+        width = (head[16] << 24) | (head[17] << 16) | (head[18] << 8) | head[19];
+        height = (head[20] << 24) | (head[21] << 16) | (head[22] << 8) | head[23];
+
+        return width > 0 && height > 0;
+    }
+
+    /// <summary>그림 파일은 배치와 같은 폴더에 산다. <see cref="PathOf"/>와 같은 모양이다.</summary>
+    public static string SkinPathOf(string texture) => Path.Combine(DirectoryPath, texture);
+
+    /// <summary>
+    /// 그림이 선언돼 있으면 격자와 크기가 맞는지 본다. 안 맞으면 배를 안 싣는다 -
+    /// <see cref="DefKeys.HasUnknown"/>과 같은 태도다.
+    ///
+    /// **<see cref="Parse"/>가 아니라 <see cref="Load"/>에서 부른다.** 두 가지 이유다.
+    /// 하나: 여기서 authored bbox가 필요한데 <c>ShipBuilder.AuthoredMap</c>은 basedOn을
+    /// 파일에서 읽으므로, 설계도의 basedOn이 자기 자신인 이 리포에서는 Parse -> Load ->
+    /// Parse로 **무한 재귀**가 된다. 둘: Parse는 손상 저장본도 타는데 저장본의 placements는
+    /// 줄어 있어서 bbox가 원본보다 작다 - 거기서 크기를 재면 멀쩡한 그림이 거부된다.
+    ///
+    /// 설계도를 읽는 자리에서만 검사하므로, 저장본은 이미 검증된 그림을 물려받는다.
+    /// 대가: 설계도를 한 번 읽은 뒤 PNG만 갈아치우고 저장본으로 들어가면 안 잡힌다.
+    /// </summary>
+    private static bool SkinIsValid(ShipDef def)
+    {
+        if (def == null || string.IsNullOrEmpty(def.hullSkin))
+            return true;   // 그림 없는 배. 지금 아홉 척이 전부 이 경우다.
+
+        string path = SkinPathOf(def.hullSkin);
+
+        if (!TryReadPngSize(path, out int pngW, out int pngH))
+        {
+            Debug.LogError($"[ShipDef] {def.defName}: '{def.hullSkin}'을 PNG로 못 읽는다: {path}");
+            return false;
+        }
+
+        // AuthoredMap이 아니라 Bbox를 직접 부른다. AuthoredMap은 basedOn을 파일에서 읽어서
+        // 위 주석의 재귀에 걸린다. 설계도의 placements가 곧 authored라 답은 같다.
+        RectInt box = def.Bbox();
+
+        if (CheckTextureSize(box.width, box.height, PPU, pngW, pngH, out string reason))
+            return true;
+
+        Debug.LogError($"[ShipDef] {def.defName}의 '{def.hullSkin}': {reason}");
+        return false;
     }
 
     /// <summary>

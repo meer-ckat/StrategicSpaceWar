@@ -208,6 +208,9 @@ public static class ShipGridSelfTest
         MirroredHullTest();
         OffGridPlateTest();
         PlateLostTest();
+        AuthoredFrameTest();
+        HullSkinSizeTest();
+        StampFromDefTest();
 
         Debug.Log($"[ShipGrid] {_pass} passed, {_fail} failed.");
     }
@@ -447,6 +450,171 @@ public static class ShipGridSelfTest
         go.AddComponent<BoxCollider2D>();
         go.AddComponent<BallisticArmor>();
         return go.transform;
+    }
+
+    /// <summary>
+    /// **손상은 authored frame을 안 건드린다.** 판이 빠지면 살아남은 판의 극값이 줄어들지만,
+    /// 격자는 언제나 원본 설계도(basedOn)의 bbox로 잡혀야 한다.
+    ///
+    /// 안 그러면 저장/로드마다 배가 옆으로 밀린다. 증상이 전투가 아니라 **구역 전환에서만**
+    /// 나오고, 뱃머리가 뜯긴 판에서만 나오는 탓에 원인에서 한참 떨어진 자리에서 보인다.
+    /// </summary>
+    private static void AuthoredFrameTest()
+    {
+        ShipDef design = ShipDef.Load("destroyer");
+
+        if (design == null)
+            return;   // Load가 이미 에러를 찍었다
+
+        (ShipGrid.Map map, Vector2Int mins) full = ShipBuilder.AuthoredMap(design);
+
+        int minCol = int.MaxValue;
+
+        foreach (Placement p in design.placements)
+            minCol = Mathf.Min(minCol, p.col);
+
+        // 뱃머리 세 칸을 뜯는다. minCol이 움직이는 유일한 손상이라 유일하게 위험하다 -
+        // 선미가 날아가면 칸 번호는 그대로고 localPosition만 밀리므로 증상이 더 약하다.
+        var damaged = new ShipDef
+        {
+            defName = design.defName,
+            basedOn = "destroyer",
+            placements = new List<Placement>(),
+        };
+
+        foreach (Placement p in design.placements)
+        {
+            if (p.col > minCol + 2)
+                damaged.placements.Add(p);
+        }
+
+        Check("authored frame: 손상 def가 판을 실제로 잃었다",
+            damaged.placements.Count > 0 && damaged.placements.Count < design.placements.Count);
+
+        (ShipGrid.Map map, Vector2Int mins) hurt = ShipBuilder.AuthoredMap(damaged);
+
+        if (full.map == null || hurt.map == null)
+        {
+            Check("authored frame: 맵이 나온다", false);
+            return;
+        }
+
+        Check($"authored frame: 크기가 그대로 " +
+              $"({hurt.map.width}x{hurt.map.height} vs {full.map.width}x{full.map.height})",
+            hurt.map.width == full.map.width && hurt.map.height == full.map.height);
+
+        Check($"authored frame: mins가 그대로 ({hurt.mins} vs {full.mins})",
+            hurt.mins == full.mins);
+
+        // 진짜 불변식은 크기가 아니라 이것이다: 살아남은 판 하나가 손상 전후로 **같은 배
+        // 좌표**에 선다. 크기와 mins가 둘 다 맞아도 여기서 틀릴 수 있다.
+        Placement survivor = damaged.placements[0];
+
+        Vector2 before = full.map.ToLocal(survivor.col - full.mins.x, survivor.row - full.mins.y);
+        Vector2 after = hurt.map.ToLocal(survivor.col - hurt.mins.x, survivor.row - hurt.mins.y);
+
+        Check($"authored frame: 살아남은 판이 안 움직인다 (Δ{(after - before).magnitude:0.###} m)",
+            (after - before).sqrMagnitude < 1e-6f);
+
+        // basedOn이 없는 것은 사고가 아니라 Hulk다. 이 가지를 지우면 운석·거울이 죽는다.
+        ShipDef hulk = ShipDef.Load("asteroid");
+
+        if (hulk != null)
+            Check("authored frame: basedOn 없는 Hulk도 맵이 나온다",
+                ShipBuilder.AuthoredMap(hulk).map != null);
+    }
+
+    /// <summary>
+    /// 함선 그림 크기 검사. **파일도 Unity도 안 쓴다** - 순수 함수라서.
+    ///
+    /// 이 테스트가 지키는 것이 둘이다. 하나는 규격 자체(칸 x ppu == 픽셀), 다른 하나는
+    /// **함수가 조용하다는 것**이다. 실패 케이스를 세 개 돌리는데 콘솔이 깨끗해야 한다 -
+    /// 판정 안에서 로그를 찍으면 통과한 테스트와 진짜 오류가 같은 색으로 섞인다.
+    /// </summary>
+    private static void HullSkinSizeTest()
+    {
+        // destroyer는 56x18칸이다. 96 ppu면 캔버스가 5376x1728.
+        Check("hull skin: 56x18칸 @96 = 5376x1728",
+            ShipDef.CheckTextureSize(56, 18, 96, 5376, 1728, out _));
+
+        Check("hull skin: 1픽셀 모자라면 거부",
+            !ShipDef.CheckTextureSize(56, 18, 96, 5376, 1727, out _));
+
+        // 축척은 인자다. 함수가 정책을 모르는지 - 48로 물으면 48로 답해야 한다.
+        Check("hull skin: 다른 축척도 함수는 다룬다 (@48 = 2688x864)",
+            ShipDef.CheckTextureSize(56, 18, 48, 2688, 864, out _));
+
+        // 그래서 96 규격에 48 캔버스를 내밀면 크기에서 걸린다. 선언이 아니라 픽셀 수로.
+        Check("hull skin: 96 규격에 48 캔버스는 거부",
+            !ShipDef.CheckTextureSize(56, 18, 96, 2688, 864, out _));
+
+        Check("hull skin: ppu 0은 거부", !ShipDef.CheckTextureSize(56, 18, 0, 0, 0, out _));
+        Check("hull skin: 빈 격자는 거부", !ShipDef.CheckTextureSize(0, 0, 96, 0, 0, out _));
+
+        // 실패한 쪽만 문장을 든다. 통과한 쪽이 문장을 들면 부르는 쪽이 그걸 찍는다.
+        ShipDef.CheckTextureSize(56, 18, 96, 5376, 1727, out string bad);
+        ShipDef.CheckTextureSize(56, 18, 96, 5376, 1728, out string good);
+
+        Check("hull skin: 실패는 이유를 말하고 성공은 침묵한다",
+            !string.IsNullOrEmpty(bad) && good == null);
+    }
+
+    /// <summary>
+    /// **def만으로 찍은 격자가 지어진 배와 같은 틀을 쓰는가.** 오브젝트가 하나도 없으므로
+    /// 플레이 모드가 필요 없다.
+    ///
+    /// 두 번째 검사가 진짜다 - 실물 칸 수와 판 배치 수가 같다는 것은 하나도 안 빠졌고
+    /// 두 배치가 같은 칸을 먹지도 않았다는 뜻이다. 숫자를 손으로 적지 않고 def에서
+    /// 파생하므로 배를 고쳐도 안 깨진다.
+    /// </summary>
+    private static void StampFromDefTest()
+    {
+        ShipDef design = ShipDef.Load("destroyer");
+
+        if (design == null)
+            return;   // Load가 이미 에러를 찍었다
+
+        ShipGrid.Map map = ShipBuilder.StampFromDef(design);
+        (ShipGrid.Map map, Vector2Int mins) authored = ShipBuilder.AuthoredMap(design);
+
+        if (map == null || authored.map == null)
+        {
+            Check("stamp from def: 격자가 나온다", false);
+            return;
+        }
+
+        Check($"stamp from def: 틀이 AuthoredMap과 같다 " +
+              $"({map.width}x{map.height} vs {authored.map.width}x{authored.map.height})",
+            map.width == authored.map.width && map.height == authored.map.height);
+
+        int solid = 0, indoors = 0;
+
+        for (int col = 0; col < map.width; col++)
+        for (int row = 0; row < map.height; row++)
+        {
+            if (ShipGrid.Solid(map.cells[col, row]))
+                solid++;
+            else if (map.cells[col, row] != ShipGrid.Cell.Exterior)
+                indoors++;
+        }
+
+        // 판·문만 격자에 도장을 찍는다. 모듈(포탑·엔진·원자로)은 판의 자식이라 안 센다.
+        int plates = 0;
+
+        foreach (Placement p in design.placements)
+        {
+            ThingDef thing = DefDatabase.Get(p.def);
+
+            if (thing?.MainType != null &&
+                (typeof(Armor).IsAssignableFrom(thing.MainType) ||
+                 typeof(Door).IsAssignableFrom(thing.MainType)))
+                plates++;
+        }
+
+        Check($"stamp from def: 실물 칸 {solid} == 판 배치 {plates}", solid == plates);
+
+        // MarkExterior가 돌았고 배가 밀폐돼 있다는 뜻. 0이면 flood가 배 속까지 샜다.
+        Check($"stamp from def: 실내 칸이 있다 (got {indoors})", indoors > 0);
     }
 
     private static string Lines(params string[] rows) => string.Join("\n", rows);

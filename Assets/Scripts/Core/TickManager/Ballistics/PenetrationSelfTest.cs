@@ -409,8 +409,12 @@ public static class PenetrationSelfTest
                 big > auto20 && auto20 > fifty, default);
         }
 
-        // Shattering on the way THROUGH leaves real debris; shattering on the face does not.
-        // Getting this backwards either doubles the spall or drops it on the floor.
+        /*
+        파쇄는 어디서 깨지든 실물을 남긴다 — 포탄 질량은 사라지지 않는다.
+        관통 중 파쇄는 shatterVelocity의 6배가 필요해 실제 포로는 못 낸다.
+        아래 through 케이스는 픽스처가 억지로 만든 것이고, 실전에서 켜지는 것은 onFace 쪽이다.
+        */
+
         {
             var through = PenetrationManager.Resolve(
                 Shell(head, 6400f, 500f, 800f), Plate(100f));
@@ -423,10 +427,10 @@ public static class PenetrationSelfTest
                 && through.newState == ShellState.Shattered
                 && through.heavySpall, through);
 
-            Check("blocked + shattered stays ray spall",
+            Check("blocked + shattered leaves real fragments too",
                 onFace.outcome == HitOutcome.Blocked
                 && onFace.newState == ShellState.Shattered
-                && !onFace.heavySpall, onFace);
+                && onFace.heavySpall, onFace);
 
             // a clean penetration must not spawn debris either
             var clean = PenetrationManager.Resolve(Shell(head, 900f, 300f, 800f), Plate(100f));

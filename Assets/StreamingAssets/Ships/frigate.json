@@ -1283,11 +1283,11 @@
     },
     {
       "def": "Magazine",
-      "col": 26,
-      "row": 11,
+      "col": 17,
+      "row": 4,
       "rot": 0.0,
-      "mountCol": 26,
-      "mountRow": 9
+      "mountCol": 17,
+      "mountRow": 3
     },
     {
       "def": "Reactor",
@@ -1295,7 +1295,15 @@
       "row": 11,
       "rot": 0.0,
       "mountCol": 8,
-      "mountRow": 9
+      "mountRow": 12
+    },
+    {
+      "def": "Reactor",
+      "col": 26,
+      "row": 11,
+      "rot": 0.0,
+      "mountCol": 26,
+      "mountRow": 12
     }
   ]
 }

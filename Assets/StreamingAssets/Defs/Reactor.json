@@ -7,16 +7,16 @@
   "layer": "Module",
   "collider": {
     "size": {
-      "x": 1,
-      "y": 1
+      "x": 3,
+      "y": 3
     },
     "offset": {
       "x": 0,
       "y": 0
     }
   },
-  "maxHealth": 55,
-  "blastDamage": 700,
+  "maxHealth": 90,
+  "blastDamage": 1600,
   "providesPower": true,
   "tint": {
     "r": 0.4,
