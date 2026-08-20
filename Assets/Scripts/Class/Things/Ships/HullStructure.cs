@@ -282,13 +282,21 @@ public sealed class HullStructure : MonoBehaviour
     ///
     /// 못 뚫으면 그만큼 깎기만 한다 - 여러 발이 같은 자리를 때리면 결국 열린다.
     /// </summary>
-    public static void PunchRear(Vector2 worldPoint, float penetration, float damage)
+    public static void PunchRear(Vector2 worldPoint, Vector2 dir, float penetration, float damage)
     {
+        // **출구는 입사점이 아니다.** 탄은 선체 두께만큼 안을 가로지른 뒤에야 반대편에
+        // 닿는다. 평면 안에서 비스듬히 들어온 탄일수록 그 사선이 길어서, 뱃머리로 들어온
+        // 것이 허리 뒷벽으로 나간다.
+        //
+        // 스치듯 들어오면 출구가 배 밖이라 아무 데도 안 뚫린다. 그게 맞다 - 스쳐 지나간
+        // 탄이 반대편을 뚫을 이유가 없다. CellAt의 Inside 검사가 그걸 그냥 걸러낸다.
+        Vector2 exit = worldPoint + dir.normalized * Ballistics.HullDepth;
+
         for (int i = 0; i < All.Count; i++)
         {
             HullStructure body = All[i];
 
-            if (body == null || !body.CellAt(worldPoint, out Vector2Int cell))
+            if (body == null || !body.CellAt(exit, out Vector2Int cell))
                 continue;
 
             if (!body._rear.TryGetValue(cell, out RearCell wall))

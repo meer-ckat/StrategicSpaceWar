@@ -289,6 +289,20 @@ public static partial class Ballistics
     /// </summary>
     public const float RearRhaFactor = 0.5f;
 
+    /// <summary>
+    /// 선체가 깊이 방향으로 몇 m인가. **이 게임에 없는 축의 유일한 숫자다.**
+    ///
+    /// 함선에는 Z가 없다(탄·파편·승무원·모듈만 가상 Z를 갖는다). 그래도 "앞으로 들어와
+    /// 뒤로 나간다"를 말하려면 두께가 하나는 있어야 하고, 그것이 이 값이다.
+    ///
+    /// 배 크기에서 파생시키지 않는다 - 사이드뷰의 세로 칸 수는 높이지 두께가 아니라서,
+    /// 인간형 함선이 구축함보다 두꺼워지는 식으로 뜻이 어긋난다. 없는 축을 억지로
+    /// 파생시키면 그 숫자가 뭘 뜻하는지 아무도 설명 못 하게 된다.
+    ///
+    /// 배마다 달라야 해지면 그때 ShipDef 필드가 된다. massPerPlate가 걸어온 길이다.
+    /// </summary>
+    public const float HullDepth = 6f;
+
     /// <summary>폭심 피해의 이 비율 아래로 떨어지면 멈춘다. 곧 폭발 반경.</summary>
     public const float BlastCutoff = 0.05f;
 
