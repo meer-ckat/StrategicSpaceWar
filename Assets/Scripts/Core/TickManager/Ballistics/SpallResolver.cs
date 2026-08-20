@@ -123,10 +123,14 @@ public static class SpallResolver
                 // 파편이 지나간 선을 화면에 남긴다. 그림뿐이고, 판정에는 관여하지 않는다.
                 if (n <= 0)
                 {
-                    SpallTrails.Add(
-                        fragmentStart,
-                        fragmentStart + d.normalized * range,
-                        SpallTrails.Kind.Miss);
+                    Vector2 far = fragmentStart + d.normalized * range;
+
+                    SpallTrails.Add(fragmentStart, far, SpallTrails.Kind.Miss);
+
+                    // 앞판을 하나도 못 맞고 날아갔다는 것은 **가로막은 실물이 없었다**는
+                    // 뜻이다. 그 끝에 반대편 벽이 있으면 거기 박힌다 - 후면은 콜라이더가
+                    // 없어서 위 레이캐스트에는 애초에 안 잡힌다.
+                    HullStructure.SpallRear(far, perFragment);
 
                     continue;
                 }

@@ -3,11 +3,11 @@
   "pickOne": true,
   "cooldown": 4,
   "lines": [
-    { "message": "<color=#8fd3ff>{0}</color> signature gone. Combat ineffective.", "author": "TACTICAL", "duration": 3, "intensity": 1.0 },
-    { "message": "<color=#8fd3ff>{0}</color> propulsion stopped. Adrift now.", "author": "TACTICAL", "duration": 3, "intensity": 0.9 },
-    { "message": "One target cleared. <color=#8fd3ff>{0}</color>, no more rounds on it.", "author": "GUNNERY", "duration": 3, "intensity": 1.0 },
-    { "message": "<color=#8fd3ff>{0}</color> bridge signal cut. They had people too.", "author": "COMMS", "duration": 4, "intensity": 0.8 },
-    { "message": "<color=#8fd3ff>{0}</color> confirmed out of the line.", "author": "TACTICAL", "duration": 2.5, "intensity": 0.9 },
-    { "message": "That's wreckage now. Next target.", "author": "CAPTAIN", "duration": 3, "intensity": 1.1 }
+    { "message": "<color=#8fd3ff>{0}</color> 신호 소실. 전투불능.", "author": "전술", "duration": 3, "intensity": 1.0 },
+    { "message": "<color=#8fd3ff>{0}</color> 추진 정지. 표류 중.", "author": "전술", "duration": 3, "intensity": 0.9 },
+    { "message": "표적 하나 정리. <color=#8fd3ff>{0}</color>, 더 쏘지 않습니다.", "author": "포술", "duration": 3, "intensity": 1.0 },
+    { "message": "<color=#8fd3ff>{0}</color> 함교 신호 두절. 저쪽에도 사람이 있었습니다.", "author": "통신", "duration": 4, "intensity": 0.8 },
+    { "message": "<color=#8fd3ff>{0}</color> 전열 이탈 확인.", "author": "전술", "duration": 2.5, "intensity": 0.9 },
+    { "message": "이제 잔해다. 다음 표적.", "author": "함장", "duration": 3, "intensity": 1.1 }
   ]
 }

@@ -126,7 +126,20 @@ public class ShipDef
 
     [NonSerialized] public string source;
 
-    private static readonly string[] HeaderKeys = { "defName", "basedOn", "placements", "hullSkin" };
+    private static readonly string[] HeaderKeys =
+        { "defName", "basedOn", "placements", "hullSkin", "rearLost" };
+
+    /// <summary>
+    /// 후면이 사라진 칸. **런 중에만 생기는 상태라 설계도에는 없다.**
+    ///
+    /// 남은 칸이 아니라 사라진 칸을 적는다. 후면은 줄어들기만 하고 설계도를 basedOn으로
+    /// 되찾을 수 있으므로, 온전한 배에서는 이 목록이 비어 있고 한 판 싸운 배도 수십 개다.
+    /// 반대로 적으면 destroyer 기준 1008개를 매번 쓴다.
+    ///
+    /// placements가 반대 방향인 것과 대비된다 - 판은 hp와 rot을 같이 들고 다녀야 해서
+    /// 살아남은 쪽을 적는 편이 싸다. 후면은 있다/없다뿐이라 뒤집는 것이 이득이다.
+    /// </summary>
+    public List<Vector2Int> rearLost = new();
 
     /// <summary>
     /// 함선 그림 파일 이름. 배치와 같은 폴더(StreamingAssets/Ships)에 있다. 비어 있으면
@@ -145,7 +158,7 @@ public class ShipDef
     /// 100/m이면 비가 2.083…이라 판마다 리샘플 오차가 남고, 증상은 판 경계마다 생기는
     /// 이음매다. 96은 정확히 두 배라 안전하다. 바꿀 거면 48의 배수로.
     /// </summary>
-    private const int PPU = 96;
+    public const int PPU = 96;
 
     /// <summary>
     /// 배의 수치를 Ship(또는 Hulk)에 붓는다. 어느 필드가 넘어오는지는 그 컴포넌트가 정한다 -

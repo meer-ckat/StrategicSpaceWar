@@ -1,0 +1,43 @@
+{
+  "defName": "Armor mk4",
+  "thingClass": "BallisticArmor",
+  "comps": [
+    "ArmorSkin"
+  ],
+  "layer": "Armor",
+  "collider": {
+    "size": {
+      "x": 1,
+      "y": 1
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "rha": 190,
+  "hpPerSquareMetre": 240,
+  "plateThickness": 0.42,
+  "fallbackCellSize": {
+    "x": 1,
+    "y": 1
+  },
+  "debrisLayer": {
+    "m_Bits": 128
+  },
+  "pixelsPerUnit": 48,
+  "maxTextureSize": 256,
+  "healthy": {
+    "r": 0.93,
+    "g": 0.93,
+    "b": 0.92,
+    "a": 1.0
+  },
+  "damaged": {
+    "r": 0.38,
+    "g": 0.37,
+    "b": 0.35,
+    "a": 1.0
+  },
+  "erodeBelow": 0.65
+}

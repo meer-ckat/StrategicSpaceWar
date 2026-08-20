@@ -1,0 +1,38 @@
+{
+  "defName": "Booster Flame",
+  "thingClass": "Flash",
+  "comps": [
+    "UnityEngine.Rendering.Universal.Light2D"
+  ],
+  "layer": "Default",
+  "collider": {
+    "size": {
+      "x": 0,
+      "y": 0
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "seconds": 0.28,
+  "expandSeconds": 0.22,
+  "peakIntensity": 45,
+  "startRadius": 1.6,
+  "endRadius": 7.0,
+  "m_ComponentVersion": 2,
+  "m_LightType": 3,
+  "m_BlendStyleIndex": 0,
+  "m_FalloffIntensity": 0.7,
+  "m_Color": {
+    "r": 1.0,
+    "g": 0.55,
+    "b": 0.22,
+    "a": 1
+  },
+  "m_Intensity": 0,
+  "m_PointLightInnerAngle": 360,
+  "m_PointLightOuterAngle": 360,
+  "m_PointLightInnerRadius": 0,
+  "m_PointLightOuterRadius": 1
+}

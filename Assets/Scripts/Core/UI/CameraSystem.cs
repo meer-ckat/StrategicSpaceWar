@@ -72,7 +72,7 @@ public class CameraSystem : MonoBehaviour
         }
 
         transform.position = new Vector3(
-            transform.position.x + jitter.x, transform.position.y + jitter.y, -10f -cam.orthographicSize);
+            transform.position.x + jitter.x, transform.position.y + jitter.y, -10f -cam.orthographicSize / 5f);
     }
 
     void Following()

@@ -3,9 +3,9 @@
   "pickOne": true,
   "cooldown": 6,
   "lines": [
-    { "message": "<color=red>Pressure lost in every compartment.</color> Bridge does not answer.", "author": "COMMS", "duration": 4, "intensity": 2.0 },
-    { "message": "<color=red>{0}</color> no life signs. Repressurising won't help.", "author": "ENGINEERING", "duration": 4, "intensity": 1.9 },
-    { "message": "They breached the last compartment.", "author": "ENGINEERING", "duration": 3, "intensity": 1.8 },
-    { "message": "Helm unresponsive. Fire control unresponsive. <color=red>The ship is dead.</color>", "author": "TACTICAL", "duration": 4, "intensity": 2.0 }
+    { "message": "<color=red>전 구역 기압 소실.</color> 함교 응답 없음.", "author": "통신", "duration": 4, "intensity": 2.0 },
+    { "message": "<color=red>{0}</color> 생체 신호 없음. 재가압해도 소용없습니다.", "author": "기관", "duration": 4, "intensity": 1.9 },
+    { "message": "마지막 구역까지 뚫렸습니다.", "author": "기관", "duration": 3, "intensity": 1.8 },
+    { "message": "조타 무응답. 사격통제 무응답. <color=red>배가 죽었습니다.</color>", "author": "전술", "duration": 4, "intensity": 2.0 }
   ]
 }

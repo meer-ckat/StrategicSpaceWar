@@ -369,7 +369,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7154763d2ac89334f9f97981779c3601, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Ship
-  defName: 
+  defName: ChongDam_Mk67
   spawnTick: 0
   drag: 0.02
   angleAccel: 7.5
@@ -380,7 +380,7 @@ MonoBehaviour:
   shipGuns: []
   shipCriticals: []
   massPerPlate: 420
-  shipDefName: destroyer
+  shipDefName: lance
   leakRate: 2
   doorRate: 1
   crews: 0
@@ -496,17 +496,24 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 937543335}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: da5c71bec4618b944bf08446707b86fa, type: 3}
+  m_Script: {fileID: 11500000, guid: c6f3a5e639c05b3449727e3b8bf6dc18, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::HitXrayUI
+  m_EditorClassIdentifier: Assembly-CSharp::HitIndicatorUI
   view: {fileID: 0}
-  holdSeconds: 1
-  plateSize: 108
+  holdSeconds: 1.1
   layer: 90
-  plateCount: 3
-  popupCount: 3
+  screenMargin: 16
+  minArrowLength: 28
+  maxArrowLength: 140
+  iconGap: 6
+  iconSize: {x: 102, y: 102}
+  penetratedIcon: {fileID: 0}
+  blockedIcon: {fileID: 0}
+  ricochetIcon: {fileID: 0}
+  indicatorCount: 4
+  impactCount: 8
 --- !u!1 &1012580033
 GameObject:
   m_ObjectHideFlags: 0

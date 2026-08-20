@@ -1,0 +1,50 @@
+{
+  "defName": "Booster",
+  "thingClass": "Engine",
+  "comps": [
+    "SolidSkin",
+    "BoosterComp",
+    "UnityEngine.Rendering.Universal.Light2D"
+  ],
+  "layer": "Module",
+  "collider": {
+    "size": {
+      "x": 1,
+      "y": 1
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "maxHealth": 40,
+  "MaxPower": 0,
+  "MaxReversePower": 0,
+  "boostPower": 800,
+  "flameDef": "Booster Flame",
+  "flameInterval": 0.045,
+  "flameOffset": 0.7,
+  "litIntensity": 140,
+  "litRadius": 13,
+  "tint": {
+    "r": 1.0,
+    "g": 0.5,
+    "b": 0.2,
+    "a": 1
+  },
+  "m_ComponentVersion": 2,
+  "m_LightType": 3,
+  "m_BlendStyleIndex": 0,
+  "m_FalloffIntensity": 0.6,
+  "m_Color": {
+    "r": 1.0,
+    "g": 0.6,
+    "b": 0.25,
+    "a": 1
+  },
+  "m_Intensity": 0,
+  "m_PointLightInnerAngle": 360,
+  "m_PointLightOuterAngle": 360,
+  "m_PointLightInnerRadius": 0,
+  "m_PointLightOuterRadius": 13
+}

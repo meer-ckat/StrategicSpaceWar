@@ -1,0 +1,33 @@
+{
+  "defName": "rail",
+  "thingClass": "Gun",
+  "comps": [
+    "SolidSkin"
+  ],
+  "layer": "Module",
+  "collider": {
+    "size": {
+      "x": 1.6,
+      "y": 1.6
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "projectile": "Railgun Bullet",
+  "muzzleSpeed": 2500,
+  "roundsPerMinute": 20,
+  "aim": 0,
+  "slewRate": 8,
+  "fireArc": 0.8,
+  "muzzleOffset": 1.6,
+  "friendlyCheckRange": 200,
+  "maxHealth": 500,
+  "tint": {
+    "r": 0.6,
+    "g": 0.72,
+    "b": 0.85,
+    "a": 1
+  }
+}

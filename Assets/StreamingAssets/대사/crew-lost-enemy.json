@@ -3,9 +3,9 @@
   "pickOne": true,
   "cooldown": 8,
   "lines": [
-    { "message": "<color=#8fd3ff>{0}</color> fully decompressed. Nothing alive inside.", "author": "TACTICAL", "duration": 4, "intensity": 1.3 },
-    { "message": "Their pressure is zero. Helm and guns both stopped.", "author": "TACTICAL", "duration": 3.5, "intensity": 1.2 },
-    { "message": "There's nothing left to breathe over there. That's the end of it.", "author": "COMMS", "duration": 3.5, "intensity": 1.1 },
-    { "message": "<color=#8fd3ff>{0}</color> crew presumed lost.", "author": "TACTICAL", "duration": 3, "intensity": 1.0 }
+    { "message": "<color=#8fd3ff>{0}</color> 완전 감압. 안에 살아 있는 것 없음.", "author": "전술", "duration": 4, "intensity": 1.3 },
+    { "message": "적함 기압 0. 조타도 포도 멈췄습니다.", "author": "전술", "duration": 3.5, "intensity": 1.2 },
+    { "message": "저쪽엔 숨 쉴 것도 안 남았습니다. 그걸로 끝입니다.", "author": "통신", "duration": 3.5, "intensity": 1.1 },
+    { "message": "<color=#8fd3ff>{0}</color> 승무원 전멸 추정.", "author": "전술", "duration": 3, "intensity": 1.0 }
   ]
 }

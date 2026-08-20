@@ -3,10 +3,10 @@
   "pickOne": true,
   "cooldown": 10,
   "lines": [
-    { "message": "<color=#8fd3ff>{0}</color> severed. Broken into two pieces.", "author": "TACTICAL", "duration": 3.5, "intensity": 1.5 },
-    { "message": "Cut through the middle. Bow and stern are turning separately.", "author": "TACTICAL", "duration": 3.5, "intensity": 1.4 },
-    { "message": "Hull failure confirmed. <color=#8fd3ff>{0}</color> is two ships now.", "author": "TACTICAL", "duration": 4, "intensity": 1.4 },
-    { "message": "Only the engine section came off. It still has thrust on it.", "author": "ENGINEERING", "duration": 4, "intensity": 1.2 },
-    { "message": "Split like that, everything inside comes out.", "author": "COMMS", "duration": 4, "intensity": 1.1 }
+    { "message": "<color=#8fd3ff>{0}</color> 절단. 두 조각으로 갈라졌습니다.", "author": "전술", "duration": 3.5, "intensity": 1.5 },
+    { "message": "가운데가 끊겼습니다. 선수와 선미가 따로 돕니다.", "author": "전술", "duration": 3.5, "intensity": 1.4 },
+    { "message": "선체 파단 확인. <color=#8fd3ff>{0}</color>, 이제 배 두 척입니다.", "author": "전술", "duration": 4, "intensity": 1.4 },
+    { "message": "엔진부만 떨어져 나갔습니다. 추력이 아직 붙어 있습니다.", "author": "기관", "duration": 4, "intensity": 1.2 },
+    { "message": "저렇게 갈라지면 안에 있던 것이 전부 쏟아집니다.", "author": "통신", "duration": 4, "intensity": 1.1 }
   ]
 }

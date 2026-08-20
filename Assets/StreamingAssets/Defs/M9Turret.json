@@ -1,0 +1,33 @@
+{
+  "defName": "m9",
+  "thingClass": "Gun",
+  "comps": [
+    "SolidSkin"
+  ],
+  "layer": "Module",
+  "collider": {
+    "size": {
+      "x": 1.4,
+      "y": 1.4
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "projectile": "155mm",
+  "muzzleSpeed": 1140,
+  "roundsPerMinute": 90,
+  "aim": 0,
+  "slewRate": 16,
+  "fireArc": 1.5,
+  "muzzleOffset": 1.4,
+  "friendlyCheckRange": 140,
+  "maxHealth": 420,
+  "tint": {
+    "r": 0.84,
+    "g": 0.82,
+    "b": 0.78,
+    "a": 1
+  }
+}
