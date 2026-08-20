@@ -2,108 +2,227 @@
   "defName": "prologue",
   "lines": [
     {
-      "message": "함선 링크 확인. <color=grey>국경 초계망 접속.</color>",
+      "message": "링크 정상. <color=grey>아트리아 국경 관제망 접속.</color>",
       "author": "시스템",
       "duration": 3,
+      "intensity": 0.4,
+      "wait": 1
+    },
+    {
+      "message": "{0}, Atria Control. <color=grey>Radio check.</color> 순항 중입니까?",
+      "author": "아트리아 컨트롤",
+      "duration": 4,
+      "intensity": 0.6,
+      "wait": 0
+    },
+    {
+      "message": "Atria Control, {0}. <color=grey>Loud and clear.</color> 순항 중입니다.",
+      "author": "함장",
+      "duration": 4,
+      "intensity": 0.6,
+      "wait": 0
+    },
+    {
+      "message": "<color=grey>Roger.</color> 항법과 사격통제 상태는요?",
+      "author": "아트리아 컨트롤",
+      "duration": 4,
+      "intensity": 0.5,
+      "wait": 0
+    },
+    {
+      "message": "항법 정상, 사격통제 대기.",
+      "author": "함장",
+      "duration": 3,
+      "intensity": 0.5,
+      "wait": 0
+    },
+    {
+      "message": "확인했습니다. 오늘 수도 극장에서 티켓 할인 행사를 한다던데.",
+      "author": "아트리아 컨트롤",
+      "duration": 5,
+      "intensity": 0.5,
+      "wait": 0
+    },
+    {
+      "message": "우주에 있다니 안타깝군요.",
+      "author": "아트리아 컨트롤",
+      "duration": 4,
+      "intensity": 0.5,
+      "wait": 0
+    },
+    {
+      "message": "복귀할 때까지 하고 있으면 좋겠습니다.",
+      "author": "함장",
+      "duration": 4,
       "intensity": 0.5,
       "wait": 1
     },
     {
-      "message": "{0}, 통신 상태 보고.",
-      "author": "아트리아 관제",
-      "duration": 4,
-      "intensity": 0.8,
-      "wait": 0
-    },
-    {
-      "message": "양호. 항법·사격통제 모두 정상입니다.",
-      "author": "함장",
-      "duration": 4,
-      "intensity": 0.8,
-      "wait": 0
-    },
-    {
-      "message": "확인. 17·19·22 초소가 여섯 시간째 무응답이다.",
-      "author": "아트리아 관제",
+      "message": "그건 장담 못 하겠군요. 대신 작은 일이 하나 있습니다.",
+      "author": "아트리아 컨트롤",
       "duration": 5,
-      "intensity": 0.9,
+      "intensity": 0.6,
       "wait": 0
     },
     {
-      "message": "셋 다 한꺼번에 말입니까.",
+      "message": "17, 19, 22 초소가 현재 응답하지 않습니다.",
+      "author": "아트리아 컨트롤",
+      "duration": 5,
+      "intensity": 0.7,
+      "wait": 0
+    },
+    {
+      "message": "통신 장애입니까?",
       "author": "함장",
       "duration": 3,
+      "intensity": 0.6,
+      "wait": 0
+    },
+    {
+      "message": "처음 두 시간은 저희도 그렇게 생각했습니다.",
+      "author": "아트리아 컨트롤",
+      "duration": 5,
+      "intensity": 0.7,
+      "wait": 0
+    },
+    {
+      "message": "지금 여섯 시간째입니다.",
+      "author": "아트리아 컨트롤",
+      "duration": 4,
+      "intensity": 0.8,
+      "wait": 1
+    },
+    {
+      "message": "셋 다 동시에요?",
+      "author": "함장",
+      "duration": 3,
+      "intensity": 0.7,
+      "wait": 0
+    },
+    {
+      "message": "<color=grey>Affirm.</color> 그래서 항로를 조금 바꾸겠습니다.",
+      "author": "아트리아 컨트롤",
+      "duration": 4,
+      "intensity": 0.7,
+      "wait": 0
+    },
+    {
+      "message": "{0}, <color=grey>maintain present heading.</color> 17번 초소 접근 후 좌현으로 전환하십시오.",
+      "author": "아트리아 컨트롤",
+      "duration": 6,
+      "intensity": 0.7,
+      "wait": 0
+    },
+    {
+      "message": "<color=grey>Speed at your discretion.</color>",
+      "author": "아트리아 컨트롤",
+      "duration": 3,
+      "intensity": 0.5,
+      "wait": 0
+    },
+    {
+      "message": "임무는 상태 확인, 생존자 수색. 교전은 가급적 피하십시오.",
+      "author": "아트리아 컨트롤",
+      "duration": 5,
+      "intensity": 0.8,
+      "wait": 0
+    },
+    {
+      "message": "\"가급적\"이라는 말이 붙으면 보통 총을 쏘게 되던데요.",
+      "author": "함장",
+      "duration": 4,
+      "intensity": 0.6,
+      "wait": 0
+    },
+    {
+      "message": "그래서 함선에 포를 달아드린 겁니다.",
+      "author": "아트리아 컨트롤",
+      "duration": 4,
+      "intensity": 0.6,
+      "wait": 0
+    },
+    {
+      "message": "다만 <color=yellow>배는 아껴 쓰십시오.</color> 현재 대체 함정은 없습니다.",
+      "author": "아트리아 컨트롤",
+      "duration": 5,
       "intensity": 0.9,
       "wait": 2
     },
     {
-      "message": "그렇다. <color=yellow>그래서 자네가 간다.</color>",
-      "author": "아트리아 관제",
+      "message": "Control, {0}. <color=grey>Traffic, twelve o'clock.</color>",
+      "author": "전술",
       "duration": 4,
-      "intensity": 1.0,
+      "intensity": 0.8,
+      "wait": 0.3
+    },
+    {
+      "message": "거리 14.2. 접근 중입니다.",
+      "author": "전술",
+      "duration": 4,
+      "intensity": 0.9,
+      "wait": 0.3
+    },
+    {
+      "message": "{0}, Atria Control. <color=grey>Traffic in sight?</color>",
+      "author": "아트리아 컨트롤",
+      "duration": 4,
+      "intensity": 0.7,
       "wait": 0
     },
     {
-      "message": "왕당파 활동입니까.",
+      "message": "<color=grey>Traffic in sight.</color> 식별 신호는 없습니다.",
       "author": "함장",
-      "duration": 3,
-      "intensity": 0.8,
-      "wait": 0
-    },
-    {
-      "message": "평소보다 무겁다. 함대 규모는 아니고.",
-      "author": "아트리아 관제",
       "duration": 4,
-      "intensity": 0.8,
-      "wait": 0
-    },
-    {
-      "message": "초소를 확인하고 생존자를 수습해라. 교전은 필요한 만큼만.",
-      "author": "아트리아 관제",
-      "duration": 5,
       "intensity": 0.9,
       "wait": 0
     },
     {
-      "message": "\"필요한 만큼\"은 늘 비쌌습니다.",
-      "author": "함장",
-      "duration": 4,
+      "message": "<color=grey>Roger. Maintain separation.</color> 식별 요청 보내보십시오.",
+      "author": "아트리아 컨트롤",
+      "duration": 5,
       "intensity": 0.8,
       "wait": 0
     },
     {
-      "message": "그러니 <color=yellow>배를 아껴 써라.</color> 대체 함은 없다.",
-      "author": "아트리아 관제",
-      "duration": 5,
-      "intensity": 1.1,
-      "wait": 3
-    },
-    {
-      "message": "전방 미확인 함선. 거리 14.2. 접근 중.",
-      "author": "전술",
-      "duration": 4,
-      "intensity": 1.0,
-      "wait": 0.3
-    },
-    {
-      "message": "식별 신호 없음.",
+      "message": "식별 요청 무응답.",
       "author": "전술",
       "duration": 3,
       "intensity": 1.0,
-      "wait": 0.3
+      "wait": 0.5
     },
     {
-      "message": "<color=red>포문 개방.</color>",
+      "message": "......",
+      "author": "아트리아 컨트롤",
+      "duration": 2,
+      "intensity": 0.5,
+      "wait": 0
+    },
+    {
+      "message": "{0}, <color=grey>hold present course.</color> 아직 발포하지 마십시오.",
+      "author": "아트리아 컨트롤",
+      "duration": 4,
+      "intensity": 0.9,
+      "wait": 0
+    },
+    {
+      "message": "<color=red>적함 포문 개방.</color>",
       "author": "전술",
       "duration": 3,
       "intensity": 1.5,
-      "wait": 0.3
+      "wait": 0.2
     },
     {
-      "message": "관제, 정찰은 보류합니다.",
+      "message": "Control, {0}. <color=grey>Unable to comply.</color> 정찰 임무는 잠시 미루겠습니다.",
       "author": "함장",
-      "duration": 4,
+      "duration": 5,
       "intensity": 1.0,
+      "wait": 0
+    },
+    {
+      "message": "<color=grey>Understood.</color>",
+      "author": "아트리아 컨트롤",
+      "duration": 2,
+      "intensity": 0.9,
       "wait": 0
     },
     {

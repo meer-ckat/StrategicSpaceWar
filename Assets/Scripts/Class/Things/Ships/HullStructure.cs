@@ -35,7 +35,13 @@ public sealed class HullStructure : MonoBehaviour
     /// 새로 만들므로 상관없다.
     /// </summary>
     private readonly HashSet<Vector2Int> _alive = new();
-    private readonly HashSet<Vector2Int> _rear = new();
+    /// <summary>
+    /// 후면 칸 -> 남은 체력. 예전에는 집합이었는데 #9에서 체력이 붙었다.
+    ///
+    /// **서브셀은 없다.** 후면 그림이 칸 해상도라 칸 안을 표현할 데가 없다 - 시뮬레이션이
+    /// 있지도 않은 정밀도를 들고 있으면 그 숫자는 언젠가 거짓말이 된다.
+    /// </summary>
+    private readonly Dictionary<Vector2Int, float> _rear = new();
 
     /// <summary>이 덩어리가 생길 때 붙어 있던 칸. 처음부터 떠 있던 칸은 떼어내지 않는다.</summary>
     private readonly HashSet<Vector2Int> _attached = new();
@@ -45,7 +51,7 @@ public sealed class HullStructure : MonoBehaviour
     private float _breakawaySpeed = 2f;
     private bool _dirty;
     private Rigidbody2D _body;
-    public IReadOnlyCollection<Vector2Int> Rear => _rear;
+    public IReadOnlyCollection<Vector2Int> Rear => _rear.Keys;
     public static readonly List<HullStructure> All = new();
 
     private void Awake() => _body = GetComponent<Rigidbody2D>();
@@ -106,7 +112,7 @@ public sealed class HullStructure : MonoBehaviour
     public ShipGrid.Map DesignMap => _designMap;
     private Texture2D _shipHullPng;
     public Texture2D ShipHullPng => _shipHullPng;
-    public bool HasRear(Vector2Int cell) => _rear.Contains(cell);
+    public bool HasRear(Vector2Int cell) => _rear.ContainsKey(cell);
 
     /// <summary>
     /// 저장에서 되살아난 배가 잃었던 후면을 다시 뺀다. <see cref="SeedRear"/> **뒤에** 부른다 -
@@ -146,12 +152,170 @@ public sealed class HullStructure : MonoBehaviour
 
             var cell = new Vector2Int(col, row);
 
-            if (!_rear.Contains(cell))
+            if (!_rear.ContainsKey(cell))
                 lost.Add(cell);
         }
 
         return lost;
     }
+    /// <summary>
+    /// 후면 칸 하나를 깎는다. 0 이하가 되면 그 칸이 장부에서 빠지고, 그림에 구멍이 뚫린다
+    /// (<see cref="BackPlateView"/>가 칸 수 변화를 보고 다시 굽는다).
+    ///
+    /// **한 번 빠진 칸은 안 돌아온다.** #8의 저장 포맷("사라진 칸만 적는다")이 그 위에 서
+    /// 있고, <see cref="SeedRear"/>의 "이미 차 있으면 안 한다" 가드가 그것을 지킨다.
+    /// </summary>
+    public void DamageRear(Vector2Int cell, float amount)
+    {
+        if (amount <= 0f || !_rear.TryGetValue(cell, out float health))
+            return;
+
+        health -= amount;
+
+        if (health > 0f)
+            _rear[cell] = health;
+        else
+            _rear.Remove(cell);
+    }
+
+    /// <summary>
+    /// 월드 한 점이 이 몸의 어느 후면 칸인가. 없으면 false.
+    ///
+    /// **후면에는 콜라이더가 없다.** 그래서 물리 질의로는 절대 못 찾는다 - 파편도 유폭도
+    /// 콜라이더와 판 그래프로 대상을 고르는데 후면은 둘 다에 없다. 유일한 길은 위치를
+    /// 칸으로 바꿔서 장부를 직접 보는 것이고, 이 함수가 그 다리다.
+    ///
+    /// 콜라이더를 달면 안 된다 - 그 순간 후면이 오브젝트가 되고 전면과 겹쳐서, "함선에는
+    /// Z축이 없다"는 규칙이 깨진다.
+    /// </summary>
+    public bool CellAt(Vector2 worldPoint, out Vector2Int cell)
+    {
+        cell = default;
+
+        if (_designMap == null)
+            return false;
+
+        cell = _designMap.ToCell(transform.InverseTransformPoint(worldPoint));
+        return _designMap.Inside(cell);
+    }
+
+    /// <summary>
+    /// 배 안에서 터진 것이 반대편 벽을 때린다. 살아 있는 모든 몸을 훑는다 - 유폭은 남의
+    /// 배에도 건너가고(<c>Radiate</c>), 잔해도 후면을 들고 다니기 때문이다.
+    ///
+    /// 거리 감쇠는 판을 때릴 때와 같은 식이다. 후면만 다른 곡선을 쓰면 "왜 뒷벽만 잘
+    /// 버티지"를 두 곳에서 튜닝하게 된다.
+    /// </summary>
+    public static void BlastRear(Vector2 pivot, float damage)
+    {
+        float cutoff = damage * Ballistics.BlastCutoff;
+
+        for (int i = 0; i < All.Count; i++)
+        {
+            HullStructure body = All[i];
+
+            if (body == null || !body.CellAt(pivot, out Vector2Int at))
+                continue;
+
+            int reach = Mathf.CeilToInt(Ballistics.BlastRadius / ShipGrid.CellSize);
+
+            for (int dc = -reach; dc <= reach; dc++)
+            for (int dr = -reach; dr <= reach; dr++)
+            {
+                var cell = new Vector2Int(at.x + dc, at.y + dr);
+                float metres = Mathf.Sqrt(dc * dc + dr * dr) * ShipGrid.CellSize;
+                float share = damage * Mathf.Pow(Ballistics.BlastFalloff, metres);
+
+                if (share >= cutoff)
+                    body.DamageRear(cell, share);
+            }
+        }
+    }
+
+    /// <summary>파편 하나가 아무 판도 못 맞고 날아간 끝. 거기 벽이 있으면 박힌다.</summary>
+    public static void SpallRear(Vector2 worldPoint, float amount)
+    {
+        for (int i = 0; i < All.Count; i++)
+        {
+            HullStructure body = All[i];
+
+            if (body != null && body.CellAt(worldPoint, out Vector2Int cell))
+                body.DamageRear(cell, amount);
+        }
+    }
+
+    /// <summary>
+    /// 후면 칸 하나의 체력. **그 자리 판을 따른다.**
+    ///
+    /// 배 하나에 숫자 하나를 정하려던 것이 애초에 무리였다. dart는 충각 끝에 Lance Armor
+    /// (m²당 100,000)를 달고 몸통은 mk3(180)인데, 배 전체를 하나로 뭉치면 어느 쪽으로
+    /// 정하든 틀린다 - 평균이면 뒷벽이 무적이 되고, 최빈값이면 충각 끝 뒷벽이 종잇장이라
+    /// 앞판은 긁히지도 않는데 뒤만 뚫린다.
+    ///
+    /// 후면은 **반대편 외판**이니 그 자리 재질을 따르는 것이 원래 맞다. 그러면 충각 끝은
+    /// 뒷벽도 Lance급이고 몸통은 얇다 - 규칙 하나로 둘 다 나온다.
+    ///
+    /// 그 칸에 판이 있으면 그것, 없으면(실내) 둘러싼 판 중 제일 두꺼운 것. 실내를 감싸는
+    /// 것이 곧 그 방의 외피라서다. 아무것도 못 찾으면 폴백.
+    /// </summary>
+    /// <summary>
+    /// 실내 칸을 감싸는 8방향. 선체 연결성과 같은 이웃이다 - 대각선으로만 붙은 판도
+    /// 그 방의 외피이므로, 4방향으로 보면 모서리 방의 뒷벽이 이유 없이 얇아진다.
+    /// </summary>
+    private static readonly Vector2Int[] Around =
+    {
+        new(1, 0), new(-1, 0), new(0, 1), new(0, -1),
+        new(1, 1), new(1, -1), new(-1, 1), new(-1, -1),
+    };
+
+    private static float RearHealthAt(
+        Vector2Int cell, Dictionary<Vector2Int, float> plates, float fallback)
+    {
+        if (plates.TryGetValue(cell, out float own))
+            return own * Ballistics.RearHpFactor;
+
+        float best = 0f;
+
+        foreach (Vector2Int dir in Around)
+        {
+            if (plates.TryGetValue(cell + dir, out float near) && near > best)
+                best = near;
+        }
+
+        return (best > 0f ? best : fallback) * Ballistics.RearHpFactor;
+    }
+
+    /// <summary>
+    /// 칸 -> 그 자리 판의 체력. 살아 있는 자식에서 뽑는다 - SeedRear는 배가 지어진 뒤에
+    /// 불리므로 이 시점에 판이 전부 제자리에 있다.
+    ///
+    /// **문은 뺀다.** Door도 Armor를 달고 있어서 컴포넌트로는 안 갈리는데, 후면은 외판이지
+    /// 문이 아니다. 문 자리의 후면은 이웃 판을 따라간다.
+    /// </summary>
+    private Dictionary<Vector2Int, float> PlateHealthByCell(ShipGrid.Map designMap)
+    {
+        var plates = new Dictionary<Vector2Int, float>();
+
+        if (designMap == null)
+            return plates;
+
+        foreach (Transform child in transform)
+        {
+            if (child == null || child.GetComponent<Door>() != null)
+                continue;
+
+            if (!child.TryGetComponent(out Armor plate) || plate.PlateHp <= 0f)
+                continue;
+
+            Vector2Int cell = designMap.ToCell(child.localPosition);
+
+            if (designMap.Inside(cell))
+                plates[cell] = plate.PlateHp;
+        }
+
+        return plates;
+    }
+
     public void SeedRear(ShipGrid.Map designMap, Texture2D shipHullPng)
     {
         if(_rear.Count > 0)
@@ -160,13 +324,19 @@ public sealed class HullStructure : MonoBehaviour
         _designMap = designMap;
         _shipHullPng = shipHullPng;
 
+        // 칸마다 다른 값을 준다. 판이 하나도 없으면(씬 저작 중인 배) 폴백 하나로 간다.
+        Dictionary<Vector2Int, float> plates = PlateHealthByCell(designMap);
+
         for(int col = 0; col < designMap.width; col++)
         {
             for(int row = 0; row < designMap.height; row++)
             {
                 ShipGrid.Cell c = designMap.cells[col,row];
                 if(ShipGrid.BackPlate(c))
-                    _rear.Add(new Vector2Int(col,row));
+                {
+                    var cell = new Vector2Int(col, row);
+                    _rear[cell] = RearHealthAt(cell, plates, Ballistics.RearHp);
+                }
             }
         }
     }
@@ -221,7 +391,7 @@ public sealed class HullStructure : MonoBehaviour
     /// scale로 만들기 때문이다. 자식의 localPosition이 안 변하므로 chunk의 칸 좌표가
     /// 잔해 쪽에서도 그대로 통한다.
     /// </summary>
-    public void Adopt(ShipGrid.Map map, List<Vector2Int> chunk, HashSet<Vector2Int> owned, float breakawaySpeed, ShipGrid.Map designMap, Texture2D shiphullpng)
+    public void Adopt(ShipGrid.Map map, List<Vector2Int> chunk, Dictionary<Vector2Int, float> owned, float breakawaySpeed, ShipGrid.Map designMap, Texture2D shiphullpng)
     {
         _map = map;
         _hasMap = true;
@@ -233,12 +403,17 @@ public sealed class HullStructure : MonoBehaviour
         _attached.Clear();
 
         // 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
-        _rear.UnionWith(owned);// 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
-        foreach (Vector2Int cell in chunk)// 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
-        {// 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
-            _alive.Add(cell);// 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
-            _attached.Add(cell);// 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
-        }// 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
+        // 체력까지 그대로 물려받는다. 집합만 넘기면 갈라지는 순간 상한 후면이 새것으로
+        // 되살아난다 - 에러가 안 나서 "왜 잔해 뒷벽이 멀쩡하지"로만 보인다.
+        foreach (KeyValuePair<Vector2Int, float> pair in owned)
+            _rear[pair.Key] = pair.Value;
+
+        // 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
+        foreach (Vector2Int cell in chunk)
+        {
+            _alive.Add(cell);
+            _attached.Add(cell);
+        }
     }
 
     /// <summary>
@@ -262,9 +437,18 @@ public sealed class HullStructure : MonoBehaviour
         if (chunks.Count <= 1)
             return false;
 
-        List<HashSet<Vector2Int>> owned = ShipGrid.SplitRear(chunks, _rear);
+        // SplitRear는 **누가 갖나**만 정한다(순수 함수, self-test 있음). **얼마나 상했나**는
+        // 여기서 실어 나른다 - 지금 _rear에만 있는 값이고, 잔해가 태어난 뒤에는 물어볼 데가 없다.
+        var rearCells = new HashSet<Vector2Int>(_rear.Keys);
 
-        
+        // **씨앗을 설계도 좌표로 옮긴다.** chunks는 _map(살아 있는 격자) 칸이고 _rear는
+        // 설계도 격자 칸이다. Stamp가 살아남은 판의 극값에서 원점을 잡으므로, 판이 죽으면
+        // _map은 줄어드는데 _designMap은 안 변한다 - 두 좌표계를 그대로 섞으면 씨앗이
+        // 엉뚱한 자리에 떨어져서 소유권이 아무렇게나 갈린다. 증상은 "후면이 분리되려다
+        // 본체로 도로 돌아온다"다.
+        List<HashSet<Vector2Int>> owned = ShipGrid.SplitRear(ToDesignCells(chunks), rearCells);
+
+        List<Dictionary<Vector2Int, float>> carried = WithHealth(owned);
 
         var byCell = new Dictionary<Vector2Int, Transform>();
 
@@ -289,16 +473,66 @@ public sealed class HullStructure : MonoBehaviour
             if (!WasAttached(chunks[i]))
             {
                 owned[0].UnionWith(owned[i]);
+
+                foreach (KeyValuePair<Vector2Int, float> pair in carried[i])
+                    carried[0][pair.Key] = pair.Value;
                 continue;
             }
 
-            Breakaway(chunks[i], byCell, alive, owned[i]);
+            Breakaway(chunks[i], byCell, alive, carried[i]);
             broke = true;
         }
         
         _rear.Clear();
-        _rear.UnionWith(owned[0]);
+
+        foreach (KeyValuePair<Vector2Int, float> pair in carried[0])
+            _rear[pair.Key] = pair.Value;
         return broke;
+    }
+
+    /// <summary>
+    /// 살아 있는 격자의 칸을 설계도 격자의 칸으로 옮긴다. 두 격자는 같은 배 로컬 공간을
+    /// 재므로, 칸 -> 로컬 -> 칸으로 한 번 돌면 된다.
+    /// </summary>
+    private List<List<Vector2Int>> ToDesignCells(List<List<Vector2Int>> chunks)
+    {
+        var moved = new List<List<Vector2Int>>(chunks.Count);
+
+        foreach (List<Vector2Int> chunk in chunks)
+        {
+            var slice = new List<Vector2Int>(chunk.Count);
+
+            if (_designMap != null)
+            {
+                foreach (Vector2Int cell in chunk)
+                    slice.Add(_designMap.ToCell(_map.ToLocal(cell.x, cell.y)));
+            }
+
+            moved.Add(slice);
+        }
+
+        return moved;
+    }
+
+    /// <summary>조각별 칸 집합에 지금 체력을 실어 준다. 순서는 그대로다.</summary>
+    private List<Dictionary<Vector2Int, float>> WithHealth(List<HashSet<Vector2Int>> owned)
+    {
+        var carried = new List<Dictionary<Vector2Int, float>>(owned.Count);
+
+        for (int i = 0; i < owned.Count; i++)
+        {
+            var slice = new Dictionary<Vector2Int, float>(owned[i].Count);
+
+            foreach (Vector2Int cell in owned[i])
+            {
+                if (_rear.TryGetValue(cell, out float health))
+                    slice[cell] = health;
+            }
+
+            carried.Add(slice);
+        }
+
+        return carried;
     }
 
     private bool WasAttached(List<Vector2Int> chunk)
@@ -343,13 +577,13 @@ public sealed class HullStructure : MonoBehaviour
         var chunk = new List<Vector2Int> { cell };
         var byCell = new Dictionary<Vector2Int, Transform> { [cell] = plate };
 
-        return MakeDebris(chunk, byCell, _alive.Count, new HashSet<Vector2Int>(), out _, out _);
+        return MakeDebris(chunk, byCell, _alive.Count, new Dictionary<Vector2Int, float>(), out _, out _);
     }
 
     private void Breakaway(
         List<Vector2Int> chunk,
         Dictionary<Vector2Int, Transform> byCell,
-        int totalAlive, HashSet<Vector2Int> owned)
+        int totalAlive, Dictionary<Vector2Int, float> owned)
     {
         if (!MakeDebris(chunk, byCell, totalAlive, owned, out GameObject go, out Vector2 centre))
             return;
@@ -386,7 +620,7 @@ public sealed class HullStructure : MonoBehaviour
     private bool MakeDebris(
         List<Vector2Int> chunk,
         Dictionary<Vector2Int, Transform> byCell,
-        int totalAlive, HashSet<Vector2Int> owned,
+        int totalAlive, Dictionary<Vector2Int, float> owned,
         out GameObject debris,
         out Vector2 centre)
     {
@@ -410,7 +644,17 @@ public sealed class HullStructure : MonoBehaviour
         body.linearDamping = _body.linearDamping;
 
         // 조각이 가져가는 질량만큼 본체가 가벼워진다
-        float share = totalAlive > 0 ? (float)chunk.Count / totalAlive : 0f;
+        // 조각이 가져가는 몫에 **후면도 센다.** 판 수만 보면 속이 텅 빈 조각(껍데기만
+        // 남은 뱃머리 같은 것)이 실제보다 가볍게 나가서 종잇장처럼 날아간다.
+        //
+        // 배 총질량은 안 건드린다. massPerPlate는 판 한 장의 질량이 아니라 배 전체를 판
+        // 수로 나눈 값이라 후면·격벽·배선이 이미 그 안에 녹아 있다 - 여기서 더하면
+        // 이중 계산이고, 아홉 척의 기동 튜닝이 통째로 무의미해진다. 나눠 갖는 비율만
+        // 정확해지면 된다.
+        float mine = chunk.Count + owned.Count * Ballistics.RearMassShare;
+        float whole = totalAlive + _rear.Count * Ballistics.RearMassShare;
+
+        float share = whole > 0f ? mine / whole : 0f;
         float mass = Mathf.Max(1f, _body.mass * share);
 
         body.mass = mass;

@@ -528,6 +528,11 @@ public static class RamImpact
             Ballistics.BlastCutoff, Ballistics.BlastMaxPlates);
 
         Radiate(origin, Mathf.Sqrt(damage));
+
+        // 반대편 벽도 같이 맞는다. Conduct는 판 그래프를, Radiate는 콜라이더를 타는데
+        // 후면은 둘 다에 없어서 세 번째 문이 필요하다 - 콜라이더를 달아 해결하면 후면이
+        // 오브젝트가 되고 "함선에는 Z축이 없다"가 깨진다.
+        HullStructure.BlastRear(origin.transform.position, damage);
     }
 
     /// <summary>
