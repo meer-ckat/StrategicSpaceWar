@@ -68,10 +68,59 @@ public sealed class RoomView : MonoBehaviour
         go.AddComponent<RoomView>();
     }
 
+#if UNITY_EDITOR
+    private static void VentUnderMouse()
+    {
+        Camera cam = Camera.main;
+
+        if (cam == null || Mouse.current == null)
+            return;
+
+        Vector2 world = cam.ScreenToWorldPoint(Mouse.current.position.ReadValue());
+
+        for (int i = 0; i < Ship.All.Count; i++)
+        {
+            Ship ship = Ship.All[i];
+
+            if (ship == null || ship.Map == null)
+                continue;
+
+            // 월드 -> 그 배의 로컬. 반대쪽에서 오는 배는 localScale.x가 -1인데
+            // InverseTransformPoint가 그것까지 되돌려 주므로 격자는 정방향 배와 같다.
+            Vector2Int cell = ship.Map.ToCell(ship.transform.InverseTransformPoint(world));
+
+            if (!ship.Map.Inside(cell))
+                continue;
+
+            foreach (Room room in ship.rooms)
+            {
+                if (!room.cells.Contains(cell))
+                    continue;
+
+                room.air = 0f;
+                Debug.Log($"[RoomView] {ship.name}의 {cell} 방을 비웠다. {room.cells.Count}칸.");
+                return;
+            }
+        }
+    }
+#endif
+
     private void LateUpdate()
     {
         if (Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame)
             _visible = !_visible;
+
+#if UNITY_EDITOR
+        // 오른쪽 클릭한 방을 진공으로 만든다. **에디터 전용이다** - 빌드에 들어가면
+        // 플레이어가 자기 배를 클릭 한 번으로 비운다.
+        //
+        // 이게 필요한 이유는 기압으로 나오는 것들(승무원 사망, 역할 소실)이 전부
+        // "특정 방만 비었을 때"라, 조종으로 그 상황을 만들려면 원하는 칸만 정확히
+        // 맞아야 하기 때문이다. 시뮬레이션은 손 안 대고 입력만 준다 - Atmosphere가
+        // 이미 하는 일을 그 자리에서 한 번 해주는 것뿐이라 결과가 실제 전투와 같다.
+        if (Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame)
+            VentUnderMouse();
+#endif
 
         // 표시하고 쓸어낸다. 오버레이의 수명을 "이번 프레임에 그렸나" 하나로 정하는 것이
         // 요점이다 - 예전에는 "배가 파괴됐나"만 봤고, 그래서 Draw가 조기 리턴하는 배
