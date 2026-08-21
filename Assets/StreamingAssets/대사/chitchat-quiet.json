@@ -1,0 +1,8 @@
+{
+  "defName": "chitchat-quiet",
+  "cooldown": 200,
+  "lines": [
+    { "message": "접촉 없음. 12분째입니다.", "author": "전술", "duration": 3, "intensity": 0.3, "style": "crew" },
+    { "message": "그 말 하지 마십시오.", "author": "기관", "duration": 3, "intensity": 0.4, "style": "crew" }
+  ]
+}

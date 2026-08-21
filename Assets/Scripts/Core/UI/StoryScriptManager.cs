@@ -332,6 +332,15 @@ public class StoryScriptManager : MonoBehaviour
     public float previousAlpha = 0.48f;
     public float historyAlpha = 0.22f;
 
+    /// <summary>
+    /// 화면이 이만큼 비어 있으면 승무원이 잡담을 시작한다.
+    ///
+    /// 사건 대사가 하나라도 살아 있는 동안은 안 센다. "말이 끊긴 시간"이지 "조용한
+    /// 시간"이 아니다 - 유폭 대사가 화면에 떠 있는데 그 옆에서 농담이 올라오면
+    /// 두 줄 다 안 읽힌다.
+    /// </summary>
+    public float idleGap = 14f;
+
     public List<Dialogue> Texts = new();
 
     private int _nextId;
@@ -388,6 +397,26 @@ public class StoryScriptManager : MonoBehaviour
         && AuthorRoles.TryGetValue(author, out Ship.ShipRole role)
         && _lostRoles.Contains(role);
 
+    /// <summary>
+    /// 잡담 대본 이름. <c>chitchat-*.json</c>을 폴더에서 한 번 긁어 온다.
+    ///
+    /// 목록 파일을 따로 두지 않는 이유는 def와 같다 - 파일 하나가 곧 대본 하나이고,
+    /// 새 잡담은 폴더에 파일을 떨구면 끝이다. 목록을 손으로 들면 파일은 썼는데 목록에
+    /// 안 넣는 실수가 반드시 나오고, 그때 증상은 "안 나오는 대사"라 아무 데도 안 걸린다.
+    /// </summary>
+    private readonly List<string> _chitchat = new();
+
+    /// <summary>
+    /// 승무원 전멸. 죽은 배는 농담을 안 한다.
+    ///
+    /// <see cref="_lostRoles"/>로는 못 막는다. 전멸하면 두 자리가 다 죽으므로 잡담의
+    /// 모든 줄이 걸러지고, 그러면 "하나도 안 남았다"로 떨어져 **시스템이 대신 농담을
+    /// 읽는다.** 그 폴백은 사건 대사를 위한 것이지 잡담을 위한 것이 아니다.
+    /// </summary>
+    private bool _crewLost;
+
+    private float _lastLine;
+
     /// <summary>재사용 버퍼. 대사는 매 틱 도는 것이 아니지만 할당은 안 하는 편이 낫다.</summary>
     private readonly List<int> _speakable = new();
 
@@ -430,6 +459,8 @@ public class StoryScriptManager : MonoBehaviour
     private void OnEnable()
     {
         current = this;
+
+        ScanChitchat();
 
         if (!reactToSimulation)
             return;
@@ -490,6 +521,24 @@ public class StoryScriptManager : MonoBehaviour
     /// 대본을 읽는다. **없으면 null이고 그것이 정상이다** - 아직 안 쓴 사건의 대사가 없다고
     /// 게임이 멈추면 대본을 하나 늘릴 때마다 코드를 고쳐야 한다.
     /// </summary>
+    /// <summary>폴더에서 <c>chitchat-*.json</c>을 긁는다. 순서를 정렬해 두는 것이 결정론이다.</summary>
+    private void ScanChitchat()
+    {
+        _chitchat.Clear();
+
+        if (!Directory.Exists(ScriptFolder))
+            return;
+
+        string[] files = Directory.GetFiles(ScriptFolder, "chitchat-*.json");
+
+        // GetFiles의 순서는 파일 시스템이 정한다. Pick이 인덱스를 고르므로 그대로 두면
+        // 같은 시드가 기계마다 다른 잡담을 낸다.
+        Array.Sort(files, StringComparer.Ordinal);
+
+        for (int i = 0; i < files.Length; i++)
+            _chitchat.Add(Path.GetFileNameWithoutExtension(files[i]));
+    }
+
     public static DialogueScript LoadScript(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -683,6 +732,9 @@ public class StoryScriptManager : MonoBehaviour
             return;
         }
 
+        if (entry.kind == RunLog.Kind.CrewLost && entry.team == Ship.Team.Ally)
+            _crewLost = true;
+
         string key = entry.kind switch
         {
             RunLog.Kind.Finished => "ship-finished",
@@ -701,6 +753,28 @@ public class StoryScriptManager : MonoBehaviour
             PlayIfExists(key, entry.what);
     }
 
+    /// <summary>
+    /// 아무 일도 안 일어나는 동안 승무원이 말을 한다. **이것이 tension의 소비자다** -
+    /// 지금은 시간만 보지만, 다음에 tension이 들어오면 여기 조건이 하나 는다.
+    ///
+    /// Texts가 빌 때까지 기다리는 것이 요점이다. 사건 대사와 겹치면 둘 다 안 읽힌다.
+    /// </summary>
+    private void Chatter()
+    {
+        if (_crewLost || _chitchat.Count == 0 || Texts.Count > 0)
+            return;
+
+        if (Time.unscaledTime - _lastLine < idleGap)
+            return;
+
+        // 쿨다운에 걸려도 _lastLine이 안 밀리면 매 프레임 다시 시도한다. 여기서 한 번
+        // 밀어 두면 다음 후보를 idleGap 뒤에 고른다 - 대본이 전부 쿨다운이면 그동안
+        // 조용한 것이고, 그것도 맞는 출력이다.
+        _lastLine = Time.unscaledTime;
+
+        Play(_chitchat[Pick("chitchat", _chitchat.Count)]);
+    }
+
     private void OnBattleEnd(Battle battle) => Play(battle.Won ? "battle-won" : "battle-lost");
 
     // =========================================================
@@ -712,6 +786,7 @@ public class StoryScriptManager : MonoBehaviour
         float dt = Time.unscaledDeltaTime;
 
         Advance(dt);
+        Chatter();
 
         _interruptFlash = Mathf.MoveTowards(_interruptFlash, 0f, interruptFlashFade * dt);
 
@@ -976,6 +1051,8 @@ public class StoryScriptManager : MonoBehaviour
         );
 
         line.typingDuration = typing;
+
+        _lastLine = Time.unscaledTime;
 
         Texts.Add(line);
         TrimToMaxLines();
