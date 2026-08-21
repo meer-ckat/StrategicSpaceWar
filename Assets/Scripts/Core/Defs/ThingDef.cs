@@ -31,6 +31,7 @@ public class ThingDef
 
     /// <summary>레이어 **이름**. 번호는 프로젝트 설정을 건드리면 밀리지만 이름은 안 밀린다.</summary>
     public string layer;
+    public bool sealsRoom = true;
 
     public ColliderDef collider = new();
 

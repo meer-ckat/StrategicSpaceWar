@@ -39,6 +39,7 @@ public abstract class Armor : Thing
     [SerializeField] private LayerMask debrisLayer;
 
     private readonly float[] _hp = new float[SubCount];
+    public bool sealsRoom = true;
     private int _dead;
 
     // 고립 서브셀 판정용. 판마다 하나씩 - 한 판을 쓰는 동안 다른 판이 끼어들 수 있다

@@ -53,10 +53,26 @@ public static class ShipBuilder
             module.RestoreHealth01(Mathf.Max(0.01f, hp));
     }
 
-    private static bool StampsGrid(Component child, out bool isDoor)
+    private static bool StampsGrid(Component child, out ShipGrid.Cell cel)
     {
-        isDoor = child.GetComponent<Door>() != null;
-        return isDoor || child.GetComponent<Armor>() != null;
+        // Door를 먼저 본다. Ballistic Door는 thingClass가 BallisticArmor고 Door는 comps라,
+        // Armor를 먼저 물으면 문이 전부 벽으로 찍히고 doorAt이 빈 채로 나간다.
+        if (child.TryGetComponent<Door>(out _))
+        {
+            cel = ShipGrid.Cell.Door;
+            return true;
+        }
+
+        if (child.TryGetComponent(out Armor plate))
+        {
+            cel = plate.sealsRoom ? ShipGrid.Cell.Wall : ShipGrid.Cell.Vent;
+            return true;
+        }
+
+        // Empty가 아니라 Unset이다. Empty는 "공기 있는 실내"라는 뜻이 이미 있어서,
+        // 다음에 누가 bool을 안 보고 cel만 읽으면 조용히 틀린 답을 얻는다.
+        cel = ShipGrid.Cell.Unset;
+        return false;
     }
 
     /// <summary>
@@ -67,15 +83,26 @@ public static class ShipBuilder
     /// 컴포넌트 대신 <see cref="ThingDef.MainType"/>을 본다. 이름이 아니라 타입인 것이
     /// 중요하다 - `Armor`를 상속한 새 판(`BallisticArmor`)이 생겨도 저절로 따라온다.
     /// </summary>
-    private static bool StampsGrid(ThingDef def, out bool isDoor)
+    private static bool StampsGrid(ThingDef def, out ShipGrid.Cell cel)
     {
-        isDoor = false;
+        cel = ShipGrid.Cell.Unset;
 
         if (def?.MainType == null)
             return false;
 
-        isDoor = typeof(Door).IsAssignableFrom(def.MainType);
-        return isDoor || typeof(Armor).IsAssignableFrom(def.MainType);
+        if (typeof(Door).IsAssignableFrom(def.MainType))
+        {
+            cel = ShipGrid.Cell.Door;
+            return true;
+        }
+
+        if (typeof(Armor).IsAssignableFrom(def.MainType))
+        {
+            cel = def.sealsRoom ? ShipGrid.Cell.Wall : ShipGrid.Cell.Vent;
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -102,7 +129,7 @@ public static class ShipBuilder
 
         foreach (Placement p in def.placements)
         {
-            if (!StampsGrid(DefDatabase.Get(p.def), out bool isDoor))
+            if (!StampsGrid(DefDatabase.Get(p.def), out ShipGrid.Cell cel))
                 continue;
 
             var cell = new Vector2Int(p.col - authored.mins.x, p.row - authored.mins.y);
@@ -116,8 +143,7 @@ public static class ShipBuilder
                 continue;
             }
 
-            authored.map.cells[cell.x, cell.y] =
-                isDoor ? ShipGrid.Cell.Door : ShipGrid.Cell.Wall;
+            authored.map.cells[cell.x, cell.y] = cel;
         }
 
         ShipGrid.MarkExterior(authored.map);
@@ -173,7 +199,7 @@ public static class ShipBuilder
         {
             // 판이 아닌 직속 자식은 조용히 건너뛴다. 오류가 아니다 - IsPlate가 격자를 읽는
             // 모든 자리의 단일 관문이고, 여기가 그 관문이다.
-            if (child == null || !StampsGrid(child, out bool isDoor))
+            if (child == null || !StampsGrid(child, out ShipGrid.Cell cel))
                 continue;
 
             // 1차 패스와 **같은 공간**이어야 한다. 원점을 뒤집힌 좌표로 잡고 여기서 안 뒤집힌
@@ -207,14 +233,14 @@ public static class ShipBuilder
                     $"[ShipBuilder] {cell}에 판이 둘 이상 겹쳐 있다. 뒤에 오는 것이 이긴다 - " +
                     $"'{child.name}'.", child);
 
-            if (isDoor)
+            if (cel == ShipGrid.Cell.Door)
             {
-                map.cells[cell.x, cell.y] = ShipGrid.Cell.Door;
+                map.cells[cell.x, cell.y] = cel;
                 doorAt[cell] = child.GetComponent<Door>();
             }
             else
             {
-                map.cells[cell.x, cell.y] = ShipGrid.Cell.Wall;
+                map.cells[cell.x, cell.y] = cel;
                 armorAt[cell] = child.GetComponent<Armor>();
             }
         }
