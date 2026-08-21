@@ -341,6 +341,21 @@ public class StoryScriptManager : MonoBehaviour
     /// </summary>
     public float idleGap = 14f;
 
+    /// <summary>
+    /// 긴장이 절반으로 식는 데 걸리는 초. **곱수가 아니라 반감기로 적는 이유는 이것이
+    /// 귀로 잴 수 있는 유일한 단위이기 때문이다** - "0.97을 곱한다"는 아무것도 안
+    /// 말해주지만 "20초면 절반"은 세어볼 수 있다.
+    ///
+    /// 20초면 선체 절단(0.6) 뒤 약 25초, 유폭(0.8) 뒤 약 34초에 잡담이 돌아온다.
+    /// </summary>
+    public float tensionHalfLife = 20f;
+
+    /// <summary>이 값보다 긴장이 높으면 잡담이 안 나온다.</summary>
+    public float chitChatMaxTension = 0.25f;
+
+    /// <summary>디버그 표시. 반감기는 이거 없이는 못 맞춘다 - 소리로만 드러나는 값이다.</summary>
+    public bool showTension;
+
     public List<Dialogue> Texts = new();
 
     private int _nextId;
@@ -416,6 +431,17 @@ public class StoryScriptManager : MonoBehaviour
     private bool _crewLost;
 
     private float _lastLine;
+
+    /// <summary>
+    /// 지금 이 배가 얼마나 위험한가. 0이면 평시, 1이면 최악.
+    ///
+    /// **사건이 올리고 시간이 내린다. 대사는 안 건드린다.** 대사가 올리고 긴장이 대사를
+    /// 막으면 잡담이 자기 자신을 억제하는 되먹임이 생기고, 그건 상수로 못 고친다.
+    /// RunLog가 이미 "사건의 단일 깔때기"라 방향이 저절로 한쪽이다.
+    ///
+    /// 저장하지 않는다. 파생값이 아니라 이번 순간의 분위기이고, 다음 전투는 새로 센다.
+    /// </summary>
+    private float _tension;
 
     /// <summary>재사용 버퍼. 대사는 매 틱 도는 것이 아니지만 할당은 안 하는 편이 낫다.</summary>
     private readonly List<int> _speakable = new();
@@ -735,6 +761,11 @@ public class StoryScriptManager : MonoBehaviour
         if (entry.kind == RunLog.Kind.CrewLost && entry.team == Ship.Team.Ally)
             _crewLost = true;
 
+        // **더하지 않고 최댓값을 잡는다.** 유폭 한 번에 판 40장이 같은 틱에 죽으면
+        // 더하기는 긴장을 폭발시키고 배가 몇 분 동안 말을 안 한다. 최댓값이면 제일 큰
+        // 사건 하나가 분위기를 정하고, 회복 시간이 반감기 하나로 예측 가능해진다.
+        _tension = Mathf.Max(_tension, Severity(entry));
+
         string key = entry.kind switch
         {
             RunLog.Kind.Finished => "ship-finished",
@@ -767,12 +798,52 @@ public class StoryScriptManager : MonoBehaviour
         if (Time.unscaledTime - _lastLine < idleGap)
             return;
 
+        // **_lastLine을 밀기 전에 본다.** 그래야 긴장이 임계 밑으로 내려오는 순간
+        // 이미 지난 idleGap을 다시 안 기다리고 바로 누가 입을 연다. 긴장이 풀리자마자
+        // 말이 나오는 것이 이 시스템이 만들려는 장면이다.
+        if (_tension > chitChatMaxTension)
+            return;
+
         // 쿨다운에 걸려도 _lastLine이 안 밀리면 매 프레임 다시 시도한다. 여기서 한 번
         // 밀어 두면 다음 후보를 idleGap 뒤에 고른다 - 대본이 전부 쿨다운이면 그동안
         // 조용한 것이고, 그것도 맞는 출력이다.
         _lastLine = Time.unscaledTime;
 
         Play(_chitchat[Pick("chitchat", _chitchat.Count)]);
+    }
+
+    /// <summary>
+    /// 이 사건이 얼마나 무거운가. 0~1.
+    ///
+    /// 팀별로 행을 열 개 쓰지 않는다. **사건의 무게 × 누구 일인가**로 갈라야 왜 그
+    /// 숫자인지 설명이 되고, 새 사건이 생겨도 배수는 안 건드린다.
+    ///
+    /// 적함이 0이 아니라 0.3인 이유: 위협은 아니지만 방금 눈앞에서 큰일이 났다.
+    /// 0이면 적 탄약고가 터지는 순간 바로 커피 얘기가 나온다.
+    ///
+    /// **적함 격침이 긴장을 내리는 규칙은 없다.** 적이 죽으면 새 사건이 안 들어오고,
+    /// 그러면 감쇠가 알아서 데려간다 - "숨통이 트인다"가 규칙 없이 나온다.
+    /// </summary>
+    private static float Severity(RunLog.Entry entry)
+    {
+        float weight = entry.kind switch
+        {
+            RunLog.Kind.CrewLost => 1.0f,
+            RunLog.Kind.Finished => 1.0f,
+            RunLog.Kind.Detonated => 0.8f,
+            RunLog.Kind.RoleLost => 0.8f,
+            RunLog.Kind.HullSplit => 0.6f,
+            _ => 0f,
+        };
+
+        float whose = entry.team switch
+        {
+            Ship.Team.Ally => 1.0f,
+            Ship.Team.Enemy => 0.3f,
+            _ => 0f,
+        };
+
+        return weight * whose;
     }
 
     private void OnBattleEnd(Battle battle) => Play(battle.Won ? "battle-won" : "battle-lost");
@@ -786,6 +857,12 @@ public class StoryScriptManager : MonoBehaviour
         float dt = Time.unscaledDeltaTime;
 
         Advance(dt);
+
+        // 지수 감쇠. dt에 안 걸리는 것이 요점이다 - 프레임이 튀어도 같은 시간에 같은
+        // 값이 되므로, 반감기가 "초"라는 뜻을 계속 유지한다.
+        if (_tension > 0f)
+            _tension *= Mathf.Pow(0.5f, dt / Mathf.Max(0.01f, tensionHalfLife));
+
         Chatter();
 
         _interruptFlash = Mathf.MoveTowards(_interruptFlash, 0f, interruptFlashFade * dt);
@@ -794,6 +871,18 @@ public class StoryScriptManager : MonoBehaviour
 
         if (_interruptFlash > 0.001f)
             DrawInterruptCut();
+
+        if (showTension)
+        {
+            GUILabel gauge = ImGui.Label(
+                "tension_debug",
+                new Rect(new Vector2(12f, 12f), new Vector2(260f, 22f)),
+                $"tension {_tension:0.000}  (잡담 {chitChatMaxTension:0.00} 이하)",
+                AuthorStyle());
+
+            gauge.Layer = AuthorLayer + 1;
+            gauge.Opacity = 1f;
+        }
 
         // 전체 화면 패턴은 이제 "통신 중" 표시가 아니다. 중요한 난입 때만 잠깐 쓴다.
         float patternTarget = drawPattern && HasCriticalTransmission() ? 1f : 0f;
