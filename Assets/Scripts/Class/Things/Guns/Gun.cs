@@ -180,14 +180,17 @@ public class Gun : Thing, IDamageable
         float dt = TickManager.TickDeltaTime;
         float error = Slew(target, dt);
 
+        // 장전은 WantsToFire보다 **위**에 있어야 한다. 방아쇠를 당기는 동안에만 차오르게
+        // 하면, 아래 LineIsClear 주석이 약속하는 "막혀서 안 쏜 발은 _pending을 소모하지
+        // 않으므로 사선이 열리는 순간 나간다"가 성립하지 않는다 - 사선이 막힌 동안
+        // WantsToFire가 꺼지는 포탑은 장전마저 멈춘다.
+        //
+        // 1로 막아두는 이유: 조준하는 동안 쌓인 발사량이 조준선에 들어오는 순간
+        // 한꺼번에 쏟아지는 것을 막는다. 대신 틱당 최대 한 발 - 3600 RPM이 천장이다.
         _pending = Mathf.Min(_pending + roundsPerMinute / 60f * dt, 1f);
 
         if (!WantsToFire)
             return;
-
-        // 1로 막아두는 이유: 조준하는 동안 쌓인 발사량이 조준선에 들어오는 순간
-        // 한꺼번에 쏟아지는 것을 막는다. 대신 틱당 최대 한 발 - 3600 RPM이 천장이다.
-        _pending = Mathf.Min(_pending + roundsPerMinute / 60f * dt, 1f);
 
         // LineIsClear가 맨 뒤인 것은 성능이 아니라 의미다. 앞의 둘이 통과했을 때만
         // "이 틱에 정말 쏜다"이고, 그때의 포신 방향이 탄이 실제로 갈 선이다.
