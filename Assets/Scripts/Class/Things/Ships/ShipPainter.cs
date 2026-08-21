@@ -202,7 +202,7 @@ public sealed class ShipPainter : EditorWindow
         HashSet<Vector2Int> exterior = Exterior();
 
         foreach (KeyValuePair<Vector2Int, Placed> pair in _plates)
-            DrawCell(pair.Key, PlateColour(pair.Value.def), local);
+            DrawPlate(pair.Key, pair.Value, local);
 
         // 실내는 판 위에 안 겹치므로 뒤에 그려도 된다. 판이 없는 칸만 칠한다.
         foreach (Vector2Int cell in Interior(exterior))
@@ -228,6 +228,70 @@ public sealed class ShipPainter : EditorWindow
             return;
 
         EditorGUI.DrawRect(new Rect(r.x, r.y, r.width - 1f, r.height - 1f), colour);
+    }
+
+    /// <summary>
+    /// 판 하나를 회전·크기·offset까지 반영해서 그린다.
+    ///
+    /// **부호가 여기서 문다.** 배치의 rot과 offset은 배 좌표계인데(y가 위로), 이 창의
+    /// 격자는 row가 아래로 증가하고 화면 y도 아래로 간다. 둘은 x축 대칭이라, 같은 도형을
+    /// 같은 방향으로 보이게 하려면 각도의 부호를 뒤집고 offset의 y도 뒤집어야 한다.
+    /// 수식으로는 거울 M = diag(1,-1)에 대해 M·R(θ)·M⁻¹ = R(-θ)다.
+    ///
+    /// 안 뒤집으면 창에서는 멀쩡한데 게임에서 경사면이 **거울상**으로 나온다. 배는
+    /// 여전히 지어지고 방도 정상이라 아무 검사도 안 걸리고, 틀린 것은 눈에 보이는
+    /// 기울기뿐이다. 기준점은 CLAUDE.md에 있다 - 오른쪽으로 갈수록 올라가는 선이
+    /// rot 음수다.
+    /// </summary>
+    private void DrawPlate(Vector2Int cell, Placed placed, Rect clip)
+    {
+        Rect r = CellRect(cell);
+
+        ThingDef def = DefDatabase.Get(placed.def);
+        Vector2 size = placed.size != Vector2.zero
+            ? placed.size
+            : (def != null ? def.collider.size : Vector2.one);
+
+        Color colour = PlateColour(placed.def);
+
+        // 회전도 크기 지정도 없으면 예전 경로 그대로. 판 대부분이 여기로 빠지므로
+        // GUI.matrix를 건드리는 비용이 안 든다.
+        if (Mathf.Approximately(placed.rot, 0f)
+            && Mathf.Approximately(size.x, 1f) && Mathf.Approximately(size.y, 1f)
+            && placed.offset == Vector2.zero)
+        {
+            if (r.Overlaps(clip))
+                EditorGUI.DrawRect(new Rect(r.x, r.y, r.width - 1f, r.height - 1f), colour);
+
+            return;
+        }
+
+        // 칸 중심 + 배치 offset(y 뒤집어서) 자리에 size 크기로 놓는다.
+        var centre = new Vector2(
+            r.center.x + placed.offset.x * _zoom,
+            r.center.y - placed.offset.y * _zoom);
+
+        var box = new Rect(
+            centre.x - size.x * _zoom * 0.5f,
+            centre.y - size.y * _zoom * 0.5f,
+            size.x * _zoom,
+            size.y * _zoom);
+
+        // 회전하면 AABB가 커지므로 클립 판정도 넉넉히 본다. 안 그러면 화면 가장자리에서
+        // 기울어진 판이 사라진다.
+        var reach = new Rect(
+            centre.x - size.magnitude * _zoom, centre.y - size.magnitude * _zoom,
+            size.magnitude * _zoom * 2f, size.magnitude * _zoom * 2f);
+
+        if (!reach.Overlaps(clip))
+            return;
+
+        Matrix4x4 saved = GUI.matrix;
+
+        GUIUtility.RotateAroundPivot(-placed.rot, centre);
+        EditorGUI.DrawRect(box, colour);
+
+        GUI.matrix = saved;
     }
 
     private Rect CellRect(Vector2Int cell) =>
@@ -455,12 +519,88 @@ public sealed class ShipPainter : EditorWindow
             $"실내 {inside}",
         };
 
+        List<Vector2Int> spill = Overhanging();
+
+        if (spill.Count > 0)
+            notes.Add($"<!> 칸을 1칸 넘게 벗어난 판 {spill.Count}개: {Cells(spill)}");
+
         if (inside == 0) notes.Add("<!> 밀폐 안 됨 - 공기가 없다");
         if (orphan > 0) notes.Add($"<!> 붙을 판이 없는 모듈 {orphan}개");
         if (!reactor) notes.Add("<!> 원자로 없음 - 조타·조준이 멈춘다");
         if (!engine) notes.Add("<!> 엔진 없음");
 
         return string.Join("   ", notes);
+    }
+
+    /// <summary>
+    /// 콜라이더가 자기 칸과 8방향 이웃을 벗어나는 판. 칸 중심 기준 각 축 ±1.5 m가 한도다.
+    ///
+    /// **넘기는 것 자체는 허용한다.** 막으면 각도 표현이 막힌다 - 45도 판을 칸 안에
+    /// 완전히 넣으려면 판이 작아져서 이웃과 사이에 틈이 생긴다.
+    ///
+    /// 한도가 1칸인 것은 취향이 아니라 디버깅 가능성의 경계다. CLAUDE.md가 감수하기로
+    /// 적어 둔 비용이 있다 - "2x2 판이 덮은 이웃 칸이 격자상 비어 있으면 방은 그리로
+    /// 이어진다. 버그가 아니라 이 결정." 1칸이면 그 영향이 인접 칸에 갇혀서 눈으로
+    /// 좇을 수 있다. 2칸부터는 어느 판이 어느 방을 이어붙였는지 알 수 없어지고, 기압이
+    /// 새야 할 곳에서 안 새는 일이 판 스무 장 떨어진 곳에서 원인을 갖는다.
+    ///
+    /// **자동으로 안 고친다.** 어느 칸인지만 말한다 - 고치는 방법이 각도를 줄이는 것일
+    /// 수도 판을 옮기는 것일 수도 있어서, 도구가 고르면 반드시 틀린 쪽을 고른다.
+    /// </summary>
+    private List<Vector2Int> Overhanging()
+    {
+        var over = new List<Vector2Int>();
+
+        foreach (KeyValuePair<Vector2Int, Placed> pair in _plates)
+        {
+            ThingDef def = DefDatabase.Get(pair.Value.def);
+
+            if (def == null)
+                continue;
+
+            Vector2 size = pair.Value.size != Vector2.zero ? pair.Value.size : def.collider.size;
+
+            if (size.x <= 0f || size.y <= 0f)
+                continue;
+
+            float r = pair.Value.rot * Mathf.Deg2Rad;
+            float c = Mathf.Abs(Mathf.Cos(r));
+            float sn = Mathf.Abs(Mathf.Sin(r));
+
+            // 회전한 사각형의 AABB. size 그대로 재면 45도 1x1 판의 반폭을 0.5로 보는데
+            // 실제로는 0.707이라, 한도를 넘은 판을 통과시킨다.
+            var half = new Vector2(
+                (size.x * c + size.y * sn) * 0.5f,
+                (size.x * sn + size.y * c) * 0.5f);
+
+            // 칸 중심에서 콜라이더 중심까지. ThingDef.Spawn이 box.offset에
+            // (def.offset + Rotate(placement.offset, -rot))을 넣으므로, 그것을 다시
+            // +rot으로 돌리면 def 몫만 회전하고 배치 몫은 그대로 남는다.
+            //
+            // 여기 값들은 배 좌표계다(CLAUDE.md: rot도 offset도 배 좌표계로 적는다).
+            // 이 검사에는 상관없다 - 한도가 ±1.5로 대칭이라 y 부호가 뒤집혀도 결과가
+            // 같다. **부호가 실제로 무는 곳은 그림이다** (DrawPlate 참고).
+            Vector2 centre = Ballistics.Rotate(def.collider.offset, pair.Value.rot) + pair.Value.offset;
+
+            if (Mathf.Abs(centre.x) + half.x > 1.5f || Mathf.Abs(centre.y) + half.y > 1.5f)
+                over.Add(pair.Key);
+        }
+
+        return over;
+    }
+
+    /// <summary>목록이 길면 앞의 몇 개만. 콘솔이 아니라 한 줄짜리 상태 표시라서.</summary>
+    private static string Cells(List<Vector2Int> cells)
+    {
+        var sb = new System.Text.StringBuilder();
+
+        for (int i = 0; i < cells.Count && i < 6; i++)
+            sb.Append(i > 0 ? ", " : "").Append('(').Append(cells[i].x).Append(',').Append(cells[i].y).Append(')');
+
+        if (cells.Count > 6)
+            sb.Append(" 외 ").Append(cells.Count - 6).Append("개");
+
+        return sb.ToString();
     }
 
     // =========================================================
