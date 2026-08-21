@@ -157,7 +157,8 @@ public sealed class ArmorSkin : MonoBehaviour
         // Script로 잡아 두어서 Transform이 아직 안 넘어가 있을 수 있다.
         Physics2D.SyncTransforms();
 
-        var rng = new DeterministicRng(Ballistics.Hash(GetInstanceID(), 0, 0));
+        Debug.Assert(_armor.stableId >= 0, $"[ArmorSkin] '{_armor.defName}'에 stableId가 없다. def로 안 지어진 배다.", this);
+        var rng = new DeterministicRng(Ballistics.Hash((_armor.stableId < 0)? _armor.GetInstanceID() : _armor.stableId, 0, 0));
 
         for (int y = 0; y < h; y++)
         {

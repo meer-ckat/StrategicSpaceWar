@@ -321,11 +321,75 @@ public static class ShipExporter
             }
 
             Debug.Log($"[ShipExporter] 왕복 통과. {before.width}x{before.height} 격자가 칸 단위로 같다.");
+
+            VerifyStableIds(probe.transform, def);
         }
         finally
         {
             Object.DestroyImmediate(probe);
         }
+    }
+
+    /// <summary>
+    /// 심긴 물건의 stableId가 자기 배치 인덱스를 가리키는가.
+    ///
+    /// **격자 비교로는 절대 안 잡힌다.** 모듈은 칸에 도장을 안 찍으니 아예 안 보이고, 판은
+    /// ID가 통째로 밀려도 칸은 그대로다. 그래서 배는 멀쩡히 지어지고 방도 선체도 정상인데
+    /// 파편 방향과 잔해 속도만 조용히 달라진다 - 증상이 "튜닝이 어제랑 다른데?"라서
+    /// 원인에서 제일 먼 자리에서 나온다.
+    ///
+    /// 겹침도 같이 본다. 두 물건이 같은 ID를 쓰면 같은 틱에 같은 시드를 받아 파편이
+    /// 나란히 튄다. 결정론은 성립하는데 그림이 틀린, 제일 알아채기 어려운 종류다.
+    /// </summary>
+    private static void VerifyStableIds(Transform probe, ShipDef def)
+    {
+        // 오브젝트로 센다. 한 오브젝트에 Thing이 여럿이면(Ballistic Door) ID를 공유하는
+        // 것이 정상이라 ID로 세면 그게 겹침으로 보인다.
+        var seen = new Dictionary<int, GameObject>();
+        int bad = 0;
+
+        foreach (Thing thing in probe.GetComponentsInChildren<Thing>(true))
+        {
+            if (thing.stableId < 0 || thing.stableId >= def.placements.Count)
+            {
+                Debug.LogError(
+                    $"[ShipExporter] '{thing.defName}'의 stableId가 {thing.stableId}다. " +
+                    $"배치는 0..{def.placements.Count - 1}뿐이다.", thing);
+                bad++;
+                continue;
+            }
+
+            if (seen.TryGetValue(thing.stableId, out GameObject other) && other != thing.gameObject)
+            {
+                Debug.LogError(
+                    $"[ShipExporter] stableId {thing.stableId}을 '{other.name}'과 '{thing.name}'이 " +
+                    "같이 쓴다. 다른 물건인데 같은 시드를 받는다.", thing);
+                bad++;
+                continue;
+            }
+
+            seen[thing.stableId] = thing.gameObject;
+
+            // 인덱스가 밀렸는지는 이름으로만 알 수 있다. 칸을 비교하면 판끼리 밀린 것을
+            // 못 잡는다 - 같은 def의 판이 옆에 있으면 칸도 이름도 같기 때문이다.
+            string expected = def.placements[thing.stableId].def;
+
+            if (expected != thing.defName)
+            {
+                Debug.LogError(
+                    $"[ShipExporter] stableId {thing.stableId}은 '{expected}'인데 " +
+                    $"'{thing.defName}'에 붙어 있다. 배치 인덱스가 밀렸다.", thing);
+                bad++;
+            }
+        }
+
+        if (bad > 0)
+        {
+            Debug.LogError($"[ShipExporter] stableId {bad}개가 틀렸다. 이 배는 결정론 밖이다.");
+            return;
+        }
+
+        Debug.Log($"[ShipExporter] stableId {seen.Count}개가 배치 인덱스와 맞는다.");
     }
 
 #endif

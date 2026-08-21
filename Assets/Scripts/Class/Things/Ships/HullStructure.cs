@@ -780,12 +780,13 @@ public sealed class HullStructure : MonoBehaviour
 
         // 조각 중심이 본체 중심과 겹치는 퇴화 케이스. Unity 전역 RNG를 쓰면 여기 하나 때문에
         // 리플레이가 어긋나므로, 다른 곳과 같은 해시로 방향을 뽑는다.
+
         Vector2 push = arm.sqrMagnitude > 1e-6f
             ? arm.normalized
             : Ballistics.Rotate(
                 Vector2.up,
                 new DeterministicRng(
-                    Ballistics.Hash(GetInstanceID(), Core.TickManager.currentTick, chunk.Count))
+                    Ballistics.Hash(0, Core.TickManager.currentTick, chunk.Count))
                     .Range(0f, 360f));
 
         // 상한을 건다. spin은 `거리 × 각속도`라 반지름 120 m짜리 거울에서는 각속도가 조금만

@@ -111,13 +111,15 @@ public class CriticalModule : Thing, IDamageable
             // 쾅 소리는 사건이고 이건 그 사건의 무게다.
             SoundManager.AudioShot("Critical", transform.position);
 
+            Debug.Assert(stableId >= 0, $"[CriticalModule] '{defName}'에 stableId가 없다. def로 안 지어진 배다.", this);
+
             SpallResolver.Burst(
                 transform.position,
                 transform.up,
                 Ballistics.CollapseSpread,
                 blastDamage * Ballistics.BlastFragmentFraction,
                 Ballistics.SpallMaxCount,
-                Ballistics.Hash(GetInstanceID(), Core.TickManager.currentTick, 0),
+                Ballistics.Hash((stableId < 0)? GetInstanceID() : stableId, Core.TickManager.currentTick, 0),
                 ~0);
         }
         finally

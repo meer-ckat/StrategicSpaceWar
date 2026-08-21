@@ -3,6 +3,7 @@ using Core;
 
 public abstract class Thing : TickBehaviour
 {
+    public int stableId = -1;
     public string defName;
     public long spawnTick;
 

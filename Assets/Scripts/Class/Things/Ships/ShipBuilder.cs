@@ -354,8 +354,9 @@ public static class ShipBuilder
         var modules = new List<(Placement placement, Transform spawned)>();
         int missing = 0;
 
-        foreach (Placement p in def.placements)
+        for(int i = 0; i < def.placements.Count; i++)
         {
+            var p = def.placements[i];
             var cell = new Vector2Int(p.col - minCol, p.row - minRow);
 
             // 자리와 각도를 스폰에 같이 넘긴다. def로 지은 물건은 전부 붙이고 자리를 잡은
@@ -376,6 +377,13 @@ public static class ShipBuilder
             // **활성화가 끝난 뒤에 바른다.** ThingDef.Spawn이 오브젝트를 켜면서 Awake가
             // 돌고, Armor.Awake는 서브셀을 전부 만땅으로 초기화한다. 그 전에 넣으면 지워진다.
             Restore(spawned, p.hp);
+
+            // **한 오브젝트의 Thing 전부에 찍는다.** ThingDef.Spawn은 thingClass 하나만
+            // 돌려주는데 comps에도 Thing이 올 수 있다 - Ballistic Door가 BallisticArmor에
+            // Door를 얹은 것이 그렇다. 돌려받은 것에만 찍으면 나머지가 -1로 남는다.
+            // 같은 오브젝트끼리 ID를 공유하는 것은 겹침이 아니다. 물건이 하나니까 맞다.
+            foreach (Thing t in spawned.GetComponents<Thing>())
+                t.stableId = i;
 
             if (StampsGrid(spawned, out _))
                 plateAt[cell] = spawned.transform;

@@ -455,13 +455,15 @@ public abstract class Armor : Thing
         Vector2 world = transform.TransformPoint(
             Ballistics.SubCellCentre(subIndex, _cellSize) + _cellOffset);
 
+        Debug.Assert(stableId >= 0, $"[Armor line.458] '{defName}'에 stableId가 없다. def로 안 지어진 배다.", this);
+
         SpallResolver.Burst(
             world,
             transform.up,
             Ballistics.CollapseSpread,
             SubCellMaxHp * Ballistics.CollapseEnergyFraction,
             Ballistics.CollapseFragmentCount,
-            Ballistics.Hash(GetInstanceID(), TickManager.currentTick, subIndex),
+            Ballistics.Hash((stableId < 0)? GetInstanceID() : stableId, TickManager.currentTick, subIndex),
             debrisLayer);
     }
 
@@ -475,14 +477,14 @@ public abstract class Armor : Thing
 
         if (living <= 0)
             return;
-
+        Debug.Assert(stableId >= 0, $"[Armor line.480] '{defName}'에 stableId가 없다. def로 안 지어진 배다.", this);
         SpallResolver.Burst(
             transform.TransformPoint(_cellOffset),
             transform.up,
             Ballistics.CollapseSpread,
             living * SubCellMaxHp * Ballistics.CollapseEnergyFraction,
             Mathf.Clamp(living, 1, Ballistics.SpallMaxCount),
-            Ballistics.Hash(GetInstanceID(), TickManager.currentTick, SubCount),
+            Ballistics.Hash((stableId < 0)? GetInstanceID() : stableId, TickManager.currentTick, SubCount),
             debrisLayer);
     }
 }
