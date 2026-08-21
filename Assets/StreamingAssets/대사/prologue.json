@@ -1,8 +1,5 @@
 {
   "defName": "prologue",
-  "priority": 100,
-  "lockChannel": true,
-  "oncePerRun": true,
   "lines": [
     {
       "message": "링크 정상. <color=grey>아트리아 국경 관제망 접속.</color>",

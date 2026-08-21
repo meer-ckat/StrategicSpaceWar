@@ -1,7 +1,5 @@
 {
   "defName": "crew-lost-enemy",
-  "priority": 30,
-  "queueMode": "coalesce",
   "pickOne": true,
   "cooldown": 8,
   "lines": [

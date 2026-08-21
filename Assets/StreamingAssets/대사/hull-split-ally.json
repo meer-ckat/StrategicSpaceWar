@@ -1,6 +1,5 @@
 {
   "defName": "hull-split-ally",
-  "priority": 75,
   "pickOne": true,
   "cooldown": 8,
   "lines": [

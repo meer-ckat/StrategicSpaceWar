@@ -1,6 +1,5 @@
 {
   "defName": "detonated-ally",
-  "priority": 80,
   "pickOne": true,
   "cooldown": 5,
   "lines": [

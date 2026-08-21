@@ -1,6 +1,5 @@
 {
   "defName": "ship-finished-ally",
-  "priority": 70,
   "pickOne": true,
   "cooldown": 4,
   "lines": [

@@ -1,7 +1,5 @@
 {
   "defName": "hull-split-enemy",
-  "priority": 25,
-  "queueMode": "coalesce",
   "pickOne": true,
   "cooldown": 10,
   "lines": [

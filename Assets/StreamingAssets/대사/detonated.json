@@ -1,7 +1,5 @@
 {
   "defName": "detonated",
-  "priority": 20,
-  "queueMode": "coalesce",
   "pickOne": true,
   "cooldown": 8,
   "lines": [
