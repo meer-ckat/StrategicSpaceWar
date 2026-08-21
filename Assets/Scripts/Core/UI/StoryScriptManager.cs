@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -20,6 +19,12 @@ public class Dialogue
 
     public readonly string message;
     public readonly string author;
+
+    /// <summary>어느 런타임 요청에서 나온 줄인지. 0은 외부에서 Spawn으로 직접 띄운 줄.</summary>
+    public readonly int requestId;
+
+    /// <summary>radio/system/story 같은 논리 채널. 채널은 재생 순서를 통제하고, 화면 스택은 공유한다.</summary>
+    public readonly string channel;
 
     public float duration;
     public float alpha;
@@ -42,9 +47,7 @@ public class Dialogue
     public float height;
 
     /// <summary>
-    /// 글자가 실제로 차지하는 폭. 뒤에 까는 판이 이걸 쓴다 - 줄 폭(wordWrap 기준)을 그냥
-    /// 쓰면 "No I can't." 뒤에 900픽셀짜리 판이 깔린다. 그리기 rect는 여전히 줄 폭이다,
-    /// 그걸 줄이면 줄바꿈 위치가 바뀐다.
+    /// 글자가 실제로 차지하는 폭. 뒤에 까는 판이 이걸 쓴다.
     /// </summary>
     public float width;
 
@@ -52,11 +55,9 @@ public class Dialogue
     public int visibleCharacters;
     public int revealCharacters;
     public float revealAccumulator;
+    public float revealSpeed;
 
-    /// <summary>
-    /// 글자가 다 찍히는 데 걸리는 시간. **다음 줄이 언제 오는지를 이것이 정한다** -
-    /// duration으로 기다리면 앞줄이 사라진 뒤에야 다음이 와서 통신이 절대 안 겹친다.
-    /// </summary>
+    /// <summary>글자가 다 찍히는 데 걸리는 시간. director의 다음 줄 타이밍이 이 값을 쓴다.</summary>
     public float typingDuration;
 
     /// <summary>지금 그리고 있는 문자열과 그것이 몇 글자짜리였나. 안 바뀌었으면 안 만든다.</summary>
@@ -70,7 +71,10 @@ public class Dialogue
         float duration,
         Vector2 startPos,
         int visibleCharacters,
-        float intensity)
+        float intensity,
+        int requestId = 0,
+        string channel = "radio",
+        float revealSpeed = 0f)
     {
         this.id = id;
         this.message = message;
@@ -78,6 +82,9 @@ public class Dialogue
         this.duration = duration;
         this.visibleCharacters = visibleCharacters;
         this.intensity = intensity;
+        this.requestId = requestId;
+        this.channel = string.IsNullOrWhiteSpace(channel) ? "radio" : channel;
+        this.revealSpeed = revealSpeed;
 
         pos = startPos;
         targetPos = startPos;
@@ -91,48 +98,196 @@ public class Dialogue
     }
 }
 
-/// <summary>대본 한 줄. JsonUtility가 읽으므로 필드는 전부 public이고 이름이 곧 키다.</summary>
+/// <summary>
+/// 간단한 런타임 조건. JSON이므로 문자열 연산자로 둔다.
+/// 지원: exists, missing, eq, neq, contains, gt, gte, lt, lte.
+/// 값은 요청 인자 -> 전역 blackboard 순서로 찾는다.
+/// </summary>
+[Serializable]
+public class DialogueCondition
+{
+    public string key;
+    public string op;
+    public string value;
+}
+
+/// <summary>대본 한 줄. 기존 JSON과 하위 호환된다.</summary>
 [Serializable]
 public class DialogueLine
 {
+    /// <summary>직접 쓸 문장. messageKey가 있으면 localization 실패 시 fallback으로 쓴다.</summary>
     public string message;
+    public string messageKey;
+
     public string author;
+    public string authorKey;
 
     public float duration = 4f;
     public float intensity = 1f;
 
-    /// <summary>다음 줄까지 기다릴 초. 0이면 이 줄의 실제 duration만큼 기다린다.</summary>
+    /// <summary>다음 줄까지 기다릴 초. 0이면 실제 타이핑 시간 + manager.lineGap.</summary>
     public float wait;
+
+    /// <summary>0이면 manager.typeSpeed.</summary>
+    public float typingSpeed;
+
+    /// <summary>0이면 manager.minimumHoldTime.</summary>
+    public float minimumHold;
+
+    /// <summary>
+    /// 실제 오디오를 여기서 로드하지 않는다. ID만 이벤트로 내보낸다.
+    /// FMOD/Wwise/AudioSource 어느 쪽이든 바깥 bridge가 받는다.
+    /// </summary>
+    public string voice;
+
+    /// <summary>
+    /// 참이면 voice duration resolver가 아는 길이까지 다음 줄을 미룬다.
+    /// 실제 voice 재생은 여전히 외부 bridge 책임이다.
+    /// </summary>
+    public bool waitForVoice;
+
+    /// <summary>voice 끝난 뒤 다음 줄 전까지 추가 여백.</summary>
+    public float voiceTail = 0.08f;
+
+    /// <summary>줄이 시작되는 순간 발행하는 게임플레이/시네마틱 신호 ID.</summary>
+    public string signal;
+
+    /// <summary>조건이 하나라도 거짓이면 이 줄은 대기 없이 건너뛴다.</summary>
+    public DialogueCondition[] when;
 }
 
 /// <summary>
-/// 대본 하나 = <c>StreamingAssets/대사/&lt;이름&gt;.json</c> 파일 하나. def와 같은 규칙이다 -
-/// 서로를 이름으로만 알고, 없으면 조용히 아무 일도 안 일어난다.
+/// 대본 하나 = StreamingAssets/대사/&lt;이름&gt;.json.
+/// 기존 pickOne/cooldown/lines는 그대로 읽고, director 메타데이터만 선택적으로 얹는다.
 /// </summary>
 [Serializable]
 public class DialogueScript
 {
     public string defName;
 
-    /// <summary>
-    /// 참이면 `lines` 중 **하나만** 고른다. 대본이 아니라 변형 목록이라는 뜻이다.
-    ///
-    /// 이것 하나로 사건 대사가 살아난다 - 유폭이 스무 번 나는 전투에서 매번 같은 문장이면
-    /// 두 번째부터는 글자가 아니라 벽지다. 중첩 배열을 만들지 않아도 되는 이유는 사건
-    /// 대사가 원래 한 줄짜리이기 때문이다.
-    /// </summary>
-    public bool pickOne;
+    /// <summary>동시에 하나의 시퀀스만 실행되는 논리 채널. 비우면 radio.</summary>
+    public string channel;
+
+    /// <summary>높을수록 먼저 재생되고, 현재 대본보다 높으면 lockChannel이 아닌 한 선점한다.</summary>
+    public int priority;
 
     /// <summary>
-    /// 같은 대본이 이 초 안에 다시 안 나온다. 0이면 제한 없음.
-    ///
-    /// **사건 대사에는 반드시 있어야 한다.** 유폭·선체 절단은 한 틱에 여러 번 날 수 있고,
-    /// 그대로 두면 화면이 대사로 덮인다. maxLines가 넘치는 것만 막지 쏟아지는 것은 못 막는다.
+    /// enqueue(기본), drop, coalesce, replace.
+    /// replace도 현재 대본이 lockChannel이면 강제 종료하지 않고 큐 맨 앞에 선다.
     /// </summary>
+    public string queueMode;
+
+    /// <summary>참이면 더 높은 우선순위도 이 대본을 중간에 자를 수 없다.</summary>
+    public bool lockChannel;
+
+    /// <summary>선점당했을 때 이미 화면에 뜬 이 대본의 줄도 퇴장시킬지.</summary>
+    public bool dismissOnInterrupt;
+
+    /// <summary>
+    /// 큐에서 이 초보다 오래 기다린 요청은 폐기한다.
+    /// 0이면 manager.defaultQueueMaxAge, 음수면 무제한.
+    /// </summary>
+    public float maxQueueAge;
+
+    /// <summary>한 run 동안 최초 1회만 받아들인다. ResetRunState에서 초기화한다.</summary>
+    public bool oncePerRun;
+
+    /// <summary>참이면 lines 중 조건을 통과한 후보 하나만 고른다.</summary>
+    public bool pickOne;
+
+    /// <summary>같은 대본 재요청 쿨다운. 큐에 실제로 받아들여졌을 때만 소비한다.</summary>
     public float cooldown;
+
+    /// <summary>대본 자체의 진입 조건.</summary>
+    public DialogueCondition[] when;
 
     public DialogueLine[] lines;
 }
+
+/// <summary>UI backlog / 디버그 / 텔레메트리에 그대로 넘길 불변 기록.</summary>
+public sealed class DialogueHistoryEntry
+{
+    public readonly int requestId;
+    public readonly string script;
+    public readonly string channel;
+    public readonly string author;
+    public readonly string message;
+    public readonly string voice;
+    public readonly float time;
+
+    public DialogueHistoryEntry(
+        int requestId,
+        string script,
+        string channel,
+        string author,
+        string message,
+        string voice,
+        float time)
+    {
+        this.requestId = requestId;
+        this.script = script;
+        this.channel = channel;
+        this.author = author;
+        this.message = message;
+        this.voice = voice;
+        this.time = time;
+    }
+}
+
+/// <summary>
+/// 로컬라이제이션을 특정 패키지에 묶지 않기 위한 단 하나의 seam.
+/// 프로젝트 시작 때 Resolve만 지정하면 된다.
+/// </summary>
+public static class DialogueLocalization
+{
+    public static Func<string, string> Resolve;
+
+    public static string Get(string key, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            return fallback ?? string.Empty;
+
+        if (Resolve == null)
+            return fallback ?? key;
+
+        try
+        {
+            string value = Resolve(key);
+            return string.IsNullOrEmpty(value) ? (fallback ?? key) : value;
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[Story] localization '{key}' 실패: {e.Message}");
+            return fallback ?? key;
+        }
+    }
+}
+
+/// <summary>
+/// VO middleware가 clip 길이를 알고 있다면 이 delegate만 연결한다.
+/// null 또는 0 이하를 반환하면 자막 타이밍만 사용한다.
+/// </summary>
+public static class DialogueVoiceTiming
+{
+    public static Func<string, float> ResolveDuration;
+
+    public static float DurationOf(string voiceId)
+    {
+        if (string.IsNullOrWhiteSpace(voiceId) || ResolveDuration == null)
+            return 0f;
+
+        try
+        {
+            return Mathf.Max(0f, ResolveDuration(voiceId));
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[Story] voice duration '{voiceId}' 실패: {e.Message}");
+            return 0f;
+        }
+    }
+}
+
 
 public class StoryScriptManager : MonoBehaviour
 {
@@ -258,6 +413,71 @@ public class StoryScriptManager : MonoBehaviour
     /// <summary>변형 고르기의 소금. 같은 틱에 두 번 골라도 같은 문장이 안 나오게 한다.</summary>
     private int _pickSalt;
 
+
+    [Header("Director")]
+    [Tooltip("채널 하나에 대기시킬 최대 요청 수. 초과하면 우선순위가 가장 낮은 요청부터 희생된다.")]
+    public int maxQueuedRequests = 24;
+
+    [Tooltip("script.maxQueueAge가 0일 때 쓰는 기본 대기 수명. 음수면 무제한.")]
+    public float defaultQueueMaxAge = 8f;
+
+    [Tooltip("backlog에 남길 최대 줄 수.")]
+    public int historyLimit = 200;
+
+    [Header("Accessibility")]
+    public bool disableTypewriter;
+    public bool reduceMotion;
+
+    /// <summary>voice ID, channel, intensity. 실제 재생기는 구독만 하면 된다.</summary>
+    public event Action<string, string, float> onVoiceRequested;
+
+    /// <summary>signal ID, script name, request id.</summary>
+    public event Action<string, string, int> onSignal;
+
+    public event Action<string, int> onScriptStarted;
+    public event Action<string, int> onScriptEnded;
+    public event Action<DialogueHistoryEntry> onHistoryAdded;
+
+    private sealed class DialogueRequest
+    {
+        public int id;
+        public long serial;
+        public string scriptName;
+        public DialogueScript script;
+        public Dictionary<string, string> args;
+        public float createdAt;
+        public int priority;
+        public int lineIndex;
+        public int pickedLine = -1;
+    }
+
+    private sealed class ChannelState
+    {
+        public DialogueRequest active;
+        public float wait;
+        public readonly List<DialogueRequest> queue = new();
+    }
+
+    private int _nextRequestId = 1;
+    private long _requestSerial;
+    private int _directorEpoch;
+
+    private readonly Dictionary<string, ChannelState> _channels =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly HashSet<string> _playedOnce =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<string, string> _variables =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly List<DialogueHistoryEntry> _history = new();
+
+    // event callback이 Play()를 호출해 _channels를 늘려도 foreach가 깨지지 않게 매 프레임 snapshot한다.
+    private readonly List<ChannelState> _channelScratch = new();
+
+    public IReadOnlyList<DialogueHistoryEntry> History => _history;
+
     // =========================================================
     // 수명
     // =========================================================
@@ -322,7 +542,7 @@ public class StoryScriptManager : MonoBehaviour
     }
 
     // =========================================================
-    // 대본
+    // 대본 / director
     // =========================================================
 
     /// <summary>대본 폴더. def와 같은 자리에 산다.</summary>
@@ -330,8 +550,8 @@ public class StoryScriptManager : MonoBehaviour
         Path.Combine(Application.streamingAssetsPath, "대사");
 
     /// <summary>
-    /// 대본을 읽는다. **없으면 null이고 그것이 정상이다** - 아직 안 쓴 사건의 대사가 없다고
-    /// 게임이 멈추면 대본을 하나 늘릴 때마다 코드를 고쳐야 한다.
+    /// 대본을 읽는다. 없으면 null이고 정상이다.
+    /// 읽을 때 한 번만 구조 검증하고, 이후에는 cache를 탄다.
     /// </summary>
     public static DialogueScript LoadScript(string name)
     {
@@ -342,7 +562,6 @@ public class StoryScriptManager : MonoBehaviour
             return cached;
 
         string path = Path.Combine(ScriptFolder, name + ".json");
-
         DialogueScript script = null;
 
         if (File.Exists(path))
@@ -350,6 +569,12 @@ public class StoryScriptManager : MonoBehaviour
             try
             {
                 script = JsonUtility.FromJson<DialogueScript>(File.ReadAllText(path));
+
+                if (script != null)
+                {
+                    NormalizeScript(script);
+                    ValidateScript(name, script);
+                }
             }
             catch (Exception e)
             {
@@ -361,47 +586,816 @@ public class StoryScriptManager : MonoBehaviour
         return script;
     }
 
-    /// <summary>에디터에서 JSON을 고친 뒤. def의 Reload와 같은 자리다.</summary>
+    public static void Warmup(params string[] scriptNames)
+    {
+        if (scriptNames == null)
+            return;
+
+        for (int i = 0; i < scriptNames.Length; i++)
+            LoadScript(scriptNames[i]);
+    }
+
+    /// <summary>에디터에서 JSON을 고친 뒤.</summary>
     public static void ReloadScripts() => ScriptCache.Clear();
 
+    private static void NormalizeScript(DialogueScript script)
+    {
+        if (string.IsNullOrWhiteSpace(script.channel))
+            script.channel = "radio";
+
+        if (string.IsNullOrWhiteSpace(script.queueMode))
+            script.queueMode = "enqueue";
+    }
+
+    private static void ValidateScript(string fileName, DialogueScript script)
+    {
+        if (script.lines == null || script.lines.Length == 0)
+        {
+            Debug.LogWarning($"[Story] '{fileName}' lines가 비어 있다.");
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(script.defName) &&
+            !string.Equals(fileName, script.defName, StringComparison.Ordinal))
+        {
+            Debug.LogWarning(
+                $"[Story] 파일명 '{fileName}'과 defName '{script.defName}'이 다르다.");
+        }
+
+        string mode = script.queueMode.ToLowerInvariant();
+
+        if (mode != "enqueue" &&
+            mode != "drop" &&
+            mode != "coalesce" &&
+            mode != "replace")
+        {
+            Debug.LogWarning(
+                $"[Story] '{fileName}' queueMode '{script.queueMode}'는 알 수 없다. enqueue로 처리한다.");
+            script.queueMode = "enqueue";
+        }
+
+        for (int i = 0; i < script.lines.Length; i++)
+        {
+            DialogueLine line = script.lines[i];
+
+            if (line == null)
+                continue;
+
+            if (line.duration < 0f)
+                Debug.LogWarning($"[Story] '{fileName}' lines[{i}].duration < 0");
+
+            if (line.wait < 0f)
+                Debug.LogWarning($"[Story] '{fileName}' lines[{i}].wait < 0");
+        }
+    }
+
     /// <summary>
-    /// 대본을 띄운다. <paramref name="arg"/>는 각 줄의 <c>{0}</c>을 갈아끼운다 -
-    /// "{0} 격침 확인" 같은 사건 대사를 위해서다.
-    ///
-    /// **대본이 있었으면 true다.** 쿨다운에 걸려 실제로 아무것도 안 띄웠어도 true인 것이
-    /// 중요하다 - 부르는 쪽이 이걸로 폴백을 정하는데, 쿨다운을 "없음"으로 읽으면 막아둔
-    /// 대사가 공용 대본으로 새어 나온다.
+    /// 기존 API. {0} 치환도 그대로 지원한다.
+    /// 반환값은 예전과 동일하게 "대본 파일이 존재한다"의 뜻이다.
+    /// 조건/쿨다운/큐 정책 때문에 실제로 재생되지 않아도 true다.
     /// </summary>
     public bool Play(string scriptName, string arg = null)
+    {
+        Dictionary<string, string> args = null;
+
+        if (!string.IsNullOrEmpty(arg))
+        {
+            args = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["0"] = arg,
+            };
+        }
+
+        return PlayWithArgs(scriptName, args);
+    }
+
+    /// <summary>
+    /// named token을 쓰는 새 API. 예: {ship}, {sector}, {weapon}.
+    /// priorityOverride는 int.MinValue면 JSON 값을 그대로 쓴다.
+    /// 이름을 Play로 오버로드하지 않은 이유는 Play("x", null) 호출의 모호성을 만들지 않기 위해서다.
+    /// </summary>
+    public bool PlayWithArgs(
+        string scriptName,
+        IDictionary<string, string> args,
+        int priorityOverride = int.MinValue)
     {
         DialogueScript script = LoadScript(scriptName);
 
         if (script?.lines == null || script.lines.Length == 0)
             return false;
 
+        Dictionary<string, string> copied = CopyArgs(args);
+
+        if (!ConditionsPass(script.when, copied))
+            return true;
+
+        if (script.oncePerRun && _playedOnce.Contains(scriptName))
+            return true;
+
         if (!OffCooldown(scriptName, script))
             return true;
 
-        // 변형 목록이면 한 줄만. 코루틴을 안 타므로 기다림도 없다.
-        if (script.pickOne)
+        DialogueRequest request = new()
         {
-            DialogueLine one = script.lines[Pick(scriptName, script.lines.Length)];
+            id = _nextRequestId++,
+            serial = _requestSerial++,
+            scriptName = scriptName,
+            script = script,
+            args = copied,
+            createdAt = Time.unscaledTime,
+            priority = priorityOverride == int.MinValue
+                ? script.priority
+                : priorityOverride,
+        };
 
-            if (one != null && !string.IsNullOrEmpty(one.message))
-                Spawn(Substitute(one.message, arg), one.author, one.duration, one.intensity);
+        bool accepted = Schedule(request);
 
-            return true;
+        if (accepted)
+        {
+            if (script.cooldown > 0f)
+                _lastPlayed[scriptName] = Time.unscaledTime;
+
+            if (script.oncePerRun)
+                _playedOnce.Add(scriptName);
         }
 
-        StartCoroutine(Run(script, arg));
         return true;
     }
 
-    /// <summary>대본이 있으면 재생하고 있었는지 알려준다. 팀별 대본 -> 공용 대본 폴백에 쓴다.</summary>
-    private bool PlayIfExists(string scriptName, string arg) => Play(scriptName, arg);
+    private static Dictionary<string, string> CopyArgs(IDictionary<string, string> args)
+    {
+        if (args == null || args.Count == 0)
+            return null;
 
-    private static string Substitute(string message, string arg)
-        => string.IsNullOrEmpty(arg) ? message : message.Replace("{0}", arg);
+        var copy = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (KeyValuePair<string, string> pair in args)
+        {
+            if (string.IsNullOrWhiteSpace(pair.Key))
+                continue;
+
+            copy[pair.Key] = pair.Value ?? string.Empty;
+        }
+
+        return copy;
+    }
+
+    private static int PriorityOf(DialogueRequest request)
+        => request?.priority ?? 0;
+
+    private bool Schedule(DialogueRequest request)
+    {
+        string channel = request.script.channel;
+        ChannelState state = GetChannel(channel);
+        string mode = request.script.queueMode?.ToLowerInvariant() ?? "enqueue";
+
+        if (state.active == null)
+        {
+            BeginRequest(state, request);
+            return true;
+        }
+
+        if (mode == "drop")
+            return false;
+
+        if (mode == "coalesce" && ContainsScript(state, request.scriptName))
+            return false;
+
+        int incoming = PriorityOf(request);
+        int currentPriority = PriorityOf(state.active);
+
+        bool wantsReplace = mode == "replace";
+        bool higherPriority = incoming > currentPriority;
+
+        if ((wantsReplace || higherPriority) && !state.active.script.lockChannel)
+        {
+            InterruptActive(state);
+
+            // onScriptEnded callback이 같은 채널에 뭔가를 시작했을 수 있다.
+            if (state.active == null)
+            {
+                BeginRequest(state, request);
+                return true;
+            }
+
+            return Enqueue(state, request, wantsReplace);
+        }
+
+        // replace가 lockChannel에 막혔다면 일반 큐보다 먼저 기다린다.
+        return Enqueue(state, request, wantsReplace);
+    }
+
+    private ChannelState GetChannel(string channel)
+    {
+        if (string.IsNullOrWhiteSpace(channel))
+            channel = "radio";
+
+        if (!_channels.TryGetValue(channel, out ChannelState state))
+        {
+            state = new ChannelState();
+            _channels.Add(channel, state);
+        }
+
+        return state;
+    }
+
+    private static bool ContainsScript(ChannelState state, string scriptName)
+    {
+        if (state.active != null &&
+            string.Equals(
+                state.active.scriptName,
+                scriptName,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        for (int i = 0; i < state.queue.Count; i++)
+        {
+            if (string.Equals(
+                state.queue[i].scriptName,
+                scriptName,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool Enqueue(ChannelState state, DialogueRequest request, bool forceFront)
+    {
+        int insert = state.queue.Count;
+
+        if (forceFront)
+        {
+            insert = 0;
+        }
+        else
+        {
+            int priority = PriorityOf(request);
+
+            for (int i = 0; i < state.queue.Count; i++)
+            {
+                DialogueRequest queued = state.queue[i];
+                int queuedPriority = PriorityOf(queued);
+
+                if (priority > queuedPriority ||
+                    (priority == queuedPriority && request.serial < queued.serial))
+                {
+                    insert = i;
+                    break;
+                }
+            }
+        }
+
+        state.queue.Insert(insert, request);
+
+        if (maxQueuedRequests <= 0 || state.queue.Count <= maxQueuedRequests)
+            return true;
+
+        int worst = 0;
+
+        for (int i = 1; i < state.queue.Count; i++)
+        {
+            int a = PriorityOf(state.queue[i]);
+            int b = PriorityOf(state.queue[worst]);
+
+            if (a < b ||
+                (a == b && state.queue[i].serial > state.queue[worst].serial))
+            {
+                worst = i;
+            }
+        }
+
+        bool survived = !ReferenceEquals(state.queue[worst], request);
+        state.queue.RemoveAt(worst);
+        return survived;
+    }
+
+    private void BeginRequest(ChannelState state, DialogueRequest request)
+    {
+        request.lineIndex = 0;
+        request.pickedLine = -1;
+
+        if (request.script.pickOne)
+            request.pickedLine = PickEligibleLine(request);
+
+        state.active = request;
+        state.wait = 0f;
+
+        onScriptStarted?.Invoke(request.scriptName, request.id);
+    }
+
+    private void InterruptActive(ChannelState state)
+    {
+        DialogueRequest active = state.active;
+
+        if (active == null)
+            return;
+
+        if (active.script.dismissOnInterrupt)
+            DismissRequest(active.id);
+
+        // callback이 Play/Skip을 다시 불러도 "끝난 요청"을 active로 보지 않게 먼저 상태를 닫는다.
+        state.active = null;
+        state.wait = 0f;
+
+        onScriptEnded?.Invoke(active.scriptName, active.id);
+    }
+
+    private void FinishActive(ChannelState state)
+    {
+        DialogueRequest active = state.active;
+
+        if (active == null)
+        {
+            StartNextQueued(state);
+            return;
+        }
+
+        state.active = null;
+        state.wait = 0f;
+
+        onScriptEnded?.Invoke(active.scriptName, active.id);
+
+        // callback이 이미 새 요청을 시작했다면 그걸 덮어쓰지 않는다.
+        if (state.active == null)
+            StartNextQueued(state);
+    }
+
+    private void StartNextQueued(ChannelState state)
+    {
+        DropExpired(state);
+
+        if (state.queue.Count == 0)
+            return;
+
+        DialogueRequest next = state.queue[0];
+        state.queue.RemoveAt(0);
+        BeginRequest(state, next);
+    }
+
+    private void DropExpired(ChannelState state)
+    {
+        float now = Time.unscaledTime;
+
+        for (int i = state.queue.Count - 1; i >= 0; i--)
+        {
+            DialogueRequest request = state.queue[i];
+            float maxAge = request.script.maxQueueAge;
+
+            if (maxAge == 0f)
+                maxAge = defaultQueueMaxAge;
+
+            if (maxAge < 0f)
+                continue;
+
+            if (now - request.createdAt > maxAge)
+                state.queue.RemoveAt(i);
+        }
+    }
+
+    private int PickEligibleLine(DialogueRequest request)
+    {
+        int count = 0;
+
+        for (int i = 0; i < request.script.lines.Length; i++)
+        {
+            DialogueLine line = request.script.lines[i];
+
+            if (line != null &&
+                HasRenderableWork(line) &&
+                ConditionsPass(line.when, request.args))
+            {
+                count++;
+            }
+        }
+
+        if (count == 0)
+            return -1;
+
+        int pick = Pick(request.scriptName, count);
+
+        for (int i = 0; i < request.script.lines.Length; i++)
+        {
+            DialogueLine line = request.script.lines[i];
+
+            if (line == null ||
+                !HasRenderableWork(line) ||
+                !ConditionsPass(line.when, request.args))
+            {
+                continue;
+            }
+
+            if (pick-- == 0)
+                return i;
+        }
+
+        return -1;
+    }
+
+    private static bool HasRenderableWork(DialogueLine line)
+    {
+        return line != null &&
+               (!string.IsNullOrEmpty(line.message) ||
+                !string.IsNullOrEmpty(line.messageKey) ||
+                !string.IsNullOrEmpty(line.voice) ||
+                !string.IsNullOrEmpty(line.signal));
+    }
+
+    private void AdvanceDirector(float dt)
+    {
+        if (_channels.Count == 0)
+            return;
+
+        int epoch = _directorEpoch;
+
+        _channelScratch.Clear();
+
+        foreach (ChannelState state in _channels.Values)
+            _channelScratch.Add(state);
+
+        for (int channelIndex = 0; channelIndex < _channelScratch.Count; channelIndex++)
+        {
+            if (epoch != _directorEpoch)
+                return;
+
+            ChannelState state = _channelScratch[channelIndex];
+
+            // event callback에서 channel dictionary가 바뀌어도 snapshot 자체는 안전하다.
+            // 다만 Clear()로 소유권이 사라진 state는 건드리지 않는다.
+            bool stillOwned = false;
+
+            foreach (ChannelState owned in _channels.Values)
+            {
+                if (ReferenceEquals(owned, state))
+                {
+                    stillOwned = true;
+                    break;
+                }
+            }
+
+            if (!stillOwned)
+                continue;
+
+            DropExpired(state);
+
+            if (state.active == null)
+            {
+                StartNextQueued(state);
+
+                if (epoch != _directorEpoch)
+                    return;
+
+                if (state.active == null)
+                    continue;
+            }
+
+            state.wait -= dt;
+
+            int safety = 0;
+
+            while (state.active != null &&
+                   state.wait <= 0f &&
+                   safety++ < 32)
+            {
+                if (epoch != _directorEpoch)
+                    return;
+
+                DialogueRequest request = state.active;
+                float nextWait;
+
+                if (request.script.pickOne)
+                {
+                    if (request.lineIndex > 0 || request.pickedLine < 0)
+                    {
+                        FinishActive(state);
+                        continue;
+                    }
+
+                    request.lineIndex = 1;
+                    DialogueLine one = request.script.lines[request.pickedLine];
+                    nextWait = ExecuteLine(request, one);
+                }
+                else
+                {
+                    DialogueLine line = NextEligibleLine(request);
+
+                    if (line == null)
+                    {
+                        FinishActive(state);
+                        continue;
+                    }
+
+                    nextWait = ExecuteLine(request, line);
+                }
+
+                if (epoch != _directorEpoch)
+                    return;
+
+                // signal/voice/history callback이 이 요청을 선점하거나 skip했으면,
+                // 새 active에 이전 줄의 wait를 먹이지 않는다.
+                if (ReferenceEquals(state.active, request))
+                    state.wait += nextWait;
+            }
+
+            if (safety >= 32)
+            {
+                Debug.LogError(
+                    "[Story] director safety limit. wait=0인 빈 줄/신호가 과도하게 연쇄되는지 확인.");
+                state.wait = 0.01f;
+            }
+        }
+    }
+
+    private DialogueLine NextEligibleLine(DialogueRequest request)
+    {
+        while (request.lineIndex < request.script.lines.Length)
+        {
+            DialogueLine line = request.script.lines[request.lineIndex++];
+
+            if (line == null ||
+                !HasRenderableWork(line) ||
+                !ConditionsPass(line.when, request.args))
+            {
+                continue;
+            }
+
+            return line;
+        }
+
+        return null;
+    }
+
+    private float ExecuteLine(DialogueRequest request, DialogueLine source)
+    {
+        string message = DialogueLocalization.Get(source.messageKey, source.message);
+        string author = DialogueLocalization.Get(source.authorKey, source.author);
+
+        message = Substitute(message, request.args);
+        author = Substitute(author, request.args);
+
+        if (!string.IsNullOrWhiteSpace(source.signal))
+            onSignal?.Invoke(Substitute(source.signal, request.args), request.scriptName, request.id);
+
+        string voiceId = Substitute(source.voice, request.args);
+
+        if (!string.IsNullOrWhiteSpace(voiceId))
+        {
+            onVoiceRequested?.Invoke(
+                voiceId,
+                request.script.channel,
+                source.intensity);
+        }
+
+        Dialogue spawned = null;
+
+        if (!string.IsNullOrEmpty(message))
+        {
+            spawned = SpawnInternal(
+                message,
+                author,
+                source.duration,
+                source.intensity,
+                request.id,
+                request.script.channel,
+                source.typingSpeed,
+                source.minimumHold);
+
+            AddHistory(
+                request,
+                author,
+                message,
+                voiceId);
+        }
+
+        if (source.wait > 0f)
+            return Mathf.Max(0.01f, source.wait);
+
+        float subtitleWait = spawned != null
+            ? spawned.typingDuration + lineGap
+            : (source.duration > 0f ? source.duration : lineGap);
+
+        if (source.waitForVoice)
+        {
+            float voiceWait = DialogueVoiceTiming.DurationOf(voiceId) +
+                              Mathf.Max(0f, source.voiceTail);
+
+            subtitleWait = Mathf.Max(subtitleWait, voiceWait);
+        }
+
+        // 자막 없는 signal/voice line도 timeline에서 시간을 차지할 수 있다.
+        return Mathf.Max(0.01f, subtitleWait);
+    }
+
+    private void AddHistory(
+        DialogueRequest request,
+        string author,
+        string message,
+        string voice)
+    {
+        DialogueHistoryEntry entry = new(
+            request.id,
+            request.scriptName,
+            request.script.channel,
+            author,
+            message,
+            voice,
+            Time.unscaledTime);
+
+        _history.Add(entry);
+
+        if (historyLimit > 0 && _history.Count > historyLimit)
+            _history.RemoveRange(0, _history.Count - historyLimit);
+
+        onHistoryAdded?.Invoke(entry);
+    }
+
+    /// <summary>
+    /// 현재 채널의 미래 줄을 중단한다. dismissVisible이면 이미 나온 줄도 자연스럽게 퇴장한다.
+    /// </summary>
+    public void SkipChannel(string channel = "radio", bool dismissVisible = false)
+    {
+        if (!_channels.TryGetValue(channel, out ChannelState state))
+            return;
+
+        if (state.active != null)
+        {
+            int requestId = state.active.id;
+
+            if (dismissVisible)
+                DismissRequest(requestId);
+
+            FinishActive(state);
+        }
+    }
+
+    /// <summary>특정 request가 이미 띄운 줄만 자연스럽게 내보낸다.</summary>
+    public void DismissRequest(int requestId)
+    {
+        for (int i = 0; i < Texts.Count; i++)
+        {
+            Dialogue line = Texts[i];
+
+            if (line.requestId == requestId)
+                BeginLeave(line);
+        }
+    }
+
+    public void SetVariable(string key, string value)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            return;
+
+        _variables[key] = value ?? string.Empty;
+    }
+
+    public bool TryGetVariable(string key, out string value)
+        => _variables.TryGetValue(key, out value);
+
+    public void RemoveVariable(string key)
+    {
+        if (!string.IsNullOrWhiteSpace(key))
+            _variables.Remove(key);
+    }
+
+    private bool ConditionsPass(
+        DialogueCondition[] conditions,
+        Dictionary<string, string> args)
+    {
+        if (conditions == null || conditions.Length == 0)
+            return true;
+
+        for (int i = 0; i < conditions.Length; i++)
+        {
+            if (!ConditionPasses(conditions[i], args))
+                return false;
+        }
+
+        return true;
+    }
+
+    private bool ConditionPasses(
+        DialogueCondition condition,
+        Dictionary<string, string> args)
+    {
+        if (condition == null || string.IsNullOrWhiteSpace(condition.key))
+            return true;
+
+        bool found = TryResolveValue(condition.key, args, out string actual);
+        string op = string.IsNullOrWhiteSpace(condition.op)
+            ? "eq"
+            : condition.op.ToLowerInvariant();
+
+        if (op == "exists")
+            return found;
+
+        if (op == "missing")
+            return !found;
+
+        if (!found)
+            return false;
+
+        string expected = condition.value ?? string.Empty;
+
+        switch (op)
+        {
+            case "eq":
+                return string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
+
+            case "neq":
+                return !string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
+
+            case "contains":
+                return actual?.IndexOf(expected, StringComparison.OrdinalIgnoreCase) >= 0;
+
+            case "gt":
+            case "gte":
+            case "lt":
+            case "lte":
+                if (!float.TryParse(
+                        actual,
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out float a) ||
+                    !float.TryParse(
+                        expected,
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out float b))
+                {
+                    return false;
+                }
+
+                return op switch
+                {
+                    "gt" => a > b,
+                    "gte" => a >= b,
+                    "lt" => a < b,
+                    "lte" => a <= b,
+                    _ => false,
+                };
+
+            default:
+                Debug.LogWarning($"[Story] 알 수 없는 condition op '{condition.op}'");
+                return false;
+        }
+    }
+
+    private bool TryResolveValue(
+        string key,
+        Dictionary<string, string> args,
+        out string value)
+    {
+        if (args != null && args.TryGetValue(key, out value))
+            return true;
+
+        return _variables.TryGetValue(key, out value);
+    }
+
+    /// <summary>{0} 및 {name} 토큰. 존재하지 않는 토큰은 그대로 남긴다.</summary>
+    private string Substitute(string source, Dictionary<string, string> args)
+    {
+        if (string.IsNullOrEmpty(source))
+            return source ?? string.Empty;
+
+        if ((args == null || args.Count == 0) && _variables.Count == 0)
+            return source;
+
+        StringBuilder result = null;
+        int copyFrom = 0;
+
+        for (int i = 0; i < source.Length; i++)
+        {
+            if (source[i] != '{')
+                continue;
+
+            int end = source.IndexOf('}', i + 1);
+
+            if (end < 0)
+                break;
+
+            string key = source.Substring(i + 1, end - i - 1);
+
+            if (key.Length == 0 || !TryResolveValue(key, args, out string value))
+                continue;
+
+            result ??= new StringBuilder(source.Length + 16);
+            result.Append(source, copyFrom, i - copyFrom);
+            result.Append(value);
+
+            copyFrom = end + 1;
+            i = end;
+        }
+
+        if (result == null)
+            return source;
+
+        result.Append(source, copyFrom, source.Length - copyFrom);
+        return result.ToString();
+    }
 
     private bool OffCooldown(string scriptName, DialogueScript script)
     {
@@ -410,20 +1404,12 @@ public class StoryScriptManager : MonoBehaviour
 
         float now = Time.unscaledTime;
 
-        if (_lastPlayed.TryGetValue(scriptName, out float last) && now - last < script.cooldown)
-            return false;
-
-        _lastPlayed[scriptName] = now;
-        return true;
+        return !_lastPlayed.TryGetValue(scriptName, out float last) ||
+               now - last >= script.cooldown;
     }
 
     /// <summary>
-    /// 변형 중 하나를 고른다. <c>UnityEngine.Random</c>을 안 쓰는 것은 이 리포의 규칙이다.
-    /// 대사는 시뮬레이션이 아니라 재현성에 걸리진 않지만, 난수 출처가 둘이 되는 순간
-    /// "어디서 나온 값인가"를 매번 확인해야 한다.
-    ///
-    /// <c>_pickSalt</c>가 있어야 같은 틱에 두 번 골라도 다른 값이 나온다 - 유폭 연쇄가
-    /// 한 틱에 몰리면 tick만으로는 전부 같은 문장이 된다.
+    /// 변형 중 하나를 고른다. 프로젝트의 deterministic RNG를 그대로 사용한다.
     /// </summary>
     private int Pick(string key, int count)
     {
@@ -433,10 +1419,7 @@ public class StoryScriptManager : MonoBehaviour
         return (int)(rng.NextUInt() % (uint)count);
     }
 
-    /// <summary>
-    /// FNV-1a. <c>string.GetHashCode</c>는 실행마다 달라질 수 있어서 못 쓴다 - 그러면 같은
-    /// 세이브가 실행마다 다른 대사를 낸다.
-    /// </summary>
+    /// <summary>FNV-1a. string.GetHashCode의 실행별 salt를 피한다.</summary>
     private static int StableHash(string s)
     {
         unchecked
@@ -450,29 +1433,6 @@ public class StoryScriptManager : MonoBehaviour
             }
 
             return (int)h;
-        }
-    }
-
-    private IEnumerator Run(DialogueScript script, string arg)
-    {
-        for (int i = 0; i < script.lines.Length; i++)
-        {
-            DialogueLine line = script.lines[i];
-
-            if (line == null || string.IsNullOrEmpty(line.message))
-                continue;
-
-            Dialogue spawned = Spawn(
-                Substitute(line.message, arg), line.author, line.duration, line.intensity);
-
-            // **duration이 아니라 타이핑 시간을 기다린다.** duration은 이 줄이 화면에
-            // 머무는 시간이라, 그걸 기다리면 앞줄이 사라진 뒤에야 다음이 와서 통신이
-            // 절대 안 겹친다. 두 값을 갈라 놓아야 뒤에서 앞줄이 아직 살아 있는 채로
-            // 다음 줄이 올라온다 - 이미 있던 스택 연출(stackKick, depthAlpha)이 그제서야
-            // 할 일이 생긴다.
-            float wait = line.wait > 0f ? line.wait : spawned.typingDuration + lineGap;
-
-            yield return new WaitForSecondsRealtime(Mathf.Max(0.05f, wait));
         }
     }
 
@@ -501,11 +1461,30 @@ public class StoryScriptManager : MonoBehaviour
 
         string team = entry.team.ToString().ToLowerInvariant();
 
-        if (!PlayIfExists($"{key}-{team}", entry.what))
-            PlayIfExists(key, entry.what);
+        var args = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["0"] = entry.what ?? string.Empty,
+            ["what"] = entry.what ?? string.Empty,
+            ["team"] = team,
+            ["kind"] = key,
+        };
+
+        if (!PlayIfExists($"{key}-{team}", args))
+            PlayIfExists(key, args);
     }
 
-    private void OnBattleEnd(Battle battle) => Play(battle.Won ? "battle-won" : "battle-lost");
+    private void OnBattleEnd(Battle battle)
+    {
+        var args = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["result"] = battle.Won ? "won" : "lost",
+        };
+
+        PlayWithArgs(battle.Won ? "battle-won" : "battle-lost", args);
+    }
+
+    private bool PlayIfExists(string scriptName, IDictionary<string, string> args)
+        => PlayWithArgs(scriptName, args);
 
     // =========================================================
     // 프레임
@@ -515,6 +1494,7 @@ public class StoryScriptManager : MonoBehaviour
     {
         float dt = Time.unscaledDeltaTime;
 
+        AdvanceDirector(dt);
         Advance(dt);
 
         ImGui.Begin();
@@ -538,9 +1518,9 @@ public class StoryScriptManager : MonoBehaviour
             float enter01 = Mathf.Clamp01(line.age / Mathf.Max(enterPunchDuration, 0.0001f));
             float punch01 = Mathf.Sin(enter01 * Mathf.PI);
 
-            float punch = punch01 * enterPunch * line.intensity;
+            float punch = reduceMotion ? 0f : punch01 * enterPunch * line.intensity;
 
-            float shakeFade = 1f - enter01;
+            float shakeFade = reduceMotion ? 0f : 1f - enter01;
             float seed = i * 31.74f + 17f;
 
             float noiseX =
@@ -630,8 +1610,9 @@ public class StoryScriptManager : MonoBehaviour
                 Mathf.SmoothStep(0f, 1f, authorReveal01);
 
             // 중심 기준 스케일이라 자리를 안 옮기고 크기만 튄다.
-            authorLabel.RenderScale =
-                Vector2.one * (1f + punch01 * authorPunchScale * line.intensity);
+            authorLabel.RenderScale = reduceMotion
+                ? Vector2.one
+                : Vector2.one * (1f + punch01 * authorPunchScale * line.intensity);
         }
     }
 
@@ -700,18 +1681,53 @@ public class StoryScriptManager : MonoBehaviour
         float duration = 4f,
         float intensity = 1f)
     {
+        return SpawnInternal(
+            message,
+            author,
+            duration,
+            intensity,
+            0,
+            "radio",
+            0f,
+            0f);
+    }
+
+    private Dialogue SpawnInternal(
+        string message,
+        string author,
+        float duration,
+        float intensity,
+        int requestId,
+        string channel,
+        float typingSpeedOverride,
+        float minimumHoldOverride)
+    {
         int visible = CountVisibleCharacters(message);
 
-        float typing = visible / Mathf.Max(typeSpeed, 1f);
-        duration = Mathf.Max(duration, typing + minimumHoldTime);
+        float revealSpeed = typingSpeedOverride > 0f
+            ? typingSpeedOverride
+            : typeSpeed;
 
-        // 기존 줄들 살짝 얻어맞기
-        for (int i = 0; i < Texts.Count; i++)
+        float typing = disableTypewriter
+            ? 0f
+            : visible / Mathf.Max(revealSpeed, 1f);
+
+        float hold = minimumHoldOverride > 0f
+            ? minimumHoldOverride
+            : minimumHoldTime;
+
+        duration = Mathf.Max(duration, typing + hold);
+
+        if (!reduceMotion)
         {
-            if (Texts[i].leaving)
-                continue;
+            // 기존 줄들 살짝 얻어맞기
+            for (int i = 0; i < Texts.Count; i++)
+            {
+                if (Texts[i].leaving)
+                    continue;
 
-            Texts[i].pos += new Vector2(-stackKick * 0.35f, -stackKick);
+                Texts[i].pos += new Vector2(-stackKick * 0.35f, -stackKick);
+            }
         }
 
         Dialogue line = new(
@@ -721,20 +1737,26 @@ public class StoryScriptManager : MonoBehaviour
             duration,
             origin,
             visible,
-            intensity
+            intensity,
+            requestId,
+            channel,
+            revealSpeed
         );
 
         line.typingDuration = typing;
+
+        if (disableTypewriter)
+            line.revealCharacters = visible;
 
         Texts.Add(line);
         TrimToMaxLines();
         RecalculatePos();
 
-        line.pos = line.targetPos + new Vector2(-spawnOffset * 0.35f, spawnOffset);
+        line.pos = reduceMotion
+            ? line.targetPos
+            : line.targetPos + new Vector2(-spawnOffset * 0.35f, spawnOffset);
 
-        // 화면 흔들림은 GUIManager가 GUI.matrix를 한 번 미는 것이라 **이 캔버스 전체가**
-        // 같이 흔들린다. 줄 하나를 흔드는 위의 Perlin과 다른 층이고, 그래서 둘을 같이 쓴다.
-        if (intensity >= screenShakeThreshold)
+        if (!reduceMotion && intensity >= screenShakeThreshold)
             GUIManager.Shake(screenShakeStrength * intensity, screenShakeDuration);
 
         return line;
@@ -748,14 +1770,22 @@ public class StoryScriptManager : MonoBehaviour
 
             line.age += dt;
 
-            line.pos = Vector2.SmoothDamp(
-                line.pos,
-                line.targetPos,
-                ref line.velocity,
-                moveSmoothTime,
-                Mathf.Infinity,
-                dt
-            );
+            if (reduceMotion)
+            {
+                line.pos = line.targetPos;
+                line.velocity = Vector2.zero;
+            }
+            else
+            {
+                line.pos = Vector2.SmoothDamp(
+                    line.pos,
+                    line.targetPos,
+                    ref line.velocity,
+                    moveSmoothTime,
+                    Mathf.Infinity,
+                    dt
+                );
+            }
 
             if (!line.leaving)
             {
@@ -763,7 +1793,7 @@ public class StoryScriptManager : MonoBehaviour
 
                 if (line.revealCharacters < line.visibleCharacters)
                 {
-                    line.revealAccumulator += typeSpeed * dt;
+                    line.revealAccumulator += Mathf.Max(line.revealSpeed, 1f) * dt;
                     int reveal = Mathf.FloorToInt(line.revealAccumulator);
 
                     if (reveal > 0)
@@ -796,11 +1826,7 @@ public class StoryScriptManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 넘치는 줄을 내보낸다. **새 것부터 세고 오래된 것을 버린다** - 겹치기가 켜지면
-    /// duration이 길고 사이가 짧은 대본 하나로 줄이 화면 밖까지 쌓인다.
-    ///
-    /// 지우지 않고 <see cref="BeginLeave"/>를 부르는 것이 중요하다. 그냥 빼면 줄이 뚝
-    /// 사라져서 "밀려났다"가 아니라 "버그"로 읽힌다.
+    /// 넘치는 줄을 내보낸다. 새 것부터 세고 오래된 것을 버린다.
     /// </summary>
     private void TrimToMaxLines()
     {
@@ -828,15 +1854,17 @@ public class StoryScriptManager : MonoBehaviour
 
         line.leaving = true;
 
+        if (reduceMotion)
+        {
+            line.velocity = Vector2.zero;
+            return;
+        }
+
         line.targetPos += new Vector2(-leaveOffset * 0.7f, -leaveOffset);
         line.velocity += new Vector2(-25f, -20f) * line.intensity;
     }
 
-    /// <summary>
-    /// 줄을 다시 쌓는다. **높이가 줄마다 다르다** - 고정 간격으로 쌓으면 두 줄짜리 대사가
-    /// 다음 대사와 겹친다. 아직 못 잰 줄은 최소 높이로 세고, OnGUI가 재고 나면 여기가
-    /// 다시 돌아 자리가 잡힌다.
-    /// </summary>
+    /// <summary>실제 측정된 높이로 스택을 다시 쌓는다.</summary>
     private void RecalculatePos()
     {
         float y = 0f;
@@ -854,14 +1882,28 @@ public class StoryScriptManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 현재 전투의 화면/큐/쿨다운만 비운다.
+    /// oncePerRun, blackboard, backlog는 유지한다.
+    /// </summary>
     public void Clear()
     {
-        StopAllCoroutines();
-        Texts.Clear();
+        _directorEpoch++;
 
-        // 쿨다운도 같이 간다. 새 전투인데 지난 전투의 유폭 때문에 첫 유폭이 조용하면
-        // 원인이 화면에 안 보인다.
+        Texts.Clear();
+        _channels.Clear();
+        _channelScratch.Clear();
         _lastPlayed.Clear();
+        _patternAlpha = 0f;
+    }
+
+    /// <summary>새 run 시작 시 호출. 런 단위 조건까지 완전히 초기화한다.</summary>
+    public void ResetRunState()
+    {
+        Clear();
+        _playedOnce.Clear();
+        _variables.Clear();
+        _history.Clear();
     }
 
     // =========================================================
@@ -891,7 +1933,7 @@ public class StoryScriptManager : MonoBehaviour
         float width = Screen.width;
         float height = Screen.height;
 
-        float t = Time.unscaledTime * patternSpeed;
+        float t = reduceMotion ? 0f : Time.unscaledTime * patternSpeed;
         float slide = -(t % 1000f);
 
         int rowCount = Mathf.CeilToInt(height / patternRowHeight) + 4;

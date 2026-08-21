@@ -1,5 +1,7 @@
 {
   "defName": "detonated-enemy",
+  "priority": 25,
+  "queueMode": "coalesce",
   "pickOne": true,
   "cooldown": 6,
   "lines": [

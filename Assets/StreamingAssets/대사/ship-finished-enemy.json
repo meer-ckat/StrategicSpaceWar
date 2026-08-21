@@ -1,5 +1,6 @@
 {
   "defName": "ship-finished-enemy",
+  "priority": 40,
   "pickOne": true,
   "cooldown": 4,
   "lines": [

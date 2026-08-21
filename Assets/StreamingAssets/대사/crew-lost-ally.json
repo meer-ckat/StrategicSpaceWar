@@ -1,5 +1,6 @@
 {
   "defName": "crew-lost-ally",
+  "priority": 85,
   "pickOne": true,
   "cooldown": 6,
   "lines": [

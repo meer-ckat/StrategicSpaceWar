@@ -1,5 +1,7 @@
 {
   "defName": "ship-finished-neutral",
+  "priority": 20,
+  "queueMode": "drop",
   "pickOne": true,
   "cooldown": 6,
   "lines": [
