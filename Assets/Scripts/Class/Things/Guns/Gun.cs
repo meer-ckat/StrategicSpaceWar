@@ -264,6 +264,35 @@ public class Gun : Thing, IDamageable
 
         shell.Launch(direction, muzzleSpeed);
 
+        // 탄이 가져간 만큼 배가 뒤로 간다. **회전을 만드는 코드가 없는 것이 요점이다** -
+        // AddForceAtPosition이 무게중심에서 벗어난 힘을 알아서 토크로 바꾼다. 뱃머리
+        // 포탑이 배를 돌리는 것도, 무게중심에 놓은 포탑이 안 돌리는 것도 분기문이 없다.
+        //
+        // 미는 자리가 포구인지 포탑 중심인지는 결과가 같다. 둘 다 같은 힘의 작용선 위에
+        // 있고, 작용선을 따라 점을 옮겨도 r x F는 안 변한다. 포구가 더 정직해서 포구다.
+        //
+        // 그리고 미는 자리는 **병진에 아무 영향이 없다.** 무게중심에 놓든 30 m 밖에
+        // 놓든 배는 같은 속도로 밀린다 - 보존되는 것이 에너지가 아니라 운동량이라서다.
+        // 자리가 정하는 것은 그 운동량이 안에서 어떻게 배분되느냐(= 회전이 붙느냐)뿐이다.
+        // 회전 에너지가 공짜로 생긴 것처럼 보이는데, 배가 가져가는 몫이 화약 에너지의
+        // 0.1%라 그 차이가 노이즈에 묻힌다.
+        //
+        // 매번 부모를 훑는 것은 캐시를 안 한 것이 아니라 못 하는 것이다. 포탑은 판이
+        // 떨어져 나가면 잔해로 재부모화되므로, Awake에 잡아 둔 Rigidbody2D는 그 뒤로
+        // 남의 배를 민다. 없으면 그냥 안 민다 - 사격장 거치대가 그렇다.
+        //
+        // angularDamping이 0이라 이 회전은 저절로 안 멎는다. 현측 사격이 배를 계속
+        // 돌리고 조타 RCS가 그걸 붙잡는다. 그것도 여기 코드가 아니다.
+        Rigidbody2D body = GetComponentInParent<Rigidbody2D>();
+
+        if (body != null)
+        {
+            body.AddForceAtPosition(
+                -direction * (shell.mass * muzzleSpeed * Ballistics.RecoilScale),
+                muzzle,
+                ForceMode2D.Impulse);
+        }
+
         SoundManager.AudioShot("Cannon", muzzle);
     }
 }

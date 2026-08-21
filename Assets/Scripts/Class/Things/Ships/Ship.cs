@@ -649,7 +649,24 @@ public partial class Ship : Thing
         float rate = rig.angularVelocity;
 
         rate += angleInput * angleAccel * dt;
-        rate *= 1 - (angleInput == 0f ? angleBrake : angleDrag) * dt;
+
+        // **제동도 RCS가 하는 일이라 같은 토크 상한을 받는다.** 예전에는 비율로만 깎아서
+        // (rate *= 1 - brake*dt) RCS에 무한한 토크가 있었다 - 2 도/초든 300 도/초든 똑같이
+        // 0.3초면 멎었고, 그래서 충각으로 배를 팽이처럼 돌려도 아무 일도 없었던 것처럼
+        // 즉시 자세가 잡혔다. 반동을 넣어도 태어나자마자 지워지는 것도 같은 이유다.
+        //
+        // 조종감은 한 톨도 안 바뀐다. 입력 중 종단 각속도가 angleAccel / angleDrag이고,
+        // **바로 그 지점에서 깎는 양이 정확히 angleAccel * dt가 된다** - 클램프 경계와
+        // 종단이 같은 값이라 종단 아래에서는 클램프가 아예 안 걸린다. 걸리는 것은 종단을
+        // 넘는 회전(충각, 반동, 유폭)뿐이다.
+        //
+        // 이 클램프가 손잡이 둘을 갈라 놓는다. 큰 회전에서 되잡는 시간은 angleAccel 혼자
+        // 정하고(300 도/초 / 20 도/초² = 15초), angleBrake는 경계 아래에서 마무리를 얼마나
+        // 야무지게 하느냐만 정한다. 예전에는 둘이 같은 것을 두 번 말하고 있었다.
+        float damp = rate * (angleInput == 0f ? angleBrake : angleDrag) * dt;
+        float limit = angleAccel * dt;
+
+        rate -= Mathf.Clamp(damp, -limit, limit);
 
         rig.angularVelocity = rate;
     }

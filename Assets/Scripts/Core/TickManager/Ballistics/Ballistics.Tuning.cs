@@ -53,6 +53,17 @@ public static partial class Ballistics
     /// </summary>
     public const float DamageScale = 1e-4f;
 
+    /// <summary>
+    /// 반동 배수. **1이 실제 운동량이다** - 탄 질량 x 포구속도가 그대로 배를 민다.
+    ///
+    /// 등급 차이가 여기서 저절로 나온다. 구축함(100 t) 기준 한 발당 pd20이 0.005°/s,
+    /// rail이 2.96°/s로 **595배**다. 근접방어는 안 보이고 주포는 느껴지고 레일건은
+    /// 한 발마다 배를 걷어찬다 - 포마다 반동 값을 손으로 적었으면 이 비율이 안 나온다.
+    ///
+    /// 0으로 두면 기능이 통째로 사라진다. 실험이 개축이 아니라는 뜻이다.
+    /// </summary>
+    public const float RecoilScale = 1f;
+
     // --- 파편 ---
     public const float SpallEnergyFraction = 0.35f;
     public const float SpallEnergyPerFragment = 20f;
