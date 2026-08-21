@@ -28,6 +28,17 @@ public static class RunLog
 
         /// <summary>승무원이 전멸했다. 되돌릴 수 없고, 배는 그 순간부터 표류물이다.</summary>
         CrewLost,
+
+        /// <summary>
+        /// 역할 하나가 끊겼다. <c>what</c>은 함선 이름이 아니라 <see cref="Ship.ShipRole"/>
+        /// 이름이다 - 이 사건만 그렇다.
+        ///
+        /// 함선 이름을 버리는 것이 손해처럼 보이는데, 이 사건을 읽는 쪽이 대사이고 대사는
+        /// **한 승무원의 무전**이라 "누구의 기관사인가"에 답이 이미 있다. <c>team</c>이
+        /// 아군/적군을 가르므로 그 이상은 안 쓴다. 배 이름까지 넣으려면 Entry에 필드가
+        /// 하나 늘고, 그건 나머지 네 사건 전부가 빈칸으로 들고 다녀야 하는 값이다.
+        /// </summary>
+        RoleLost,
     }
 
     public readonly struct Entry
@@ -112,6 +123,21 @@ public static class RunLog
         Ship ship = module.GetComponentInParent<Ship>();
 
         Add(Kind.Detonated, module.name, ship != null ? ship.team : Ship.Team.Neutral);
+    }
+
+    /// <summary>
+    /// 역할 하나가 끊긴 순간. 기관실이 진공이 되면 기관사는 영영 말이 없다.
+    ///
+    /// <see cref="Finished"/>와 같은 이유로 부르는 자리가 하나여야 한다 - 조건이
+    /// 파생값(살아 있는 모듈 + 기압)이라 매 틱 읽으면 같은 상실을 60번 적는다.
+    /// 다른 점은 되돌아오지 않는다는 것이다: <c>IsCombatEffective</c>는 원자로를 고치면
+    /// 다시 참이 되지만 역할은 <see cref="Ship.CrewAlive"/>처럼 한 방향이다. 그래서
+    /// 부르는 쪽의 걸쇠가 "지난 틱 값"이 아니라 "이미 잃었나"여야 한다.
+    /// </summary>
+    public static void RoleLost(Ship ship, Ship.ShipRole role)
+    {
+        if (ship != null)
+            Add(Kind.RoleLost, role.ToString(), ship.team);
     }
 
     private static string NameOf(Ship ship)

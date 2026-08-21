@@ -97,8 +97,26 @@ public partial class Ship : Thing
 
     /// <summary>수리는 사람이 한다. 전기가 나가도 손으로 때운다.</summary>
     public bool isEngineerReady => CrewAlive;
+    public bool HasLiveEngine => AnyModuleInLivingRoom(this, shipEngines); 
+    public bool HasLiveGun => AnyModuleInLivingRoom(this, shipGuns);
+    private bool _engineerLost, _gunnerLost;
 
     
+    /// <summary>
+    /// 승무원의 자리. **개별 승무원이 아니다** - 이 배에 그 일을 할 사람이 아직 있느냐다.
+    ///
+    /// 여기에 대사 화자 이름("기관")을 안 적는 것이 요점이다. Ship은 대본을 모른다.
+    /// enum -> 화자 이름 대응은 대사 쪽에 한 번만 둔다.
+    /// </summary>
+    public enum ShipRole
+    {
+        /// <summary>기관. 살아 있는 조건은 <see cref="HasLiveEngine"/>.</summary>
+        Engineer,
+
+        /// <summary>전술. 살아 있는 조건은 <see cref="HasLiveGun"/>.</summary>
+        Gunner,
+    }
+
     public enum Team
     {
         Neutral,
@@ -234,6 +252,14 @@ public partial class Ship : Thing
         // 여기서 한 번만 적어 둔다.
         _needsPower = false;
 
+        // **설계에 그 역할이 있었는가.** 위와 같은 질문이고 답이 갈리는 자리도 같다.
+        // 걸쇠를 처음부터 올려두면 WatchForRoles가 아예 안 본다 - 무장이 없는 dart도,
+        // 엔진도 포탑도 없는 asteroid/derelict/mirror도 첫 틱에 "상실"을 기록하지 않는다.
+        // 잃은 적이 없는 것을 잃었다고 적으면 로그가 사건 넷으로 시작하고, 거기에
+        // 붙는 것들(tension, UI)이 전부 그 거짓말 위에 선다.
+        _engineerLost = shipEngines.Count == 0;
+        _gunnerLost = shipGuns.Count == 0;
+
         for (int i = 0; i < shipCriticals.Count; i++)
         {
             if (shipCriticals[i] != null && shipCriticals[i].providesPower)
@@ -281,6 +307,21 @@ public partial class Ship : Thing
         Atmosphere();
         Crew();
         WatchForCritical();
+        WatchForRoles();
+    }
+
+    void WatchForRoles()
+    {
+        if(!_engineerLost && !HasLiveEngine)
+        {
+            _engineerLost = true;
+            RunLog.RoleLost(this, ShipRole.Engineer);
+        }
+        if(!_gunnerLost && !HasLiveGun)
+        {
+            _gunnerLost = true;
+            RunLog.RoleLost(this, ShipRole.Gunner);
+        }
     }
 
     /// <summary>
@@ -524,6 +565,48 @@ public partial class Ship : Thing
     /// </summary>
     public static bool StillAboard(Component part, Ship ship)
         => part != null && ship != null && part.GetComponentInParent<Ship>() == ship;
+
+    public static bool AnyModuleInLivingRoom(Ship ship, IEnumerable<Component> comps)
+    {
+        if(ship == null) return false;
+        if(ship.rooms.Count <= 0) return true;
+
+        foreach(Component comp in comps)
+        {
+            if(ModuleInLivingRoom(comp, ship, ship.rooms))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static bool ModuleInLivingRoom(Component part, Ship ship, List<Room> rooms)
+    {
+        if(StillAboard(part, ship))
+        {
+            if(rooms.Count <= 0)
+                return true;
+
+            //먼저 벽에 붙어있는지 검사
+            var armor = (part.transform.parent != null)? part.transform.parent.GetComponent<Armor>() : null;
+            if(armor == null) return false;
+                
+            //해당 cell이 기압 있는 room에 있는지 검사
+            foreach(Room room in rooms)
+            {
+                if(room.Pressure < Ballistics.CrewMinPressure)
+                    continue;
+
+                if(room.walls.Contains(armor))
+                {
+                    return true;
+                }
+            
+            }
+        }
+        return false;
+    }
 
     /// <summary>
     /// 추력은 함체 방향과 무관하게 월드 축으로 작용한다. 자세는 Angle()이 따로 제어한다.
