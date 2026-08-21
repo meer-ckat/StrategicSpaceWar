@@ -22,9 +22,35 @@ public sealed class ShipPainter : EditorWindow
     [System.Serializable]
     private class NameOnly { public string defName; }
 
+    /// <summary>
+    /// 한 칸에 놓인 것. **def 이름만으로는 부족하다** - 배치는 회전과 콜라이더 덮어쓰기도
+    /// 들고 있고, 그것을 안 들면 불러왔다 저장하는 순간 사라진다.
+    ///
+    /// 실제로 사라지던 양이 적지 않다: mirror 776장, lance 56장, destroyer 30장이 size를
+    /// 지정하고 있고 offset도 그만큼이다. 증상이 "배는 멀쩡히 지어지는데 모양만 이상하다"라
+    /// 아무 검사에도 안 걸린다.
+    ///
+    /// size가 0이면 def 값을 쓴다는 규약은 <see cref="Placement.size"/>와 같다.
+    /// </summary>
+    private readonly struct Placed
+    {
+        public readonly string def;
+        public readonly float rot;
+        public readonly Vector2 size;     // 0이면 def 값
+        public readonly Vector2 offset;   // 칸 좌표계. ThingDef.Spawn이 -rot으로 돌려 넣는다
+
+        public Placed(string def, float rot = 0f, Vector2 size = default, Vector2 offset = default)
+        {
+            this.def = def;
+            this.rot = rot;
+            this.size = size;
+            this.offset = offset;
+        }
+    }
+
     /// <summary>모듈은 격자를 안 차지하므로 판과 따로 든다. 한 칸에 하나씩.</summary>
-    private readonly Dictionary<Vector2Int, string> _plates = new();
-    private readonly Dictionary<Vector2Int, string> _modules = new();
+    private readonly Dictionary<Vector2Int, Placed> _plates = new();
+    private readonly Dictionary<Vector2Int, Placed> _modules = new();
 
     private readonly List<string> _plateDefs = new();
     private readonly List<string> _moduleDefs = new();
@@ -175,20 +201,20 @@ public sealed class ShipPainter : EditorWindow
 
         HashSet<Vector2Int> exterior = Exterior();
 
-        foreach (KeyValuePair<Vector2Int, string> pair in _plates)
-            DrawCell(pair.Key, PlateColour(pair.Value), local);
+        foreach (KeyValuePair<Vector2Int, Placed> pair in _plates)
+            DrawCell(pair.Key, PlateColour(pair.Value.def), local);
 
         // 실내는 판 위에 안 겹치므로 뒤에 그려도 된다. 판이 없는 칸만 칠한다.
         foreach (Vector2Int cell in Interior(exterior))
             DrawCell(cell, new Color(0.16f, 0.34f, 0.5f, 0.55f), local);
 
-        foreach (KeyValuePair<Vector2Int, string> pair in _modules)
+        foreach (KeyValuePair<Vector2Int, Placed> pair in _modules)
         {
             Rect r = CellRect(pair.Key);
             r = new Rect(r.x + r.width * 0.22f, r.y + r.height * 0.22f, r.width * 0.56f, r.height * 0.56f);
 
             if (r.Overlaps(local))
-                EditorGUI.DrawRect(r, ModuleColour(pair.Value));
+                EditorGUI.DrawRect(r, ModuleColour(pair.Value.def));
         }
 
         GUI.EndClip();
@@ -255,11 +281,11 @@ public sealed class ShipPainter : EditorWindow
         }
         else if (_brushIsModule)
         {
-            _modules[cell] = _brush;
+            _modules[cell] = new Placed(_brush);
         }
         else
         {
-            _plates[cell] = _brush;
+            _plates[cell] = new Placed(_brush);
         }
 
         e.Use();
@@ -411,13 +437,13 @@ public sealed class ShipPainter : EditorWindow
         int orphan = 0;
         bool reactor = false, engine = false;
 
-        foreach (KeyValuePair<Vector2Int, string> pair in _modules)
+        foreach (KeyValuePair<Vector2Int, Placed> pair in _modules)
         {
             if (!MountFor(pair.Key, out _))
                 orphan++;
 
-            if (pair.Value == "Reactor") reactor = true;
-            if (pair.Value == "SuperDuper Engine") engine = true;
+            if (pair.Value.def == "Reactor") reactor = true;
+            if (pair.Value.def == "SuperDuper Engine") engine = true;
         }
 
         Bounds(out Vector2Int min, out Vector2Int max);
@@ -467,10 +493,14 @@ public sealed class ShipPainter : EditorWindow
             ThingDef thing = DefDatabase.Get(p.def);
             var cell = new Vector2Int(p.col, p.row);
 
+            // **배치가 들고 있던 것을 전부 물려받는다.** def 이름만 집으면 여기서 잃고
+            // 저장할 때 0으로 덮어쓴다 - 그 사이에 아무 경고도 안 난다.
+            var placed = new Placed(p.def, p.rot, p.size, p.offset);
+
             if (thing?.MainType != null && typeof(Armor).IsAssignableFrom(thing.MainType))
-                _plates[cell] = p.def;
+                _plates[cell] = placed;
             else
-                _modules[cell] = p.def;
+                _modules[cell] = placed;
         }
 
         _status = Validate();
@@ -495,12 +525,12 @@ public sealed class ShipPainter : EditorWindow
 
         bool first = true;
 
-        foreach (KeyValuePair<Vector2Int, string> pair in _plates)
+        foreach (KeyValuePair<Vector2Int, Placed> pair in _plates)
             Append(body, ref first, pair.Value, pair.Key, new Vector2Int(-1, -1));
 
         int orphan = 0;
 
-        foreach (KeyValuePair<Vector2Int, string> pair in _modules)
+        foreach (KeyValuePair<Vector2Int, Placed> pair in _modules)
         {
             if (!MountFor(pair.Key, out Vector2Int mount))
             {
@@ -533,21 +563,44 @@ public sealed class ShipPainter : EditorWindow
                 + (orphan > 0 ? $"  (붙을 판이 없어 뺀 모듈 {orphan}개)" : "");
     }
 
+    /// <summary>
+    /// 배치 한 줄. **size와 offset은 0이면 아예 안 쓴다.**
+    ///
+    /// 미관이 아니라 읽힘 때문이다. 판 241장이 전부 자기 크기를 적고 있으면 진짜로 특별한
+    /// 자리가 어디인지 안 보이고, 기존 파일과 diff가 통째로 나서 무엇이 실제로 바뀌었는지
+    /// 검토할 수가 없다. ShipExporter.CaptureCollider가 같은 규칙을 쓴다.
+    ///
+    /// rot은 0이어도 쓴다. 기존 파일이 전부 그 형식이라 여기만 빼면 diff가 난다.
+    /// </summary>
     private static void Append(
-        System.Text.StringBuilder sb, ref bool first, string def, Vector2Int cell, Vector2Int mount)
+        System.Text.StringBuilder sb, ref bool first, Placed placed, Vector2Int cell, Vector2Int mount)
     {
         if (!first)
             sb.Append(",\n");
 
         first = false;
 
-        sb.Append("    { \"def\": \"").Append(def)
+        sb.Append("    { \"def\": \"").Append(placed.def)
           .Append("\", \"col\": ").Append(cell.x)
           .Append(", \"row\": ").Append(cell.y)
-          .Append(", \"rot\": 0.0, \"mountCol\": ").Append(mount.x)
+          .Append(", \"rot\": ").Append(Num(placed.rot));
+
+        if (placed.size != Vector2.zero)
+            sb.Append(", \"size\": ").Append(Json(placed.size));
+
+        if (placed.offset != Vector2.zero)
+            sb.Append(", \"offset\": ").Append(Json(placed.offset));
+
+        sb.Append(", \"mountCol\": ").Append(mount.x)
           .Append(", \"mountRow\": ").Append(mount.y)
           .Append(" }");
     }
+
+    /// <summary>문화권 소수점(1,5)이 섞이면 JSON이 통째로 깨진다. 이 창은 로케일을 안 탄다.</summary>
+    private static string Num(float v)
+        => v.ToString("0.0###", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string Json(Vector2 v) => $"{{ \"x\": {Num(v.x)}, \"y\": {Num(v.y)} }}";
 
     // =========================================================
     // 스킨 템플릿
