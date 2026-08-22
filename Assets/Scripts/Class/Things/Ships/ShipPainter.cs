@@ -58,6 +58,50 @@ public sealed class ShipPainter : EditorWindow
     private string _brush = "Armor mk5";
     private bool _brushIsModule;
 
+    /// <summary>
+    /// 브러시의 각도와 크기. **배 좌표계다** - 화면에 보이는 기울기와 부호가 반대일 수
+    /// 있다(<see cref="DrawPlate"/>). 기준점은 CLAUDE.md에 있다: 오른쪽으로 갈수록
+    /// 올라가는 선이 rot 음수다.
+    ///
+    /// 크기 0은 "def 값을 쓴다"이고 그게 기본이다. 여기를 1로 초기화하면 판 전부가
+    /// 자기 크기를 JSON에 적게 돼서, 진짜로 특별한 자리가 어디인지 안 보인다.
+    /// </summary>
+    private float _brushRot;
+    private Vector2 _brushSize;
+
+    /// <summary>
+    /// 지금 손보고 있는 판. 없으면 (숫자 필드도 키 입력도) 브러시를 건드린다.
+    ///
+    /// 칠하면 그 칸이 선택된다. 찍고 바로 각도를 다듬는 것이 실제 작업 순서라서다.
+    /// </summary>
+    private Vector2Int? _selected;
+
+    /// <summary>화면에서 한 번에 미는 거리(m)와 도는 각도. 값은 m·도지 픽셀이 아니다.</summary>
+    private const float NudgeStep = 0.05f;
+    private const float TurnStep = 7.5f;
+
+    /// <summary>
+    /// 브러시가 들고 다니는 offset. **마지막으로 만진 판에서 따라온다** - 뱃머리를
+    /// 두를 때 옆 칸이 같은 자리에 서야 이음매가 안 벌어진다.
+    /// </summary>
+    private Vector2 _brushOffset;
+
+    /// <summary>판을 채우지 않고 칸 경계선만 본다. 경사판이 칸을 가려서 어디가 어딘지 안 보일 때.</summary>
+    private bool _gridOnly;
+
+    /// <summary>
+    /// 실행취소. **판과 모듈 사전을 통째로 복사해 쌓는다.**
+    ///
+    /// EditorWindow의 평범한 필드는 Unity의 Undo가 못 본다(ScriptableObject가 아니다).
+    /// 조작마다 되돌리는 코드를 따로 쓰면 새 조작을 넣을 때마다 짝을 하나씩 잊는다 -
+    /// 통째로 찍어 두면 그 실수가 존재할 자리가 없다. 배 한 척이 판 수백 장이라
+    /// 복사가 아깝지 않다: 사람이 키를 누르는 속도로만 일어난다.
+    /// </summary>
+    private readonly List<(Dictionary<Vector2Int, Placed> plates, Dictionary<Vector2Int, Placed> modules)> _undo = new();
+    private readonly List<(Dictionary<Vector2Int, Placed> plates, Dictionary<Vector2Int, Placed> modules)> _redo = new();
+
+    private const int MaxUndo = 64;
+
     private string _shipName = "newship";
     private Vector2 _pan = new(40f, 40f);
     private float _zoom = 18f;
@@ -138,15 +182,25 @@ public sealed class ShipPainter : EditorWindow
 
             if (GUILayout.Button("비우기", EditorStyles.toolbarButton, GUILayout.Width(60f)))
             {
+                Push();
                 _plates.Clear();
                 _modules.Clear();
+                _selected = null;
                 _status = "";
             }
 
+            _gridOnly = GUILayout.Toggle(_gridOnly, "격자만", EditorStyles.toolbarButton, GUILayout.Width(60f));
+
             GUILayout.Space(12f);
-            GUILayout.Label($"판 {_plates.Count}  모듈 {_modules.Count}", EditorStyles.miniLabel);
+            GUILayout.Label(
+                $"판 {_plates.Count}  모듈 {_modules.Count}"
+                + (Mathf.Approximately(_brushRot, 0f) ? "" : $"   브러시 {_brushRot:0.#}도"),
+                EditorStyles.miniLabel);
             GUILayout.FlexibleSpace();
-            GUILayout.Label("좌클릭 칠하기 / 우클릭 지우기 / 가운데 끌기 이동 / 휠 확대", EditorStyles.miniLabel);
+            GUILayout.Label(
+                "좌클릭 칠하기 / 우클릭 지우기 / Alt+클릭 스포이드 / 가운데 끌기 이동 / 휠 확대"
+                + "   |   방향키 offset / Shift+방향키 크기 / Alt+좌우([ ]) 회전 / Ctrl+Z 되돌리기",
+                EditorStyles.miniLabel);
         }
     }
 
@@ -180,6 +234,71 @@ public sealed class ShipPainter : EditorWindow
 
         GUILayout.Space(10f);
 
+        bool editing = _selected != null && _plates.ContainsKey(_selected.Value);
+
+        GUILayout.Label(
+            editing ? $"선택한 판 {_selected.Value.x},{_selected.Value.y}" : "브러시",
+            EditorStyles.boldLabel);
+
+        float rot = _brushRot;
+        Vector2 size = _brushSize;
+        Vector2 offset = Vector2.zero;
+        Placed sel = default;
+
+        if (editing)
+        {
+            sel = _plates[_selected.Value];
+            rot = sel.rot;
+            size = sel.size;
+            offset = sel.offset;
+        }
+
+        // 같은 필드가 선택 여부에 따라 다른 것을 편집한다. 필드를 두 벌 두면 어느 쪽이
+        // 지금 유효한지가 화면에 안 나오고, 브러시를 고친 줄 알았는데 판이 바뀐다.
+        rot = EditorGUILayout.FloatField("각도", rot);
+        size = EditorGUILayout.Vector2Field("크기 (0=def)", size);
+
+        using (new EditorGUI.DisabledScope(!editing))
+            offset = EditorGUILayout.Vector2Field("offset", offset);
+
+        if (editing)
+        {
+            if (rot != sel.rot || size != sel.size || offset != sel.offset)
+            {
+                Push();
+
+                // **여기서는 눈금에 안 맞춘다.** Tidy는 키로 0.05씩 쌓을 때의 누적
+                // 오차를 막는 것이고, 직접 친 값은 애초에 안 쌓인다. 여기에 걸면
+                // 필드를 드래그해도 7.5도를 다 넘기기 전까지 같은 값으로 되돌아와서
+                // "각도가 안 먹는다"가 된다.
+                var next = new Placed(sel.def, rot, size, offset);
+                _plates[_selected.Value] = next;
+
+                _brushRot = next.rot;
+                _brushSize = next.size;
+                _brushOffset = next.offset;
+            }
+        }
+        else
+        {
+            _brushRot = rot;
+            _brushSize = size;
+        }
+
+        using (new GUILayout.HorizontalScope())
+        {
+            // 손으로 제일 많이 쓰는 값들. 자동 추론은 안 한다 - 두 칸 찍으면 사선을
+            // 이어주는 기능은 배 한 척을 다 그려보고 뭐가 반복되는지 본 다음에 만든다.
+            if (GUILayout.Button("0", EditorStyles.miniButtonLeft)) _brushRot = 0f;
+            if (GUILayout.Button("+45", EditorStyles.miniButtonMid)) _brushRot = 45f;
+            if (GUILayout.Button("-45", EditorStyles.miniButtonMid)) _brushRot = -45f;
+
+            if (GUILayout.Button("기본크기", EditorStyles.miniButtonRight))
+                _brushSize = Vector2.zero;
+        }
+
+        GUILayout.Space(10f);
+
         if (GUILayout.Button("검사"))
             _status = Validate();
 
@@ -198,11 +317,30 @@ public sealed class ShipPainter : EditorWindow
         EditorGUI.DrawRect(local, new Color(0.11f, 0.12f, 0.14f));
 
         HandleInput(local);
+        HandleKeys();
 
         HashSet<Vector2Int> exterior = Exterior();
 
-        foreach (KeyValuePair<Vector2Int, Placed> pair in _plates)
-            DrawPlate(pair.Key, pair.Value, local);
+        if (!_gridOnly)
+        {
+            foreach (KeyValuePair<Vector2Int, Placed> pair in _plates)
+                DrawPlate(pair.Key, pair.Value, local);
+        }
+        else
+        {
+            // **격자만 모드는 위상을 보는 자리다.** 콜라이더는 안 그린다 - 각도도 크기도
+            // offset도 방 구획에 아무 영향이 없고(격자는 판의 위치 하나만 읽는다),
+            // 그것들을 같이 그리면 "어느 칸이 막혔나"가 안 보인다. 여기서 답해야 하는
+            // 질문은 하나뿐이다: 방이 생기려면 어느 칸에 판을 더 놓아야 하나.
+            foreach (Vector2Int cell in _plates.Keys)
+                DrawCell(cell, PlateColour(_plates[cell].def), local);
+        }
+
+        // **채우기 뒤에 그린다.** 앞에 그리면 방 오버레이가 선을 덮어서 격자가 안 보인다.
+        if (_gridOnly)
+            DrawGrid(local);
+
+        DrawSelection(local);
 
         // 실내는 판 위에 안 겹치므로 뒤에 그려도 된다. 판이 없는 칸만 칠한다.
         foreach (Vector2Int cell in Interior(exterior))
@@ -294,6 +432,67 @@ public sealed class ShipPainter : EditorWindow
         GUI.matrix = saved;
     }
 
+    /// <summary>
+    /// 1 m 칸 경계선.
+    ///
+    /// **이 모드가 답하는 질문은 "방이 생기려면 어느 칸에 판을 더 놓아야 하나"다.**
+    /// 경사판을 기울이고 offset으로 밀기 시작하면 그림과 칸이 눈에 띄게 어긋나는데,
+    /// 격자가 읽는 것은 여전히 판의 **위치 하나뿐**이라 그 어긋남이 정상이다. 그래서
+    /// 밀폐를 볼 때는 콜라이더를 아예 안 그리는 편이 낫다 - 기울어진 그림이 칸 경계를
+    /// 가리면 뚫린 칸이 막혀 보인다.
+    ///
+    /// 확대가 너무 작으면 선이 화면을 덮으므로 그때는 안 그린다.
+    /// </summary>
+    private void DrawGrid(Rect clip)
+    {
+        if (_zoom < 8f)
+            return;
+
+        var line = new Color(1f, 1f, 1f, 0.35f);
+
+        // **C#의 %는 음수를 그대로 돌려준다.** _pan이 왼쪽으로 넘어가는 순간 첫 선이
+        // 화면 밖으로 나가고 격자가 한 칸 어긋난다. 칸 경계는 _pan + k*_zoom이므로
+        // 나머지를 양수로 접어야 그 자리에 선다.
+        float x0 = (_pan.x % _zoom + _zoom) % _zoom;
+        float y0 = (_pan.y % _zoom + _zoom) % _zoom;
+
+        for (float x = x0; x < clip.width; x += _zoom)
+            EditorGUI.DrawRect(new Rect(x, 0f, 1f, clip.height), line);
+
+        for (float y = y0; y < clip.height; y += _zoom)
+            EditorGUI.DrawRect(new Rect(0f, y, clip.width, 1f), line);
+    }
+
+    /// <summary>
+    /// 선택한 칸에 테두리. 한도를 넘었으면 빨갛다.
+    ///
+    /// **저장을 막지는 않는다.** 드래그하듯 값을 밀다 보면 잠깐 넘었다가 돌아오는 것이
+    /// 정상이고, 그때마다 막으면 손이 묶인다. 최종 판정은 검사 버튼과 저장 직후의
+    /// 왕복 검증이 한다.
+    ///
+    /// 초과 판정은 선택한 것 하나만 본다. 매 프레임 판 776장(mirror)에 삼각함수를
+    /// 돌릴 이유가 없다 - 지금 손대는 판만 실시간이면 된다.
+    /// </summary>
+    private void DrawSelection(Rect clip)
+    {
+        if (_selected == null || !_plates.ContainsKey(_selected.Value))
+            return;
+
+        Rect r = CellRect(_selected.Value);
+
+        if (!r.Overlaps(clip))
+            return;
+
+        bool over = IsOverhanging(_plates[_selected.Value]);
+        Color c = over ? new Color(1f, 0.3f, 0.25f) : new Color(1f, 0.85f, 0.2f);
+
+        const float t = 2f;
+        EditorGUI.DrawRect(new Rect(r.x, r.y, r.width, t), c);
+        EditorGUI.DrawRect(new Rect(r.x, r.yMax - t, r.width, t), c);
+        EditorGUI.DrawRect(new Rect(r.x, r.y, t, r.height), c);
+        EditorGUI.DrawRect(new Rect(r.xMax - t, r.y, t, r.height), c);
+    }
+
     private Rect CellRect(Vector2Int cell) =>
         new(_pan.x + cell.x * _zoom, _pan.y + cell.y * _zoom, _zoom, _zoom);
 
@@ -338,19 +537,221 @@ public sealed class ShipPainter : EditorWindow
 
         Vector2Int cell = CellAt(point);
 
+        // Alt+클릭은 스포이드다. 안 칠하고, 그 판의 값을 브러시로 빨아들이고 선택한다.
+        // destroyer처럼 판마다 offset이 다른 배는 "옆 판과 비슷하게"가 작업의 대부분이라,
+        // 이 한 가지가 숫자 다시 치는 일을 거의 다 없앤다.
+        if (paint && e.alt)
+        {
+            if (_plates.TryGetValue(cell, out Placed picked))
+            {
+                _brush = picked.def;
+                _brushIsModule = false;
+                _brushRot = picked.rot;
+                _brushSize = picked.size;
+                _brushOffset = picked.offset;
+                _selected = cell;
+                GUI.FocusControl(null);
+            }
+
+            e.Use();
+            Repaint();
+            return;
+        }
+
+        // 드래그 한 번이 조작 하나다. 매 MouseDrag마다 쌓으면 Ctrl+Z 한 번이 칸 하나만
+        // 되돌리고, 붓질 한 번을 물리려면 스무 번을 눌러야 한다.
+        if (e.type == EventType.MouseDown)
+            Push();
+
         if (erase)
         {
             _modules.Remove(cell);
             _plates.Remove(cell);
+
+            if (_selected == cell)
+                _selected = null;
         }
         else if (_brushIsModule)
         {
-            _modules[cell] = new Placed(_brush);
+            _modules[cell] = Tidy(new Placed(_brush, _brushRot, _brushSize, _brushOffset));
         }
         else
         {
-            _plates[cell] = new Placed(_brush);
+            _plates[cell] = Tidy(new Placed(_brush, _brushRot, _brushSize, _brushOffset));
+            _selected = cell;
+
+            // 숫자 필드가 포커스를 쥐고 있으면 화살표키를 그쪽이 먹는다.
+            GUI.FocusControl(null);
         }
+
+        e.Use();
+        Repaint();
+    }
+
+    /// <summary>
+    /// **화면에서 본 것을 저장할 값으로 바꾸는 자리는 여기 하나여야 한다.**
+    ///
+    /// 창의 격자와 화면은 y가 아래로 가고, 배치의 rot·offset은 배 좌표계(y가 위로)다.
+    /// 둘은 x축 대칭이라 각도의 부호와 offset의 y가 같이 뒤집힌다. 조작마다 이 변환을
+    /// 따로 쓰면 그중 하나만 안 뒤집히고, 증상은 "위로 밀었는데 게임에서 아래로 간다"에
+    /// 그친다 - 배는 멀쩡히 지어지고 방도 정상이라 아무 검사도 안 걸린다.
+    ///
+    /// 크기는 여기 안 온다. size는 판의 **로컬 축** 값이라 화면이 어느 쪽이든 상관없다.
+    /// </summary>
+    private static Vector2 ScreenNudgeToShip(Vector2 screen) => new(screen.x, -screen.y);
+
+    private static float ScreenTurnToShip(float screenClockwise) => -screenClockwise;
+
+    /// <summary>
+    /// 눈금에 맞춘다. **0.05를 스무 번 더하면 1이 아니라 0.99999994다** - float의
+    /// 누적 오차라 화면에는 1로 보이고 JSON에는 0.9999999가 적힌다. 다음에 열었을 때
+    /// 그 값이 다시 눈금 밖이라 조금씩 어긋나기 시작한다.
+    ///
+    /// 매번 반올림하면 오차가 쌓일 자리가 없다. 값이 이미 눈금 위면 아무 일도 안 한다.
+    /// </summary>
+    private static float Snap(float v, float step) => Mathf.Round(v / step) * step;
+
+    private static Vector2 Snap(Vector2 v, float step) => new(Snap(v.x, step), Snap(v.y, step));
+
+    private static Placed Tidy(Placed p) => new(
+        p.def,
+        Snap(p.rot, TurnStep),
+        p.size == Vector2.zero ? Vector2.zero : Snap(p.size, NudgeStep),
+        Snap(p.offset, NudgeStep));
+
+    /// <summary>지금 상태를 실행취소 더미에 올린다. **바꾸기 전에** 부른다.</summary>
+    private void Push()
+    {
+        _undo.Add((new Dictionary<Vector2Int, Placed>(_plates), new Dictionary<Vector2Int, Placed>(_modules)));
+
+        if (_undo.Count > MaxUndo)
+            _undo.RemoveAt(0);
+
+        // 새 조작이 들어오면 앞으로 갈 길은 사라진다. 안 지우면 되돌린 뒤 다른 것을
+        // 하고 나서 Ctrl+Y를 눌렀을 때 없던 역사가 되살아난다.
+        _redo.Clear();
+    }
+
+    private void Step(List<(Dictionary<Vector2Int, Placed> plates, Dictionary<Vector2Int, Placed> modules)> from,
+                     List<(Dictionary<Vector2Int, Placed> plates, Dictionary<Vector2Int, Placed> modules)> to)
+    {
+        if (from.Count == 0)
+            return;
+
+        to.Add((new Dictionary<Vector2Int, Placed>(_plates), new Dictionary<Vector2Int, Placed>(_modules)));
+
+        var snap = from[from.Count - 1];
+        from.RemoveAt(from.Count - 1);
+
+        _plates.Clear();
+        foreach (KeyValuePair<Vector2Int, Placed> pair in snap.plates)
+            _plates[pair.Key] = pair.Value;
+
+        _modules.Clear();
+        foreach (KeyValuePair<Vector2Int, Placed> pair in snap.modules)
+            _modules[pair.Key] = pair.Value;
+
+        if (_selected != null && !_plates.ContainsKey(_selected.Value))
+            _selected = null;
+
+        Repaint();
+    }
+
+    /// <summary>
+    /// 선택한 판을 키로 다듬는다. 핸들 드래그를 안 만든 이유가 여기 있다 - 값이 0.05 m와
+    /// 7.5도로 양자화돼 있어서 마우스의 미세 조작이 아무 이득을 안 준다. 회전한 사각형의
+    /// 귀퉁이를 화면 방향으로 끌면 로컬 폭과 높이가 **둘 다** 변하는데, 거기에 스냅이
+    /// 걸리면 핸들이 커서를 안 따라온다. 구현을 잘 해도 안 없어지는 종류의 조작감이다.
+    /// </summary>
+    private void HandleKeys()
+    {
+        Event e = Event.current;
+
+        if (e.type != EventType.KeyDown)
+            return;
+
+        // Ctrl+Z / Ctrl+Y. 선택이 없어도 돌아가야 하므로 아래 검사보다 위에 둔다.
+        if (e.control || e.command)
+        {
+            if (e.keyCode == KeyCode.Z) { Step(_undo, _redo); e.Use(); return; }
+            if (e.keyCode == KeyCode.Y) { Step(_redo, _undo); e.Use(); return; }
+
+            return;
+        }
+
+        if (_selected == null)
+            return;
+
+        if (!_plates.TryGetValue(_selected.Value, out Placed p))
+            return;
+
+        bool size = e.shift;
+        Vector2 screen = Vector2.zero;
+        float turn = 0f;
+
+        // **화면 델타다.** Unity의 Vector2.up은 (0,1)인데 화면에서 y는 아래로 가므로
+        // 위로 미는 것은 (0,-1)이다. Vector2.up을 그대로 쓰면 여기서 한 번,
+        // ScreenNudgeToShip에서 또 한 번 뒤집혀 위아래가 서로 바뀐다.
+        //
+        // Alt+좌우가 회전인 것은 한글 입력 상태 때문이다. IME가 켜져 있으면 Unity가
+        // 대괄호 키의 keyCode를 None으로 주고 문자만 넘긴다 - 방향키는 IME를 안 타서
+        // 언제나 온다. 대괄호도 올 때는 받는다.
+        switch (e.keyCode)
+        {
+            case KeyCode.LeftArrow:
+                if (e.alt) turn = -TurnStep; else screen = new Vector2(-1f, 0f);
+                break;
+            case KeyCode.RightArrow:
+                if (e.alt) turn = TurnStep; else screen = new Vector2(1f, 0f);
+                break;
+            case KeyCode.UpArrow:    screen = new Vector2(0f, -1f); break;
+            case KeyCode.DownArrow:  screen = new Vector2(0f, 1f);  break;
+            case KeyCode.LeftBracket:  turn = -TurnStep; break;
+            case KeyCode.RightBracket: turn = TurnStep;  break;
+
+            default:
+                if (e.character == '[') turn = -TurnStep;
+                else if (e.character == ']') turn = TurnStep;
+                else return;
+                break;
+        }
+
+        Push();
+
+        if (size)
+        {
+            // size 0은 "def 값을 쓴다"라, 0에서 더하면 def 크기를 잃는다. 처음 만질 때
+            // def 값을 꺼내 와서 거기서 시작한다.
+            ThingDef def = DefDatabase.Get(p.def);
+            Vector2 now = p.size != Vector2.zero
+                ? p.size
+                : (def != null ? def.collider.size : Vector2.one);
+
+            // 크기에는 방향이 없다. 화면에서 위/오른쪽이 늘리는 쪽이고, 화면 위는
+            // screen.y가 음수라 부호를 뒤집어 읽는다.
+            now = new Vector2(
+                Mathf.Max(NudgeStep, now.x + screen.x * NudgeStep),
+                Mathf.Max(NudgeStep, now.y - screen.y * NudgeStep));
+
+            p = new Placed(p.def, p.rot, now, p.offset);
+        }
+        else if (turn != 0f)
+        {
+            p = new Placed(p.def, p.rot + ScreenTurnToShip(turn), p.size, p.offset);
+        }
+        else
+        {
+            p = new Placed(p.def, p.rot, p.size, p.offset + ScreenNudgeToShip(screen) * NudgeStep);
+        }
+
+        p = Tidy(p);
+        _plates[_selected.Value] = p;
+
+        // 브러시도 따라간다. 같은 각도·같은 자리로 옆 칸을 이어 찍는 것이 실제 작업
+        // 순서고, offset이 안 따라오면 이음매가 판마다 벌어진다.
+        _brushRot = p.rot;
+        _brushSize = p.size;
+        _brushOffset = p.offset;
 
         e.Use();
         Repaint();
@@ -553,40 +954,50 @@ public sealed class ShipPainter : EditorWindow
 
         foreach (KeyValuePair<Vector2Int, Placed> pair in _plates)
         {
-            ThingDef def = DefDatabase.Get(pair.Value.def);
-
-            if (def == null)
-                continue;
-
-            Vector2 size = pair.Value.size != Vector2.zero ? pair.Value.size : def.collider.size;
-
-            if (size.x <= 0f || size.y <= 0f)
-                continue;
-
-            float r = pair.Value.rot * Mathf.Deg2Rad;
-            float c = Mathf.Abs(Mathf.Cos(r));
-            float sn = Mathf.Abs(Mathf.Sin(r));
-
-            // 회전한 사각형의 AABB. size 그대로 재면 45도 1x1 판의 반폭을 0.5로 보는데
-            // 실제로는 0.707이라, 한도를 넘은 판을 통과시킨다.
-            var half = new Vector2(
-                (size.x * c + size.y * sn) * 0.5f,
-                (size.x * sn + size.y * c) * 0.5f);
-
-            // 칸 중심에서 콜라이더 중심까지. ThingDef.Spawn이 box.offset에
-            // (def.offset + Rotate(placement.offset, -rot))을 넣으므로, 그것을 다시
-            // +rot으로 돌리면 def 몫만 회전하고 배치 몫은 그대로 남는다.
-            //
-            // 여기 값들은 배 좌표계다(CLAUDE.md: rot도 offset도 배 좌표계로 적는다).
-            // 이 검사에는 상관없다 - 한도가 ±1.5로 대칭이라 y 부호가 뒤집혀도 결과가
-            // 같다. **부호가 실제로 무는 곳은 그림이다** (DrawPlate 참고).
-            Vector2 centre = Ballistics.Rotate(def.collider.offset, pair.Value.rot) + pair.Value.offset;
-
-            if (Mathf.Abs(centre.x) + half.x > 1.5f || Mathf.Abs(centre.y) + half.y > 1.5f)
+            if (IsOverhanging(pair.Value))
                 over.Add(pair.Key);
         }
 
         return over;
+    }
+
+    /// <summary>
+    /// 판 하나가 한도를 넘었나. **목록에서 쪼개 둔 이유는 그림이 매 프레임 부르기
+    /// 때문이다** - 선택한 판 하나만 실시간으로 보면 되는데, 목록을 부르면 mirror의
+    /// 판 776장에 매 프레임 삼각함수가 돈다.
+    /// </summary>
+    private static bool IsOverhanging(Placed placed)
+    {
+        ThingDef def = DefDatabase.Get(placed.def);
+
+        if (def == null)
+            return false;
+
+        Vector2 size = placed.size != Vector2.zero ? placed.size : def.collider.size;
+
+        if (size.x <= 0f || size.y <= 0f)
+            return false;
+
+        float r = placed.rot * Mathf.Deg2Rad;
+        float c = Mathf.Abs(Mathf.Cos(r));
+        float sn = Mathf.Abs(Mathf.Sin(r));
+
+        // 회전한 사각형의 AABB. size 그대로 재면 45도 1x1 판의 반폭을 0.5로 보는데
+        // 실제로는 0.707이라, 한도를 넘은 판을 통과시킨다.
+        var half = new Vector2(
+            (size.x * c + size.y * sn) * 0.5f,
+            (size.x * sn + size.y * c) * 0.5f);
+
+        // 칸 중심에서 콜라이더 중심까지. ThingDef.Spawn이 box.offset에
+        // (def.offset + Rotate(placement.offset, -rot))을 넣으므로, 그것을 다시
+        // +rot으로 돌리면 def 몫만 회전하고 배치 몫은 그대로 남는다.
+        //
+        // 여기 값들은 배 좌표계다(CLAUDE.md: rot도 offset도 배 좌표계로 적는다).
+        // 이 검사에는 상관없다 - 한도가 ±1.5로 대칭이라 y 부호가 뒤집혀도 결과가
+        // 같다. **부호가 실제로 무는 곳은 그림이다** (DrawPlate 참고).
+        Vector2 centre = Ballistics.Rotate(def.collider.offset, placed.rot) + placed.offset;
+
+        return Mathf.Abs(centre.x) + half.x > 1.5f || Mathf.Abs(centre.y) + half.y > 1.5f;
     }
 
     /// <summary>목록이 길면 앞의 몇 개만. 콘솔이 아니라 한 줄짜리 상태 표시라서.</summary>
@@ -700,8 +1111,61 @@ public sealed class ShipPainter : EditorWindow
         AssetDatabase.Refresh();
 
         _status = $"{path}에 썼다. {Validate()}"
-                + (orphan > 0 ? $"  (붙을 판이 없어 뺀 모듈 {orphan}개)" : "");
+                + (orphan > 0 ? $"  (붙을 판이 없어 뺀 모듈 {orphan}개)" : "")
+                + RoundTrip();
     }
+
+    /// <summary>
+    /// 방금 쓴 파일을 다시 읽어 화면의 것과 대조한다.
+    ///
+    /// **이 도구가 조용히 데이터를 지운 적이 있어서 있는 검사다.** 값 타입이 def 이름만
+    /// 들던 시절, 배를 열었다 저장만 해도 rot / size / offset이 전부 0이 됐다. 배는
+    /// 여전히 지어지고 방도 선체도 정상이라 아무 검사에도 안 걸렸고, 증상은 "언제부터
+    /// 모양이 이랬지"였다. mirror 776장, lance 56장이 그렇게 날아갈 뻔했다.
+    ///
+    /// 격자만 비교하면 이걸 못 잡는다 - 각도와 콜라이더는 칸에 도장을 안 찍는다.
+    /// 그래서 배치를 값으로 대조한다.
+    ///
+    /// 저장 직후에 부르는 것이 요점이다. 사람이 따로 눌러야 하는 검사는 하필 급할 때
+    /// 안 눌린다.
+    /// </summary>
+    private string RoundTrip()
+    {
+        ShipDef back = ShipDef.Load(_shipName);
+
+        if (back == null)
+            return "   <!> 왕복 실패: 방금 쓴 파일을 다시 못 읽는다";
+
+        var seen = new Dictionary<Vector2Int, Placement>();
+
+        foreach (Placement p in back.placements)
+        {
+            if (!p.IsMounted)
+                seen[new Vector2Int(p.col, p.row)] = p;
+        }
+
+        int lost = 0;
+
+        foreach (KeyValuePair<Vector2Int, Placed> pair in _plates)
+        {
+            if (!seen.TryGetValue(pair.Key, out Placement p) || !Same(p, pair.Value))
+                lost++;
+        }
+
+        return lost > 0
+            ? $"   <!> 왕복 실패: 판 {lost}개가 달라졌다"
+            : "   왕복 통과";
+    }
+
+    /// <summary>
+    /// 같은 배치인가. 각도는 도 단위라 0.01도면 충분하고, 크기·offset은 m 단위다.
+    /// float 그대로 비교하면 "0.1을 썼는데 0.099999가 돌아왔다"로 영원히 실패한다.
+    /// </summary>
+    private static bool Same(Placement p, Placed placed)
+        => p.def == placed.def
+        && Mathf.Abs(Mathf.DeltaAngle(p.rot, placed.rot)) < 0.01f
+        && (p.size - placed.size).sqrMagnitude < 1e-6f
+        && (p.offset - placed.offset).sqrMagnitude < 1e-6f;
 
     /// <summary>
     /// 배치 한 줄. **size와 offset은 0이면 아예 안 쓴다.**
