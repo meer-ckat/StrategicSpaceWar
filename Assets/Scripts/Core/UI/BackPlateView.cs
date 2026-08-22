@@ -28,6 +28,9 @@ public sealed class BackPlateView : MonoBehaviour
     /// 칸 중심에서 한 번만 찍으니 경사 실루엣 밖으로 사각 블록이 삐져나온다. 16이면
     /// 그림의 알파를 픽셀마다 읽어서 후면이 실루엣을 따라 잘린다.
     /// </summary>
+    // 48로 올려봤지만 판과의 괴리는 해상도가 아니었다 - 후면은 어떻게 손상되든
+    // 모든 픽셀이 온전해서(침식·그을음·적열이 없다) 재질이 달라 보이는 것이다.
+    // 16이면 실루엣 마스킹에 충분하고 메모리도 9분의 1이다.
     private const int RearPPU = 16;
 
     private sealed class Overlay
@@ -38,6 +41,7 @@ public sealed class BackPlateView : MonoBehaviour
         public ShipGrid.Map _designMap; //immutable;    
         public Vector2 localOffset;     // 격자 한가운데의 선체 기준 자리
         public int currentRearCount;
+        public int currentRearVersion;
     }
 
     private readonly Dictionary<HullStructure, Overlay> _overlays = new();
@@ -122,9 +126,12 @@ public sealed class BackPlateView : MonoBehaviour
         if (!_overlays.TryGetValue(structure, out Overlay overlay))
             _overlays[structure] = overlay = new Overlay();
 
-        if (overlay._designMap != structure.DesignMap || structure.Rear.Count != overlay.currentRearCount)
+        if (overlay._designMap != structure.DesignMap
+            || structure.Rear.Count != overlay.currentRearCount
+            || structure.RearVersion != overlay.currentRearVersion)
         {
             overlay.currentRearCount = structure.Rear.Count;
+            overlay.currentRearVersion = structure.RearVersion;
             Rebuild(structure, overlay);
         }
 
@@ -222,6 +229,24 @@ public sealed class BackPlateView : MonoBehaviour
                 }
             }
 
+            // 세월. hp/maxHp가 곧 시간이다 - 상한 만큼 어두워지고, 반 넘게 상하면
+            // 판과 같은 문법으로 가장자리부터 픽셀이 갉아먹힌다. 이게 없으면 후면은
+            // 죽는 순간까지 새것이라 온전 -> 즉시 구멍으로 건너뛰고, 판만 삭아서
+            // 그림에 시간이 안 흐른다.
+            float life = wall.maxHp > 0f ? Mathf.Clamp01(wall.hp / wall.maxHp) : 1f;
+            float wear = Mathf.Lerp(0.30f, 1f, life);
+
+            // 칸마다 고정된 씨앗. 프레임마다 다르면 갉힌 자리가 지글거린다.
+            var grainRng = new DeterministicRng(Ballistics.Hash(col, row, 77));
+
+            // 구멍 옆이면 그 방향 가장자리를 물어뜯는다. 시뮬레이션은 칸 단위로 죽는 게
+            // 맞지만(후면에 서브셀은 없다), 그림까지 1 m 정사각형으로 뚝 떨어지면 종이
+            // 오리기처럼 보인다 - 찢긴 자리는 너덜너덜해야 한다.
+            bool tornL = structure.RearTorn(new Vector2Int(col - 1, row));
+            bool tornR = structure.RearTorn(new Vector2Int(col + 1, row));
+            bool tornU = structure.RearTorn(new Vector2Int(col, row - 1));
+            bool tornD = structure.RearTorn(new Vector2Int(col, row + 1));
+
             // 칸 안을 픽셀 단위로. **마스크는 그림이 아니라 판의 발자국이다** - 그림
             // 알파에 맡기면 텍스처가 없거나 못 읽어서 폴백(흰색, 알파 1)으로 넘어가는
             // 순간 칸 전체가 네모로 나온다. 발자국은 그 자리에 서 있던 판의 기하라
@@ -230,6 +255,25 @@ public sealed class BackPlateView : MonoBehaviour
             for (int py = 0; py < RearPPU; py++)
             for (int px = 0; px < RearPPU; px++)
             {
+                // grain은 마스킹 여부와 무관하게 픽셀마다 하나씩 뽑아야 한다 - 조건
+                // 안에서 뽑으면 발자국이 있는 칸과 없는 칸의 무늬가 달라진다.
+                float grain = grainRng.Next01();
+
+                if (life < 0.5f && grain > life * 2f)
+                    continue;
+
+                // 찢긴 이웃 쪽 가장자리일수록 살아남기 어렵다. Bite 폭 안에서 거리에
+                // 비례해 확률이 떨어지므로 경계가 직선이 아니라 뜯긴 단면이 된다.
+                const float Bite = 0.35f;
+                float open = 1f;
+
+                if (tornL) open = Mathf.Min(open, (px + 0.5f) / RearPPU / Bite);
+                if (tornR) open = Mathf.Min(open, (RearPPU - px - 0.5f) / RearPPU / Bite);
+                if (tornU) open = Mathf.Min(open, (py + 0.5f) / RearPPU / Bite);
+                if (tornD) open = Mathf.Min(open, (RearPPU - py - 0.5f) / RearPPU / Bite);
+
+                if (open < 1f && grain > open)
+                    continue;
                 if (boundary && wall.footprint != null)
                 {
                     // 발자국은 칸 중심 기준 배 좌표계(y 위)다. 텍스처 py는 아래로
@@ -248,11 +292,13 @@ public sealed class BackPlateView : MonoBehaviour
                         1f - (row + (py + 0.5f) / RearPPU) / map.height)
                     : Structure;
 
+                float shade = k * wear;
+
                 // row도 칸 안의 py도 아래로 증가하고 텍스처 y는 위로 증가한다.
                 int texY = heightPx - 1 - (row * RearPPU + py);
 
                 overlay.pixels[texY * widthPx + (col * RearPPU + px)] =
-                    new Color(color.r * k, color.g * k, color.b * k, color.a);
+                    new Color(color.r * shade, color.g * shade, color.b * shade, color.a);
             }
         }
 

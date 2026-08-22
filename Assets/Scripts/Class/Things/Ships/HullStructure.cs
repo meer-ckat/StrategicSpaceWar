@@ -61,6 +61,13 @@ public sealed class HullStructure : MonoBehaviour
         /// 죽은 판이 서 있던 모양이다.
         /// </summary>
         public Vector2[] footprint;
+
+        /// <summary>
+        /// 심을 때의 체력. **그림 전용이다** - 시뮬레이션은 hp만 읽는다. hp/maxHp가
+        /// 세월이다: 외피가 상한 만큼 어두워지고 갉아먹힌다. 이게 없으면 후면은
+        /// 죽는 순간까지 새것이고, 판만 삭아서 그림에 시간이 안 흐른다.
+        /// </summary>
+        public float maxHp;
     }
 
     /// <summary>이 덩어리가 생길 때 붙어 있던 칸. 처음부터 떠 있던 칸은 떼어내지 않는다.</summary>
@@ -188,6 +195,17 @@ public sealed class HullStructure : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// 설계도 칸 기준으로 "여기 후면이 있었는데 지금 없다". 그림이 구멍 가장자리를
+    /// 물어뜯는 데 쓴다 - RearBreached와 같은 질문이지만 그쪽은 살아 있는 몸의 칸을
+    /// 받아 변환부터 한다.
+    /// </summary>
+    public bool RearTorn(Vector2Int designCell)
+        => _designMap != null
+        && _designMap.Inside(designCell)
+        && RearWorthy(_designMap, designCell.x, designCell.y)
+        && !_rear.ContainsKey(designCell);
+
     public bool RearBreached(Vector2Int liveCell)
     {
         if (_designMap == null || !_hasMap)
@@ -252,12 +270,19 @@ public sealed class HullStructure : MonoBehaviour
     /// **한 번 빠진 칸은 안 돌아온다.** #8의 저장 포맷("사라진 칸만 적는다")이 그 위에 서
     /// 있고, <see cref="SeedRear"/>의 "이미 차 있으면 안 한다" 가드가 그것을 지킨다.
     /// </summary>
+    /// <summary>
+    /// 후면이 바뀔 때마다 오른다. 그림이 이걸 보고 다시 굽는다 - 칸 **수**만 보면
+    /// 부분 손상(hp만 깎임)이 화면에 영영 안 나온다.
+    /// </summary>
+    public int RearVersion { get; private set; }
+
     public void DamageRear(Vector2Int cell, float amount)
     {
         if (amount <= 0f || !_rear.TryGetValue(cell, out RearCell wall))
             return;
 
         wall.hp -= amount;
+        RearVersion++;
 
         if (wall.hp > 0f)
             _rear[cell] = wall;
@@ -426,12 +451,18 @@ public sealed class HullStructure : MonoBehaviour
     /// 떨어져 보인다. Tidy가 shape를 버리던 것과 같은 패턴이다: 값 타입을 새로
     /// 지으면서 필드 하나를 잊는 것.
     /// </summary>
-    private static RearCell Thinned(RearCell plate) => new()
+    private static RearCell Thinned(RearCell plate)
     {
-        hp = plate.hp * Ballistics.RearHpFactor,
-        rha = plate.rha * Ballistics.RearRhaFactor,
-        footprint = plate.footprint,
-    };
+        float hp = plate.hp * Ballistics.RearHpFactor;
+
+        return new RearCell
+        {
+            hp = hp,
+            maxHp = hp,
+            rha = plate.rha * Ballistics.RearRhaFactor,
+            footprint = plate.footprint,
+        };
+    }
 
     /// <summary>
     /// 칸 -> 그 자리 판의 체력. 살아 있는 자식에서 뽑는다 - SeedRear는 배가 지어진 뒤에

@@ -29,14 +29,14 @@ public sealed class ArmorSkin : MonoBehaviour
     private Armor _armor;
     private Collider2D _collider;
     private SpriteRenderer _renderer;
-    private Texture2D _shipHullTexture;
-    private Ship ship;
-    private ShipGrid.Map _map;
+    // 선체 그림(_shipHullTexture)을 입던 경로는 뺐다. 외피(BackPlateView)가 얼굴이
+    // 된 뒤로 판은 구멍으로 보이는 **뼈대**다 - 뼈대가 겉껍질 그림을 입을 이유가
+    // 없고, def 색 절차 텍스처가 곧 구조물 룩이다. ship.Map이 Awake 시점에 아직
+    // 없어서 판마다 그림이 복불복으로 빠지던 타이밍 버그도 이 결정이 같이 없앤다.
 
     private Texture2D _texture;
     private Sprite _sprite;
     private Color32[] _buffer;
-    private Color32[] _art;
 
     // 판 모양과 픽셀-서브셀 대응은 한 번만 구한다. OverlapPoint를 피격마다 4천 번씩
     // 부르면 그림 때문에 시뮬레이션이 느려진다.
@@ -51,12 +51,7 @@ public sealed class ArmorSkin : MonoBehaviour
         _armor = GetComponent<Armor>();
         _collider = GetComponent<Collider2D>();
         _renderer = GetComponent<SpriteRenderer>();
-        ship = GetComponentInParent<Ship>();
-        if(ship!=null)
-        {
-            _shipHullTexture = ship.ShipHullPng;
-            _map = ship.Map;
-        }
+
 
         if (_armor == null || _collider == null)
         {
@@ -149,7 +144,6 @@ public sealed class ArmorSkin : MonoBehaviour
 
         _buffer = new Color32[w * h];
         _inside = new bool[w * h];
-        if(_shipHullTexture!=null)_art = new Color32[w*h];
         _sub = new int[w * h];
         _grain = new float[w * h];
 
@@ -175,15 +169,6 @@ public sealed class ArmorSkin : MonoBehaviour
                           && _armor.InsideShape(local);
                 _sub[i] = _armor.SubIndexAtLocal(local);
                 _grain[i] = rng.Next01();
-                if(_shipHullTexture != null)
-                {
-                Vector3 shipLocal = transform.localRotation * local + transform.localPosition;
-
-                float uvX = (shipLocal.x + _map.width  * 0.5f) / _map.width;
-                float uvY = (shipLocal.y + _map.height * 0.5f) / _map.height;
-
-               _art[i] = _shipHullTexture.GetPixelBilinear(uvX, uvY);
-                }
             }
         }
 
@@ -224,7 +209,7 @@ public sealed class ArmorSkin : MonoBehaviour
                 continue;
             }
             
-            _buffer[i] = _art != null ? _art[i] : Color.Lerp(damaged, healthy, f);
+            _buffer[i] = Color.Lerp(damaged, healthy, f);
         }
 
         _texture.SetPixels32(_buffer);
