@@ -91,9 +91,6 @@ public sealed class ShipPainter : EditorWindow
     /// <summary>이 칸 수 안의 판에만 시작점이 달라붙는다.</summary>
     private const float AnchorSnapRange = 4f;
 
-    /// <summary>이보다 작게 스친 칸에는 판을 안 놓는다. 칸 넓이의 5%.</summary>
-    private const float MinSliceArea = 0.05f;
-
     /// <summary>Ctrl을 누르고 있을 때의 눈금. 자석도 같이 꺼진다.</summary>
     private const float FineStep = 0.01f;
 
@@ -133,6 +130,43 @@ public sealed class ShipPainter : EditorWindow
     private bool _shapeMode;
     private Vector2Int? _shapeCell;
     private readonly List<Vector2> _shapePoints = new();
+
+    /// <summary>
+    /// 점 편집. 모양 모드에서 폴리곤 판을 클릭하면 그 판의 점들이 여기로 열린다.
+    ///
+    /// **격자 좌표로 연다.** 저장은 콜라이더 중심 기준이지만 그 중심이 편집 도중에
+    /// 계속 움직이므로(bbox가 점을 따라간다), 편집 중에는 안 움직이는 공간이 필요하다.
+    /// 닫을 때 <see cref="FromGridPolygon"/>이 한 번에 되돌린다.
+    /// </summary>
+    private Vector2Int? _editCell;
+    private readonly List<Vector2> _editPoints = new();
+    private int _dragVertex = -1;
+
+    /// <summary>
+    /// 직전에 그은 선의 끝과 그 선의 모양. 다음 선이 **바로 여기서** 시작하면 그 칸이
+    /// 이음매이고, 두 선의 끝면을 잇는 사다리꼴로 바뀐다. 다른 칸에서 시작하면 잊는다.
+    /// </summary>
+    private Vector2Int? _jointCell;
+    private Vector2 _jointDir;
+    private float _jointSpan;
+    private float _jointWidth;
+
+    /// <summary>
+    /// 이어 긋는 동안 쌓인 칸들과, 그 사슬이 시작한 자리.
+    ///
+    /// **두 가지를 위해 있다.** 첫째, 마지막 선이 처음 자리로 돌아오면 그 칸도 이음매다 -
+    /// _jointCell은 직전 선의 끝만 알아서 닫히는 자리를 못 본다. 둘째, 예각으로 꺾으면
+    /// 두 줄이 이음매 근처 칸을 여러 개 공유하는데, 한 칸에 판이 하나라 뒤엣것이
+    /// 앞엣것을 지운다. 사슬이 쓴 칸이면 지우는 대신 두 판을 합친다.
+    ///
+    /// 사슬이 아닌 판과는 안 합친다 - 아무 판이나 합치면 선을 그을 때마다 옆 판이
+    /// 조용히 자란다.
+    /// </summary>
+    private readonly HashSet<Vector2Int> _chainCells = new();
+    private Vector2Int? _chainStart;
+    private Vector2 _chainStartDir;
+    private float _chainStartSpan;
+    private float _chainStartWidth;
 
     /// <summary>판을 채우지 않고 칸 경계선만 본다. 경사판이 칸을 가려서 어디가 어딘지 안 보일 때.</summary>
     private bool _gridOnly;
@@ -244,7 +278,10 @@ public sealed class ShipPainter : EditorWindow
             _shapeMode = GUILayout.Toggle(_shapeMode, "모양", EditorStyles.toolbarButton, GUILayout.Width(48f));
 
             if (wasShape && !_shapeMode)
+            {
                 CancelShape();
+                CancelEdit();
+            }
 
             using (new EditorGUI.DisabledScope(!_mirror))
             {
@@ -262,7 +299,7 @@ public sealed class ShipPainter : EditorWindow
             GUILayout.Label(
                 "좌클릭 칠하기 / Shift+클릭 사선 잇기 / 우클릭 지우기 / Alt+클릭 스포이드 / 가운데 끌기 이동 / 휠 확대"
                 + (_shapeMode
-                    ? "   |   모양: 첫 클릭 칸 고르기 / 그 뒤 점찍기 / Ctrl 정밀(0.01, 자석끔) / Enter 닫기 / Backspace 취소 / Esc 버리기"
+                    ? "   |   모양: 판 클릭=편집(점 끌기/변 클릭 끼우기/Delete 빼기) / 빈칸 클릭=새 모양 / Ctrl 정밀(0.01, 자석끔) / Enter 닫기 / Backspace 취소 / Esc 버리기"
                     : "   |   방향키 offset / Shift+방향키 크기 / Alt+좌우([ ]) 회전 / Ctrl+Z 되돌리기"),
                 EditorStyles.miniLabel);
         }
@@ -375,23 +412,30 @@ public sealed class ShipPainter : EditorWindow
         if (_shapeMode)
         {
             GUILayout.Space(10f);
+            bool shaping = _editCell != null;
+
             GUILayout.Label(
-                _shapeCell == null
-                    ? "칸을 먼저 고른다"
-                    : $"칸 {_shapeCell.Value.x},{_shapeCell.Value.y}  점 {_shapePoints.Count}개",
+                shaping ? $"편집 {_editCell.Value.x},{_editCell.Value.y}  점 {_editPoints.Count}개"
+                : _shapeCell == null ? "칸을 고르거나 폴리곤 판을 클릭"
+                : $"칸 {_shapeCell.Value.x},{_shapeCell.Value.y}  점 {_shapePoints.Count}개",
                 EditorStyles.boldLabel);
 
             using (new GUILayout.HorizontalScope())
             {
                 // 키에만 기대지 않는다. 포커스가 어디 가 있든 버튼은 언제나 눌린다.
-                using (new EditorGUI.DisabledScope(_shapePoints.Count < 3))
+                using (new EditorGUI.DisabledScope((shaping ? _editPoints.Count : _shapePoints.Count) < 3))
                 {
                     if (GUILayout.Button("닫기", EditorStyles.miniButtonLeft))
-                        CommitShape();
+                    {
+                        if (shaping) CommitEdit(); else CommitShape();
+                    }
                 }
 
                 if (GUILayout.Button("버리기", EditorStyles.miniButtonRight))
+                {
                     CancelShape();
+                    CancelEdit();
+                }
             }
         }
 
@@ -422,7 +466,12 @@ public sealed class ShipPainter : EditorWindow
         if (!_gridOnly)
         {
             foreach (KeyValuePair<Vector2Int, Placed> pair in _plates)
-                DrawPlate(pair.Key, pair.Value, local);
+            {
+                // 편집 중인 판은 저장된 모양 대신 편집 버퍼를 그린다. 둘을 겹쳐 그리면
+                // 어느 쪽이 진짜인지 안 보인다.
+                if (_editCell != pair.Key)
+                    DrawPlate(pair.Key, pair.Value, local);
+            }
         }
         else
         {
@@ -448,6 +497,7 @@ public sealed class ShipPainter : EditorWindow
 
         DrawSelection(local);
         DrawShapeInProgress();
+        DrawEdit();
 
         // 실내는 판 위에 안 겹치므로 뒤에 그려도 된다. 판이 없는 칸만 칠한다.
         foreach (Vector2Int cell in Interior(exterior))
@@ -635,6 +685,55 @@ public sealed class ShipPainter : EditorWindow
         hi = Mathf.Max(hi, x);
     }
 
+    /// <summary>편집 중인 폴리곤. 채운 모양 + 점 손잡이.</summary>
+    private void DrawEdit()
+    {
+        if (_editCell == null || _editPoints.Count < 3)
+            return;
+
+        var screen = new Vector2[_editPoints.Count];
+
+        for (int i = 0; i < _editPoints.Count; i++)
+            screen[i] = GridToScreen(_editPoints[i]);
+
+        Color fill = PlateColour(_plates.TryGetValue(_editCell.Value, out Placed p) ? p.def : _brush);
+        fill.a = 0.75f;
+
+        // 부채꼴 채우기라 오목하면 조금 틀리게 보인다. 저작 중 눈으로 보는 그림이고
+        // 진짜 판정은 Armor가 넓이 클리핑으로 한다.
+        Vector2 mid = Vector2.zero;
+
+        foreach (Vector2 v in screen)
+            mid += v;
+
+        mid /= screen.Length;
+
+        for (int i = 0; i < screen.Length; i++)
+            FillTriangle(screen[i], screen[(i + 1) % screen.Length], mid, fill);
+
+        var handle = new Color(1f, 0.85f, 0.2f);
+        var active = new Color(0.4f, 0.9f, 1f);
+
+        for (int i = 0; i < screen.Length; i++)
+        {
+            Line(screen[i], screen[(i + 1) % screen.Length], handle);
+
+            float r = i == _dragVertex ? 4f : 3f;
+            EditorGUI.DrawRect(
+                new Rect(screen[i].x - r, screen[i].y - r, r * 2f, r * 2f),
+                i == _dragVertex ? active : handle);
+        }
+
+        // 도장을 찍을 칸. 점이 어디로 뻗든 차지하는 것은 여기 하나뿐이다.
+        Rect cellRect = CellRect(_editCell.Value);
+        var mark = new Color(0.4f, 0.9f, 1f, 0.8f);
+
+        EditorGUI.DrawRect(new Rect(cellRect.x, cellRect.y, cellRect.width, 2f), mark);
+        EditorGUI.DrawRect(new Rect(cellRect.x, cellRect.yMax - 2f, cellRect.width, 2f), mark);
+        EditorGUI.DrawRect(new Rect(cellRect.x, cellRect.y, 2f, cellRect.height), mark);
+        EditorGUI.DrawRect(new Rect(cellRect.xMax - 2f, cellRect.y, 2f, cellRect.height), mark);
+    }
+
     /// <summary>찍는 중인 점들. 아직 판이 아니라서 따로 그린다.</summary>
     private void DrawShapeInProgress()
     {
@@ -801,10 +900,17 @@ public sealed class ShipPainter : EditorWindow
         // **왼쪽 버튼 이벤트를 통째로 삼킨다.** MouseDown만 잡으면 클릭하며 마우스가
         // 1픽셀만 움직여도 MouseDrag가 뒤로 흘러가서 그 칸이 칠해진다 - 증상은
         // "점 찍었더니 판이 생긴다"다. 점은 MouseDown에서만 는다.
-        if (_shapeMode && e.button == 0)
+        // Shift+클릭은 모양 모드에서도 선 도구로 간다. 안 그러면 모양 모드를 켜둔 채
+        // 선을 그으려다 "가끔 Shift+클릭이 안 먹는다"가 된다 - 켜둔 줄 모르면 원인이
+        // 절대 안 보인다.
+        if (_shapeMode && e.button == 0 && !e.shift)
         {
             if (e.type == EventType.MouseDown)
-                AddShapePoint(cell, point);
+                ShapeClick(cell, point);
+            else if (e.type == EventType.MouseDrag && _dragVertex >= 0)
+                DragVertex(point);
+            else if (e.type == EventType.MouseUp)
+                _dragVertex = -1;
 
             if (e.type == EventType.MouseDown || e.type == EventType.MouseDrag || e.type == EventType.MouseUp)
             {
@@ -824,9 +930,11 @@ public sealed class ShipPainter : EditorWindow
             // 찾아 거기서 시작하면 "마지막 지점"을 손으로 다시 찾을 일이 없다.
             Vector2Int? start = NearestPlate(_selected, cell) ?? _selected;
 
-            if (start == null)
+            // 시작이 클릭한 칸 자신이면 길이 0이라 아무 일도 안 일어난다. 조용히
+            // 넘어가면 "Shift+클릭이 안 먹는다"로 보인다 - 말을 해야 한다.
+            if (start == null || start.Value == cell)
             {
-                _status = "이을 판이 없다. 먼저 한 칸 칠해라.";
+                _status = "이을 판이 없다. 다른 칸을 먼저 칠하거나 거기서 시작해라.";
                 e.Use();
                 return;
             }
@@ -836,6 +944,17 @@ public sealed class ShipPainter : EditorWindow
             GUI.FocusControl(null);
             e.Use();
             Repaint();
+            return;
+        }
+
+        // **Shift가 눌린 왼쪽 버튼은 선 도구 전용이다.** 여기서 삼키지 않으면 클릭하며
+        // 마우스가 1픽셀만 움직여도 MouseDrag가 아래 칠하기로 흘러가는데, Line이
+        // 브러시에 각도와 크기를 남겨두므로 그 스침이 선 조각처럼 생긴 판을 찍고
+        // _selected까지 옮긴다 - "목표지점에서 새 직선이 나온다"와 "Shift+클릭이
+        // 가끔 안 먹는다"가 전부 이 한 줄기다.
+        if (e.shift && e.button == 0)
+        {
+            e.Use();
             return;
         }
 
@@ -953,7 +1072,7 @@ public sealed class ShipPainter : EditorWindow
     /// <summary>지금 상태를 실행취소 더미에 올린다. **바꾸기 전에** 부른다.</summary>
     private void Push()
     {
-        _undo.Add((new Dictionary<Vector2Int, Placed>(_plates), new Dictionary<Vector2Int, Placed>(_modules)));
+        _undo.Add((Copy(_plates), Copy(_modules)));
 
         if (_undo.Count > MaxUndo)
             _undo.RemoveAt(0);
@@ -963,13 +1082,36 @@ public sealed class ShipPainter : EditorWindow
         _redo.Clear();
     }
 
+    /// <summary>
+    /// 되돌리기용 사본. **shape 배열까지 새로 만든다.**
+    ///
+    /// Placed는 값 타입이지만 shape는 참조다. 사전만 복사하면 스냅샷과 현재가 같은
+    /// 배열을 가리키고, 점 편집이 그 배열을 제자리에서 고치는 순간 **과거가 같이
+    /// 바뀐다** - Ctrl+Z를 눌러도 아무 일이 안 일어난다. 폴리곤이 생기기 전에는
+    /// 배열을 늘 새로 만들어서 이 함정이 잠들어 있었다.
+    /// </summary>
+    private static Dictionary<Vector2Int, Placed> Copy(Dictionary<Vector2Int, Placed> src)
+    {
+        var copy = new Dictionary<Vector2Int, Placed>(src.Count);
+
+        foreach (KeyValuePair<Vector2Int, Placed> pair in src)
+        {
+            Placed p = pair.Value;
+            copy[pair.Key] = p.shape == null
+                ? p
+                : new Placed(p.def, p.rot, p.size, p.offset, (Vector2[])p.shape.Clone());
+        }
+
+        return copy;
+    }
+
     private void Step(List<(Dictionary<Vector2Int, Placed> plates, Dictionary<Vector2Int, Placed> modules)> from,
                      List<(Dictionary<Vector2Int, Placed> plates, Dictionary<Vector2Int, Placed> modules)> to)
     {
         if (from.Count == 0)
             return;
 
-        to.Add((new Dictionary<Vector2Int, Placed>(_plates), new Dictionary<Vector2Int, Placed>(_modules)));
+        to.Add((Copy(_plates), Copy(_modules)));
 
         var snap = from[from.Count - 1];
         from.RemoveAt(from.Count - 1);
@@ -1000,6 +1142,39 @@ public sealed class ShipPainter : EditorWindow
 
         if (e.type != EventType.KeyDown)
             return;
+
+        if (_shapeMode && _editCell != null)
+        {
+            switch (e.keyCode)
+            {
+                case KeyCode.Return:
+                case KeyCode.KeypadEnter:
+                    CommitEdit();
+                    e.Use();
+                    Repaint();
+                    return;
+
+                case KeyCode.Delete:
+                case KeyCode.Backspace:
+                    // 마지막에 집었던 점을 뺀다. 셋 미만으로는 안 내려간다 - 거기서
+                    // 더 빼면 모양이 아니게 되고, 그 상태를 저장할 수가 없다.
+                    if (_editPoints.Count > 3 && _dragVertex >= 0 && _dragVertex < _editPoints.Count)
+                    {
+                        _editPoints.RemoveAt(_dragVertex);
+                        _dragVertex = -1;
+                    }
+
+                    e.Use();
+                    Repaint();
+                    return;
+
+                case KeyCode.Escape:
+                    CancelEdit();
+                    e.Use();
+                    Repaint();
+                    return;
+            }
+        }
 
         if (_shapeMode && _shapeCell != null)
         {
@@ -1136,53 +1311,90 @@ public sealed class ShipPainter : EditorWindow
     /// 그래도 눈에는 연속된 직선으로 보인다. 각도가 같은 판이 이어지면 이음매가 안
     /// 보인다 - cruiser의 뱃머리가 이미 45도 판 11장이다.
     /// </summary>
+    /// <summary>
+    /// 칸 좌표계 방향 하나를 판의 rot으로.
+    ///
+    /// rot은 판의 긴 축 방향이 아니라 거기서 90도 뺀 값이다. 긴 축은 로컬 y라 회전
+    /// 전에 이미 +90도를 보고 있기 때문이다. 기준점은 mirror다: 그 배 판 775장의
+    /// rot이 정확히 반지름 각도이고 긴 축은 접선(반지름+90)이다.
+    ///
+    /// 선각은 배 좌표계로 잰다 - row가 아래로 증가하므로 y를 뒤집어 넣는다.
+    /// </summary>
+    private static float RotAlong(Vector2 cellDir)
+    {
+        float rot = Mathf.Atan2(-cellDir.y, cellDir.x) * Mathf.Rad2Deg - 90f;
+
+        // 상자는 180도 대칭이라 어느 쪽으로 적어도 같은 도형이다. 사람이 읽을 값으로
+        // 접어 둔다 - -135도와 45도가 같은 것인 줄 모르면 JSON을 훑을 때 계속 헷갈린다.
+        while (rot <= -90f) rot += 180f;
+        while (rot > 90f) rot -= 180f;
+
+        return rot;
+    }
+
     private void Line(Vector2Int from, Vector2Int to)
     {
-        // 격자 좌표의 칸 중심끼리 잇는다. 도형을 여기서 만들고 칸마다 잘라내므로
-        // 브레젠험도 offset 보정도 필요 없다 - 어느 칸이 걸리는지는 클리핑이 답한다.
-        var a = new Vector2(from.x + 0.5f, from.y + 0.5f);
-        var b = new Vector2(to.x + 0.5f, to.y + 0.5f);
+        int dx = to.x - from.x;
+        int dy = to.y - from.y;
+        int steps = Mathf.Max(Mathf.Abs(dx), Mathf.Abs(dy));
 
-        if ((b - a).sqrMagnitude < 1e-6f)
+        if (steps == 0)
             return;
+
+        // **rot은 판의 긴 축 방향이 아니라 거기서 90도 뺀 값이다.** 긴 축은 로컬 y라
+        // 회전 전에 이미 +90도를 보고 있다. 이걸 빼먹으면 45도에서만 맞는다 - 45와
+        // -45는 상자에 대해 같은 방향이라 눈에 안 띈다. 기준점은 mirror의 판 775장이다.
+        float rot = RotAlong(new Vector2(dx, dy));
+
+        // 칸 하나가 먹는 선의 길이. 45도면 √2, 2:1이면 √5/2다. 이걸 안 맞추면 판
+        // 사이가 벌어지거나 겹친다.
+        float span = new Vector2(dx, dy).magnitude / steps;
 
         ThingDef def = DefDatabase.Get(_brush);
         float width = _brushSize.x > 0f ? _brushSize.x : (def != null ? def.collider.size.x : 1f);
+        var size = new Vector2(width, span);
 
-        Vector2 u = (b - a).normalized;
-        Vector2 n = new Vector2(-u.y, u.x) * (width * 0.5f);
+        Vector2 u = new Vector2(dx, dy).normalized;
 
-        // 띠 하나. 이것을 칸 경계로 잘라 나눠 가지므로 **조각들의 합집합이 정확히 이
-        // 직사각형이다** - 이음매가 원리적으로 없다. 예전처럼 칸마다 회전한 상자를
-        // 놓으면 각도와 길이가 맞아도 부동소수점만큼은 어긋난다.
-        var band = new[] { a + n, b + n, b - n, a - n };
-
-        var lo = new Vector2Int(
-            Mathf.FloorToInt(Mathf.Min(Mathf.Min(band[0].x, band[1].x), Mathf.Min(band[2].x, band[3].x))),
-            Mathf.FloorToInt(Mathf.Min(Mathf.Min(band[0].y, band[1].y), Mathf.Min(band[2].y, band[3].y))));
-
-        var hi = new Vector2Int(
-            Mathf.FloorToInt(Mathf.Max(Mathf.Max(band[0].x, band[1].x), Mathf.Max(band[2].x, band[3].x))),
-            Mathf.FloorToInt(Mathf.Max(Mathf.Max(band[0].y, band[1].y), Mathf.Max(band[2].y, band[3].y))));
-
-        var buffer = new Vector2[32];
-
-        for (int row = lo.y; row <= hi.y; row++)
-        for (int col = lo.x; col <= hi.x; col++)
+        // **사슬 판정은 칸을 놓기 전에 해야 한다.** 루프 뒤에서 지우면 방금 넣은 칸이
+        // 통째로 사라져서, 다음 선이 그 칸을 모르고 덮어쓴다 - 예각이 잘려나가던
+        // 원인이 이 순서 하나였다.
+        if (_jointCell != from || _chainStart == null)
         {
-            var cell = new Vector2Int(col, row);
-            int count = Ballistics.ClipToRect(band, new Vector2(col, row), new Vector2(col + 1f, row + 1f), buffer);
+            _chainCells.Clear();
+            _chainStart = from;
+            _chainStartDir = u;
+            _chainStartSpan = span;
+            _chainStartWidth = width;
+        }
 
-            if (count < 3)
-                continue;
+        for (int i = 0; i <= steps; i++)
+        {
+            // 선 위의 **균등한** 지점. 반올림한 것이 도장을 찍을 칸이고, 반올림하면서
+            // 버린 나머지가 그대로 offset이 된다.
+            //
+            // 칸 중심을 선에 **투영**하면 안 된다 - 판이 선 위에 오기는 하는데 간격이
+            // 안 고르다. 3:1 선의 칸들은 선상 위치가 0, 0.949, 2.213, 3.162라 간격이
+            // 0.949와 1.264를 오가는데 판 길이는 1.054 하나뿐이라 붙었다 벌어졌다 한다.
+            float t = (float)i / steps;
+            var exact = new Vector2(dx * t, dy * t);
 
-            // 스치기만 한 칸은 판을 안 놓는다. 안 거르면 띠 가장자리를 따라 넓이가
-            // 거의 0인 판이 줄줄이 생기고, 그것들이 격자에서는 온전한 칸으로 센다.
-            if (Ballistics.PolygonArea(BufferView(buffer, count)) < MinSliceArea)
-                continue;
+            var cell = new Vector2Int(
+                from.x + Mathf.RoundToInt(exact.x),
+                from.y + Mathf.RoundToInt(exact.y));
 
-            Placed put = FromGridPolygon(buffer, count, cell);
+            Vector2 shift = exact - new Vector2(cell.x - from.x, cell.y - from.y);
+
+            // 칸 좌표계의 변위를 배 좌표계로. y만 부호가 바뀐다.
+            var put = new Placed(_brush, rot, size, new Vector2(shift.x, -shift.y));
+
+            // 사슬이 이미 쓴 칸이면 덮어쓰지 않고 합친다. 예각으로 꺾을 때 두 줄이
+            // 겹치는 칸이 여기로 온다 - 덮어쓰면 앞선 줄이 이음매 근처에서 잘려나간다.
+            if (_chainCells.Contains(cell))
+                put = MergeInto(cell, put);
+
             Paint(cell, put);
+            _chainCells.Add(cell);
 
             if (_mirror)
             {
@@ -1193,11 +1405,132 @@ public sealed class ShipPainter : EditorWindow
             }
         }
 
-        // **브러시 크기를 건드리지 않는다.** 여기서 (width, 0)을 넣으면 size.x가 0이
-        // 아니라 "배치가 크기를 정했다"로 읽혀서, 다음에 보통 칠하기로 놓는 판이
-        // 높이 0짜리 콜라이더를 갖는다. 넓이가 0이니 체력도 0이고, 판은 태어나자마자
-        // 죽는다 - 로그도 경고도 없다.
+        // 직전 선이 바로 이 칸에서 끝났으면 그 칸을 두 선의 다리로 바꾼다.
+        // **선을 다 그린 뒤에 한다** - 먼저 놓으면 이 선의 첫 판이 덮어쓴다.
+        if (_jointCell == from)
+            Bridge(from, _jointDir, _jointSpan, _jointWidth, u, span, width);
+
+        // 사슬이 닫혔다. 시작 칸에서는 이 선이 들어오고 첫 선이 나간다.
+        if (_chainStart == to && _chainCells.Count > 1)
+            Bridge(to, u, span, width, _chainStartDir, _chainStartSpan, _chainStartWidth);
+
+        _jointCell = to;
+        _jointDir = u;
+        _jointSpan = span;
+        _jointWidth = width;
+
+        _brushRot = rot;
+        _brushSize = size;
         _selected = to;
+    }
+
+    /// <summary>
+    /// 이미 사슬이 쓴 칸에 새 판을 얹을 때, 둘의 볼록 껍질로 합친다.
+    ///
+    /// 예각에서는 두 줄이 몇 칸을 공유한다. 한 칸에 판이 하나라 합집합을 그대로 담을 수
+    /// 없지만, 그 자리의 합집합은 쐐기 모양이라 껍질이 거의 같다. 덮어써서 앞선 줄이
+    /// 통째로 사라지는 것보다 훨씬 낫다.
+    /// </summary>
+    private Placed MergeInto(Vector2Int cell, Placed put)
+    {
+        if (!_plates.TryGetValue(cell, out Placed had) || had.def != put.def)
+            return put;
+
+        Vector2[] a = GridPoints(cell, had);
+        Vector2[] b = GridPoints(cell, put);
+
+        var all = new Vector2[a.Length + b.Length];
+        a.CopyTo(all, 0);
+        b.CopyTo(all, a.Length);
+
+        int hull = Ballistics.ConvexHull(all, all.Length, all);
+
+        return hull >= 3 ? FromGridPolygon(all, hull, cell) : put;
+    }
+
+    private static Vector2[] SubArray(Vector2[] src, int count)
+    {
+        var view = new Vector2[count];
+
+        for (int i = 0; i < count; i++)
+            view[i] = src[i];
+
+        return view;
+    }
+
+    /// <summary>판의 꼭짓점을 격자 좌표로. 모양이 없으면 회전한 콜라이더의 네 귀퉁이.</summary>
+    private static Vector2[] GridPoints(Vector2Int cell, Placed p)
+    {
+        if (p.shape != null && p.shape.Length >= 3)
+        {
+            var pts = new Vector2[p.shape.Length];
+
+            for (int i = 0; i < pts.Length; i++)
+                pts[i] = ToGrid(cell, p.offset + p.shape[i]);
+
+            return pts;
+        }
+
+        Vector2 half = (p.size != Vector2.zero ? p.size : Vector2.one) * 0.5f;
+
+        return new[]
+        {
+            ToGrid(cell, p.offset + Ballistics.Rotate(new Vector2(-half.x, -half.y), p.rot)),
+            ToGrid(cell, p.offset + Ballistics.Rotate(new Vector2(half.x, -half.y), p.rot)),
+            ToGrid(cell, p.offset + Ballistics.Rotate(new Vector2(half.x, half.y), p.rot)),
+            ToGrid(cell, p.offset + Ballistics.Rotate(new Vector2(-half.x, half.y), p.rot)),
+        };
+    }
+
+    /// <summary>
+    /// 두 선이 만나는 칸을 다리로 바꾼다. 사각형이 아니라 **사다리꼴**이다.
+    ///
+    /// 직선 구간은 회전한 직사각형으로 충분하다 - 각도와 길이만 맞으면 칸마다 정확히
+    /// 맞물린다. 안 되는 것은 꺾이는 칸 하나뿐이고, 거기서만 폴리곤이 필요하다.
+    ///
+    /// 사각형으로 다리를 놓으면 끝면이 자기 축에 수직이라 이웃한 줄의 축과 각을 이루고,
+    /// 그 모서리가 바깥으로 삐져나온다(가시). 사다리꼴은 **들어온 줄의 끝면 두 점과
+    /// 나가는 줄의 시작면 두 점을 그대로 잇는다** - 두 줄이 무엇이든 정확히 맞는다.
+    ///
+    /// 곧게 이어지면 그 사다리꼴이 정확히 직사각형이 된다. 특수 경우를 안 만들어도
+    /// 되는 이유이고, 식이 맞는지 보는 제일 빠른 확인이기도 하다.
+    /// </summary>
+    private void Bridge(Vector2Int cell, Vector2 inDir, float inSpan, float inWidth,
+                        Vector2 outDir, float outSpan, float outWidth)
+    {
+        // 선의 양 끝점은 offset이 0이다 - t가 0과 1일 때 exact가 정수라 버릴 나머지가
+        // 없다. 그래서 꼭짓점은 정확히 칸 중심이다.
+        var mid = new Vector2(cell.x + 0.5f, cell.y + 0.5f);
+
+        Vector2 endA = mid - inDir * inSpan * 0.5f;
+        Vector2 endB = mid + outDir * outSpan * 0.5f;
+
+        var nA = new Vector2(-inDir.y, inDir.x) * (inWidth * 0.5f);
+        var nB = new Vector2(-outDir.y, outDir.x) * (outWidth * 0.5f);
+
+        // 감기 순서가 중요하다. A의 양쪽 -> B의 양쪽으로 돌아야 나비 모양이 안 된다.
+        var quad = new[] { endA + nA, endB + nB, endB - nB, endA - nA };
+
+        // **예각에서는 그 순서로도 꼬인다.** 두 방향이 거의 반대면 변이 서로 교차해서
+        // 나비가 되고, 넓이가 상쇄돼 거의 0이 된다 - 증상은 다리 자리에 실오라기만
+        // 남는 것이다. 꼬였으면 볼록 껍질로 바꾼다. 예각의 합집합은 쐐기라 껍질이
+        // 거의 같다.
+        float straight = Ballistics.PolygonArea(quad);
+        int hull = Ballistics.ConvexHull(quad, quad.Length, quad);
+
+        Placed put = hull >= 3 && Ballistics.PolygonArea(SubArray(quad, hull)) > straight * 1.01f
+            ? FromGridPolygon(quad, hull, cell)
+            : FromGridPolygon(new[] { endA + nA, endB + nB, endB - nB, endA - nA }, 4, cell);
+
+        _plates[cell] = put;
+
+        if (_mirror)
+        {
+            Vector2Int other = Across(cell);
+
+            if (other != cell)
+                _plates[other] = Mirrored(put);
+        }
     }
 
     /// <summary>
@@ -1230,17 +1563,6 @@ public sealed class ShipPainter : EditorWindow
 
         // 너무 멀면 안 붙인다. 화면 반대편 판에 붙으면 배를 가로지르는 선이 그어진다.
         return bestDist <= AnchorSnapRange * AnchorSnapRange ? best : null;
-    }
-
-    /// <summary>배열 앞부분만 잘라 쓴다. PolygonArea가 길이를 그대로 믿기 때문이다.</summary>
-    private static Vector2[] BufferView(Vector2[] buffer, int count)
-    {
-        var view = new Vector2[count];
-
-        for (int i = 0; i < count; i++)
-            view[i] = buffer[i];
-
-        return view;
     }
 
     /// <summary>
@@ -1280,23 +1602,8 @@ public sealed class ShipPainter : EditorWindow
     /// 안 그리고 잠김 비율도 콜라이더 안에서만 재므로 그 부분은 조용히 잘린다.
     /// 안 보이는 데이터를 만드는 것보다 못 찍게 하는 편이 낫다.
     /// </summary>
-    private void AddShapePoint(Vector2Int cell, Vector2 screen)
+    private void AddShapePoint(Vector2 screen)
     {
-        // **포커스를 뺏는다.** 툴바의 배 이름 필드가 쥐고 있으면 GUI가 Return을 먼저
-        // 삼켜서 Enter가 영영 안 온다 - 증상은 "점은 찍히는데 안 닫힌다"다.
-        GUI.FocusControl(null);
-
-        // **첫 클릭은 칸을 고르는 것이고 점을 안 찍는다.** 무게중심으로 칸을 정하면
-        // 모양을 조금 옮길 때마다 도장이 이웃 칸으로 건너뛰어서, 멀쩡히 있던 판을
-        // 덮어쓴다. 어느 칸을 차지할지는 사람이 먼저 못 박아야 한다.
-        if (_shapeCell == null)
-        {
-            _shapeCell = cell;
-            _shapePoints.Clear();
-            _status = $"({cell.x},{cell.y}) 칸에 얹을 모양을 찍어라. 점은 칸을 넘어가도 된다.";
-            return;
-        }
-
         // **격자 좌표로 쌓는다** - 칸 번호가 곧 정수인 공간. 이음매를 가리는 모양은
         // 한 칸을 반드시 넘으므로 칸 안으로 가둘 수 없다. 콜라이더 크기와 자리는
         // 닫을 때 점들의 바운딩 박스에서 나온다.
@@ -1308,6 +1615,197 @@ public sealed class ShipPainter : EditorWindow
         _shapePoints.Add(SnapToGrid(new Vector2(
             (screen.x - _pan.x) / _zoom,
             (screen.y - _pan.y) / _zoom), fine));
+    }
+
+    /// <summary>
+    /// 모양 모드의 왼쪽 클릭 하나. 상태에 따라 세 가지 중 하나다.
+    ///
+    /// 편집 중이면 점을 집거나 변에 점을 끼우고, 새 모양을 찍는 중이면 점을 쌓고,
+    /// 아무것도 아니면 클릭한 칸을 보고 **정한다** - 폴리곤 판이면 열어서 고치고,
+    /// 아니면 그 칸을 새 모양의 자리로 잡는다. 더블클릭 같은 것을 안 만든 이유는
+    /// 클릭 한 번으로 갈리는 것이 이미 명확하기 때문이다.
+    /// </summary>
+    private void ShapeClick(Vector2Int cell, Vector2 screen)
+    {
+        // **포커스를 뺏는다.** 툴바의 배 이름 필드가 쥐고 있으면 GUI가 Return을 먼저
+        // 삼켜서 Enter가 영영 안 온다 - 증상은 "점은 찍히는데 안 닫힌다"다.
+        GUI.FocusControl(null);
+
+        if (_editCell != null)
+        {
+            GrabVertex(screen);
+            return;
+        }
+
+        if (_shapeCell != null)
+        {
+            AddShapePoint(screen);
+            return;
+        }
+
+        if (_plates.TryGetValue(cell, out Placed had) && had.shape != null && had.shape.Length >= 3)
+        {
+            OpenForEdit(cell, had);
+            return;
+        }
+
+        // **첫 클릭은 칸을 고르는 것이고 점을 안 찍는다.** 무게중심으로 칸을 정하면
+        // 모양을 조금 옮길 때마다 도장이 이웃 칸으로 건너뛰어서, 멀쩡히 있던 판을
+        // 덮어쓴다. 어느 칸을 차지할지는 사람이 먼저 못 박아야 한다.
+        _shapeCell = cell;
+        _shapePoints.Clear();
+        _status = $"({cell.x},{cell.y}) 칸에 얹을 모양을 찍어라. 점은 칸을 넘어가도 된다.";
+    }
+
+    /// <summary>저장된 모양을 격자 좌표로 펼친다.</summary>
+    private void OpenForEdit(Vector2Int cell, Placed placed)
+    {
+        _editCell = cell;
+        _editPoints.Clear();
+
+        foreach (Vector2 pt in placed.shape)
+            _editPoints.Add(ToGrid(cell, placed.offset + pt));
+
+        _status = $"({cell.x},{cell.y}) 모양 편집. 점을 끌고, 변을 클릭해 끼우고, Delete로 뺀다.";
+    }
+
+    /// <summary>칸 좌표계(칸 중심 기준, y 위) -> 격자 좌표(칸 번호가 정수, y 아래).</summary>
+    private static Vector2 ToGrid(Vector2Int cell, Vector2 local)
+        => new(cell.x + 0.5f + local.x, cell.y + 0.5f - local.y);
+
+    /// <summary>
+    /// 점을 집는다. 점 근처가 아니면 제일 가까운 변에 새 점을 끼우고 그것을 집는다.
+    /// 변에서도 멀면 아무 일도 안 한다 - 편집 중에 빈 곳을 눌렀다고 모양이 바뀌면
+    /// 되돌리기를 계속 눌러야 한다.
+    /// </summary>
+    private void GrabVertex(Vector2 screen)
+    {
+        const float grabPixels = 8f;
+
+        for (int i = 0; i < _editPoints.Count; i++)
+        {
+            if ((GridToScreen(_editPoints[i]) - screen).sqrMagnitude <= grabPixels * grabPixels)
+            {
+                _dragVertex = i;
+                return;
+            }
+        }
+
+        int best = -1;
+        float bestDist = grabPixels * grabPixels;
+        Vector2 bestPoint = Vector2.zero;
+
+        for (int i = 0; i < _editPoints.Count; i++)
+        {
+            Vector2 a = GridToScreen(_editPoints[i]);
+            Vector2 b = GridToScreen(_editPoints[(i + 1) % _editPoints.Count]);
+
+            Vector2 ab = b - a;
+            float t = ab.sqrMagnitude > 1e-6f ? Mathf.Clamp01(Vector2.Dot(screen - a, ab) / ab.sqrMagnitude) : 0f;
+            Vector2 on = a + ab * t;
+            float d = (on - screen).sqrMagnitude;
+
+            if (d < bestDist)
+            {
+                bestDist = d;
+                best = i;
+                bestPoint = on;
+            }
+        }
+
+        if (best < 0)
+            return;
+
+        var grid = new Vector2(
+            (bestPoint.x - _pan.x) / _zoom,
+            (bestPoint.y - _pan.y) / _zoom);
+
+        _editPoints.Insert(best + 1, grid);
+        _dragVertex = best + 1;
+    }
+
+    private void DragVertex(Vector2 screen)
+    {
+        if (_dragVertex < 0 || _dragVertex >= _editPoints.Count)
+            return;
+
+        Event e = Event.current;
+        bool fine = e != null && (e.control || e.command);
+
+        var raw = new Vector2(
+            (screen.x - _pan.x) / _zoom,
+            (screen.y - _pan.y) / _zoom);
+
+        _editPoints[_dragVertex] = fine ? SnapToGrid(raw, true) : SnapToNeighbours(raw);
+    }
+
+    /// <summary>
+    /// 끄는 점을 붙일 자리. **다른 판의 점이 먼저다.**
+    ///
+    /// 이음매가 안 보이려면 두 판이 정확히 같은 좌표를 공유해야 하는데, 0.05 눈금만으로는
+    /// 한 눈금 어긋나고 그 한 눈금이 곧 보이는 틈이다. 칸 꼭짓점 자석이 그 다음이고,
+    /// 아무것도 안 걸리면 눈금이다.
+    /// </summary>
+    private Vector2 SnapToNeighbours(Vector2 grid)
+    {
+        const float snapCells = 0.25f;
+
+        Vector2 best = Vector2.zero;
+        float bestDist = snapCells * snapCells;
+        bool found = false;
+
+        foreach (KeyValuePair<Vector2Int, Placed> pair in _plates)
+        {
+            if (pair.Key == _editCell || pair.Value.shape == null)
+                continue;
+
+            foreach (Vector2 pt in pair.Value.shape)
+            {
+                Vector2 g = ToGrid(pair.Key, pair.Value.offset + pt);
+                float d = (g - grid).sqrMagnitude;
+
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    best = g;
+                    found = true;
+                }
+            }
+        }
+
+        return found ? best : SnapToGrid(grid, false);
+    }
+
+    /// <summary>
+    /// 편집을 닫는다. bbox에서 콜라이더 크기와 자리를 다시 뽑는다.
+    /// </summary>
+    private void CommitEdit()
+    {
+        if (_editCell == null)
+            return;
+
+        if (_editPoints.Count < 3)
+        {
+            _status = "점이 셋은 있어야 모양이 된다. Delete를 너무 눌렀다.";
+            return;
+        }
+
+        Push();
+
+        Vector2Int cell = _editCell.Value;
+        _plates[cell] = FromGridPolygon(_editPoints.ToArray(), _editPoints.Count, cell);
+
+        _selected = cell;
+        _status = $"({cell.x},{cell.y}) 모양 저장. 점 {_editPoints.Count}개.";
+
+        CancelEdit();
+    }
+
+    private void CancelEdit()
+    {
+        _editCell = null;
+        _editPoints.Clear();
+        _dragVertex = -1;
     }
 
     /// <summary>

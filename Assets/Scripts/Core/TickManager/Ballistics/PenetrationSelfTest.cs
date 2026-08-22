@@ -573,6 +573,30 @@ public static class PenetrationSelfTest
         System.Array.Reverse(l);
         Near("감기 반대", Ballistics.PolygonArea(l), 3f);
 
+        // 볼록 껍질. **입출력이 같은 배열인 채로** 부른다 - 호출자들이 실제로 그렇게
+        // 쓰고, 모노톤 체인의 중간 출력이 2*count까지 부푸는 것을 내부 버퍼가 받아야
+        // 한다. 이게 깨졌을 때 증상은 껍질이 틀리는 게 아니라 IndexOutOfRange로
+        // 도구가 통째로 죽는 것이었다.
+        var sq = new[]
+        {
+            new Vector2(0f, 0f), new Vector2(1f, 0f),
+            new Vector2(1f, 1f), new Vector2(0f, 1f),
+        };
+
+        int hullCount = Ballistics.ConvexHull(sq, 4, sq);
+        Check($"정사각형 껍질 점 4 ({hullCount})", hullCount == 4);
+        Near("정사각형 껍질 넓이", Ballistics.PolygonArea(sq), 1f);
+
+        // 안쪽 점은 껍질에서 빠져야 한다.
+        var withInner = new[]
+        {
+            new Vector2(0f, 0f), new Vector2(2f, 0f), new Vector2(0.9f, 0.3f),
+            new Vector2(2f, 2f), new Vector2(0f, 2f), new Vector2(1f, 1f),
+        };
+
+        int hull2 = Ballistics.ConvexHull(withInner, 6, withInner);
+        Check($"안쪽 점 제거 ({hull2})", hull2 == 4);
+
         // 점 포함 판정. 노치 안쪽은 밖이다.
         Check("L 노치는 바깥", !Ballistics.PolygonContains(l, new Vector2(1.5f, 1.5f)));
         Check("L 밑동은 안쪽", Ballistics.PolygonContains(l, new Vector2(0.5f, 0.5f)));

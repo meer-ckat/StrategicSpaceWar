@@ -19,6 +19,12 @@ public static partial class Ballistics
 
     private static readonly Vector2[] _clipA = new Vector2[MaxPolygonPoints];
     private static readonly Vector2[] _clipB = new Vector2[MaxPolygonPoints];
+    private static readonly Vector2[] _hull = new Vector2[MaxPolygonPoints];
+
+    // 모노톤 체인은 아래 껍질과 위 껍질을 이어 쓰는 동안 출력이 최대 2*count까지
+    // 부푼다. 호출자의 dst에 바로 쓰면 dst가 입력과 같은 배열일 때(그게 보통이다)
+    // 반드시 넘친다 - 여기로 쓰고 마지막에 잘라서 복사한다.
+    private static readonly Vector2[] _hullOut = new Vector2[MaxPolygonPoints * 2];
 
     /// <summary>
     /// 점이 다각형 안인가. 광선 교차 세기.
@@ -49,6 +55,74 @@ public static partial class Ballistics
 
         return inside;
     }
+
+    /// <summary>
+    /// 점들의 볼록 껍질. 결과를 dst에 채우고 개수를 돌려준다.
+    ///
+    /// **두 띠가 만나는 칸을 위해 있다.** 한 칸에 판이 하나뿐이라 두 조각의 합집합을
+    /// 그대로 담을 수 없는데, 꺾이는 자리에서는 합집합이 이미 볼록에 가까워서 껍질이
+    /// 거의 같은 도형이다. 곧게 이어지는 자리에서는 아예 똑같다.
+    ///
+    /// 오목한 이음매에서는 껍질이 안쪽을 조금 더 채운다. 그것이 이 근사의 대가이고,
+    /// 틈이 남는 것보다 낫다 - 틈은 우주가 보이지만 조금 더 찬 것은 안 보인다.
+    /// </summary>
+    public static int ConvexHull(Vector2[] points, int count, Vector2[] dst)
+    {
+        if (count < 3)
+        {
+            for (int i = 0; i < count; i++)
+                dst[i] = points[i];
+
+            return count;
+        }
+
+        // x, 같으면 y로 정렬. 삽입 정렬이면 충분하다 - 여기 오는 점이 스무 개 남짓이다.
+        for (int i = 0; i < count; i++)
+            _hull[i] = points[i];
+
+        for (int i = 1; i < count; i++)
+        {
+            Vector2 key = _hull[i];
+            int j = i - 1;
+
+            while (j >= 0 && (_hull[j].x > key.x || (_hull[j].x == key.x && _hull[j].y > key.y)))
+            {
+                _hull[j + 1] = _hull[j];
+                j--;
+            }
+
+            _hull[j + 1] = key;
+        }
+
+        int k = 0;
+
+        // 아래쪽 그리고 위쪽. 마지막 점은 다음 사슬의 첫 점이라 하나씩 뺀다.
+        for (int i = 0; i < count; i++)
+        {
+            while (k >= 2 && Cross(_hullOut[k - 2], _hullOut[k - 1], _hull[i]) <= 0f)
+                k--;
+
+            _hullOut[k++] = _hull[i];
+        }
+
+        for (int i = count - 2, lower = k + 1; i >= 0; i--)
+        {
+            while (k >= lower && Cross(_hullOut[k - 2], _hullOut[k - 1], _hull[i]) <= 0f)
+                k--;
+
+            _hullOut[k++] = _hull[i];
+        }
+
+        int n = Mathf.Min(Mathf.Max(0, k - 1), dst.Length);
+
+        for (int i = 0; i < n; i++)
+            dst[i] = _hullOut[i];
+
+        return n;
+    }
+
+    private static float Cross(Vector2 o, Vector2 a, Vector2 b)
+        => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
 
     /// <summary>다각형의 넓이. 감기 방향과 무관하다.</summary>
     public static float PolygonArea(Vector2[] poly)
