@@ -94,8 +94,12 @@ public sealed class ShipPainter : EditorWindow
     /// <summary>Ctrl을 누르고 있을 때의 눈금. 자석도 같이 꺼진다.</summary>
     private const float FineStep = 0.01f;
 
-    /// <summary>이 거리 안이면 칸 꼭짓점에 달라붙는다. 칸 크기의 5분의 1.</summary>
-    private const float MagnetRange = 0.2f;
+    /// <summary>이 거리 안이면 칸 꼭짓점에 달라붙는다.</summary>
+    private const float MagnetRange = 0.1f;
+
+    /// <summary>반칸 격자(변 중점·칸 중심)의 자석. 간격이 0.5라 정수 자석보다 좁아야
+    /// 자유 배치로 갈 길이 남는다.</summary>
+    private const float HalfMagnetRange = 0.08f;
 
     /// <summary>
     /// 브러시가 들고 다니는 offset. **마지막으로 만진 판에서 따라온다** - 뱃머리를
@@ -1063,11 +1067,12 @@ public sealed class ShipPainter : EditorWindow
     /// 반올림하면 자유각이 죽는다 - 2:1 기울기 사선은 26.565도인데 22.5도로 뭉개지고,
     /// 스포이드로 그런 판을 집어서 찍어도 같은 일이 난다. 새는 것은 0.05뿐이다.
     /// </summary>
-    private static Placed Tidy(Placed p) => new(
+    private static Placed Tidy(Placed p, float step = NudgeStep) => new(
         p.def,
         p.rot,
-        p.size == Vector2.zero ? Vector2.zero : Snap(p.size, NudgeStep),
-        Snap(p.offset, NudgeStep));
+        p.size == Vector2.zero ? Vector2.zero : Snap(p.size, step),
+        Snap(p.offset, step),
+        p.shape);
 
     /// <summary>지금 상태를 실행취소 더미에 올린다. **바꾸기 전에** 부른다.</summary>
     private void Push()
@@ -1204,12 +1209,12 @@ public sealed class ShipPainter : EditorWindow
         }
 
         // Ctrl+Z / Ctrl+Y. 선택이 없어도 돌아가야 하므로 아래 검사보다 위에 둔다.
+        // **Z/Y가 아니면 흘려보낸다** - 통째로 return하면 Ctrl+방향키(정밀 이동)가
+        // 여기서 죽는다.
         if (e.control || e.command)
         {
             if (e.keyCode == KeyCode.Z) { Step(_undo, _redo); e.Use(); return; }
             if (e.keyCode == KeyCode.Y) { Step(_redo, _undo); e.Use(); return; }
-
-            return;
         }
 
         if (_selected == null)
@@ -1219,6 +1224,12 @@ public sealed class ShipPainter : EditorWindow
             return;
 
         bool size = e.shift;
+
+        // Ctrl은 모양 점과 같은 규칙이다: 0.01. 눈금 반올림도 같은 눈금으로 해야
+        // 한다 - 0.05로 되돌리면 0.01씩 네 번 밀어도 제자리다.
+        bool fine = e.control || e.command;
+        float step = fine ? FineStep : NudgeStep;
+
         Vector2 screen = Vector2.zero;
         float turn = 0f;
 
@@ -1263,8 +1274,8 @@ public sealed class ShipPainter : EditorWindow
             // 크기에는 방향이 없다. 화면에서 위/오른쪽이 늘리는 쪽이고, 화면 위는
             // screen.y가 음수라 부호를 뒤집어 읽는다.
             now = new Vector2(
-                Mathf.Max(NudgeStep, now.x + screen.x * NudgeStep),
-                Mathf.Max(NudgeStep, now.y - screen.y * NudgeStep));
+                Mathf.Max(step, now.x + screen.x * step),
+                Mathf.Max(step, now.y - screen.y * step));
 
             p = new Placed(p.def, p.rot, now, p.offset, p.shape);
         }
@@ -1274,10 +1285,10 @@ public sealed class ShipPainter : EditorWindow
         }
         else
         {
-            p = new Placed(p.def, p.rot, p.size, p.offset + ScreenNudgeToShip(screen) * NudgeStep, p.shape);
+            p = new Placed(p.def, p.rot, p.size, p.offset + ScreenNudgeToShip(screen) * step, p.shape);
         }
 
-        p = Tidy(p);
+        p = Tidy(p, step);
         _plates[_selected.Value] = p;
 
         // 짝도 같이 움직인다. 안 그러면 한쪽만 다듬고 반대쪽이 옛날 각도로 남는데,
@@ -1471,7 +1482,12 @@ public sealed class ShipPainter : EditorWindow
             return pts;
         }
 
-        Vector2 half = (p.size != Vector2.zero ? p.size : Vector2.one) * 0.5f;
+        // size 0은 "def 값을 쓴다"다. 1x1로 때우면 0.7071짜리 경사판 같은 def의
+        // 귀퉁이가 엉뚱한 자리에 잡혀서 스냅이 안 붙는 것처럼 보인다.
+        ThingDef def = DefDatabase.Get(p.def);
+        Vector2 half = (p.size != Vector2.zero
+            ? p.size
+            : (def != null ? def.collider.size : Vector2.one)) * 0.5f;
 
         return new[]
         {
@@ -1612,7 +1628,7 @@ public sealed class ShipPainter : EditorWindow
         // 필요한 자리다.
         bool fine = Event.current != null && (Event.current.control || Event.current.command);
 
-        _shapePoints.Add(SnapToGrid(new Vector2(
+        _shapePoints.Add(SnapPoint(new Vector2(
             (screen.x - _pan.x) / _zoom,
             (screen.y - _pan.y) / _zoom), fine));
     }
@@ -1736,44 +1752,79 @@ public sealed class ShipPainter : EditorWindow
             (screen.x - _pan.x) / _zoom,
             (screen.y - _pan.y) / _zoom);
 
-        _editPoints[_dragVertex] = fine ? SnapToGrid(raw, true) : SnapToNeighbours(raw);
+        _editPoints[_dragVertex] = SnapPoint(raw, fine);
     }
 
     /// <summary>
-    /// 끄는 점을 붙일 자리. **다른 판의 점이 먼저다.**
+    /// 점을 붙일 자리. 우선순위가 곧 규칙이다:
     ///
-    /// 이음매가 안 보이려면 두 판이 정확히 같은 좌표를 공유해야 하는데, 0.05 눈금만으로는
-    /// 한 눈금 어긋나고 그 한 눈금이 곧 보이는 틈이다. 칸 꼭짓점 자석이 그 다음이고,
-    /// 아무것도 안 걸리면 눈금이다.
+    ///   1) 다른 판의 꼭짓점 (0.1) - 사각형 판의 귀퉁이 포함
+    ///   2) 다른 판의 변 중점 (0.1, 꼭짓점에 밀린다)
+    ///   3) 정수 칸 꼭짓점 (0.1)
+    ///   4) 반칸 격자 - 변 중점과 칸 중심 (0.08)
+    ///   5) 0.05 눈금
+    ///
+    /// 판이 먼저인 이유: 이음매가 안 보이려면 두 판이 **정확히 같은 좌표**를 공유해야
+    /// 하는데, 눈금만으로는 한 눈금 어긋나고 그 한 눈금이 곧 보이는 틈이다. 변 중점이
+    /// 꼭짓점에 밀리는 이유: 짧은 변에서는 둘이 0.25 안에 같이 들어오는데, 중점을
+    /// 잡으려던 사람은 드물고 꼭짓점을 잡으려던 사람이 흔하다.
+    ///
+    /// 반칸 자석이 정수 자석보다 좁은 이유(0.12): 반칸 격자는 간격이 0.5라 자석을
+    /// 0.2로 주면 화면 대부분이 자석 범위가 되어 자유 배치(0.05)로 갈 길이 없어진다.
     /// </summary>
-    private Vector2 SnapToNeighbours(Vector2 grid)
+    private Vector2 SnapPoint(Vector2 grid, bool fine)
     {
-        const float snapCells = 0.25f;
+        if (fine)
+            return Snap(grid, FineStep);
 
-        Vector2 best = Vector2.zero;
-        float bestDist = snapCells * snapCells;
-        bool found = false;
+        const float plateRange = 0.1f * 0.1f;
 
-        foreach (KeyValuePair<Vector2Int, Placed> pair in _plates)
+        // 1) 꼭짓점, 2) 변 중점. 두 패스로 돌아 꼭짓점이 이긴다.
+        for (int pass = 0; pass < 2; pass++)
         {
-            if (pair.Key == _editCell || pair.Value.shape == null)
-                continue;
+            Vector2 best = Vector2.zero;
+            float bestDist = plateRange;
+            bool found = false;
 
-            foreach (Vector2 pt in pair.Value.shape)
+            foreach (KeyValuePair<Vector2Int, Placed> pair in _plates)
             {
-                Vector2 g = ToGrid(pair.Key, pair.Value.offset + pt);
-                float d = (g - grid).sqrMagnitude;
+                if (pair.Key == _editCell)
+                    continue;
 
-                if (d < bestDist)
+                Vector2[] pts = GridPoints(pair.Key, pair.Value);
+
+                for (int i = 0; i < pts.Length; i++)
                 {
-                    bestDist = d;
-                    best = g;
-                    found = true;
+                    Vector2 g = pass == 0 ? pts[i] : (pts[i] + pts[(i + 1) % pts.Length]) * 0.5f;
+                    float d = (g - grid).sqrMagnitude;
+
+                    if (d < bestDist)
+                    {
+                        bestDist = d;
+                        best = g;
+                        found = true;
+                    }
                 }
             }
+
+            if (found)
+                return best;
         }
 
-        return found ? best : SnapToGrid(grid, false);
+        // 3) 정수 칸 꼭짓점
+        var corner = new Vector2(Mathf.Round(grid.x), Mathf.Round(grid.y));
+
+        if ((corner - grid).sqrMagnitude <= MagnetRange * MagnetRange)
+            return corner;
+
+        // 4) 반칸 격자 - 칸 변의 중점과 칸 중심이 전부 여기에 있다
+        var half = new Vector2(Mathf.Round(grid.x * 2f) * 0.5f, Mathf.Round(grid.y * 2f) * 0.5f);
+
+        if ((half - grid).sqrMagnitude <= HalfMagnetRange * HalfMagnetRange)
+            return half;
+
+        // 5) 눈금
+        return Snap(grid, ShapeStep);
     }
 
     /// <summary>
@@ -1806,27 +1857,6 @@ public sealed class ShipPainter : EditorWindow
         _editCell = null;
         _editPoints.Clear();
         _dragVertex = -1;
-    }
-
-    /// <summary>
-    /// 칸 꼭짓점에 붙는 자석. 가까우면 정수 격자로, 아니면 눈금으로.
-    ///
-    /// 이음매를 가리는 모양은 이웃 판의 모서리에 정확히 맞아야 틈이 안 보인다.
-    /// 0.05 눈금만으로는 한 칸 차이가 나고, 그 한 칸이 곧 보이는 틈이다.
-    /// </summary>
-    private static Vector2 SnapToGrid(Vector2 grid, bool fine)
-    {
-        return new Vector2(SnapAxis(grid.x), SnapAxis(grid.y));
-
-        float SnapAxis(float v)
-        {
-            if (fine)
-                return Snap(v, FineStep);
-
-            float corner = Mathf.Round(v);
-
-            return Mathf.Abs(v - corner) <= MagnetRange ? corner : Snap(v, ShapeStep);
-        }
     }
 
     /// <summary>찍은 점들을 그 칸의 판에 얹는다.</summary>
@@ -2472,8 +2502,23 @@ public sealed class ShipPainter : EditorWindow
             bool isPlate = thing?.MainType != null
                         && typeof(Armor).IsAssignableFrom(thing.MainType);
 
-            Fill(pixels, width, height, box, p.col, p.row, ppu,
-                isPlate ? plateFill : moduleFill);
+            if (isPlate)
+            {
+                // **실물 발자국대로 찍는다.** 칸 단위로 채우면 경사판도 폴리곤 판도
+                // 꽉 찬 정사각형이 되고, 그 위에 그린 그림이 실제 실루엣과 어긋난다.
+                // 템플릿의 존재 이유가 실루엣인데 그게 틀리면 안 된다.
+                Vector2[] grid = GridPoints(
+                    new Vector2Int(p.col, p.row),
+                    new Placed(p.def, p.rot, p.size, p.offset, p.shape));
+
+                RasterizePolygon(pixels, width, height, box, ppu, grid, plateFill);
+            }
+            else
+            {
+                // 모듈은 칸 채움 그대로. 템플릿은 선체 실루엣용이라 모듈은 자리만
+                // 보이면 된다.
+                Fill(pixels, width, height, box, p.col, p.row, ppu, moduleFill);
+            }
         }
 
         // 격자선은 마지막에. 판 채움 위에 그어져야 칸 경계가 보인다.
@@ -2500,6 +2545,47 @@ public sealed class ShipPainter : EditorWindow
 
         _status = $"{width}x{height} 템플릿을 {path}에 썼다. "
                 + $"({box.width}x{box.height}칸 x {ppu})";
+    }
+
+    /// <summary>
+    /// 격자 좌표 폴리곤을 픽셀로 채운다. 픽셀 중심의 점 포함 판정 - 느리지만(판마다
+    /// 바운딩 박스 픽셀 전수) 버튼 한 번짜리 에디터 일이라 상관없다.
+    /// </summary>
+    private static void RasterizePolygon(
+        Color32[] pixels, int width, int height, RectInt box, int ppu,
+        Vector2[] grid, Color32 colour)
+    {
+        if (grid == null || grid.Length < 3)
+            return;
+
+        float gx0 = float.MaxValue, gy0 = float.MaxValue, gx1 = float.MinValue, gy1 = float.MinValue;
+
+        foreach (Vector2 g in grid)
+        {
+            gx0 = Mathf.Min(gx0, g.x); gy0 = Mathf.Min(gy0, g.y);
+            gx1 = Mathf.Max(gx1, g.x); gy1 = Mathf.Max(gy1, g.y);
+        }
+
+        int x0 = Mathf.Max(0, Mathf.FloorToInt((gx0 - box.xMin) * ppu));
+        int x1 = Mathf.Min(width - 1, Mathf.CeilToInt((gx1 - box.xMin) * ppu));
+        int t0 = Mathf.Max(0, Mathf.FloorToInt((gy0 - box.yMin) * ppu));
+        int t1 = Mathf.Min(height - 1, Mathf.CeilToInt((gy1 - box.yMin) * ppu));
+
+        for (int fromTop = t0; fromTop <= t1; fromTop++)
+        {
+            // row는 아래로 증가하고 텍스처 y는 위로 증가한다. Fill과 같은 뒤집기다.
+            int y = height - 1 - fromTop;
+            int rowStart = y * width;
+            float gy = box.yMin + (fromTop + 0.5f) / ppu;
+
+            for (int x = x0; x <= x1; x++)
+            {
+                var g = new Vector2(box.xMin + (x + 0.5f) / ppu, gy);
+
+                if (Ballistics.PolygonContains(grid, g))
+                    pixels[rowStart + x] = colour;
+            }
+        }
     }
 
     /// <summary>

@@ -19,8 +19,16 @@ public sealed class BackPlateView : MonoBehaviour
     /// <summary>기본 BackplateColor fallBack</summary>
     
     private static readonly Color Structure = new(1f, 1f, 1f, 1f);
-    private float Darken = 0.5f;
-    private const int SortingOrder = -10;
+    // 확인용 임시값. 마스킹이 맞는 걸 보면 Darken 0.5, SortingOrder -10으로 되돌린다.
+    private float Darken = 0f;
+    private const int SortingOrder = 100;
+
+    /// <summary>
+    /// 후면 텍스처의 칸당 픽셀. **1이면 마스킹 단위가 통째로 1 m 칸이다** - 선체 그림을
+    /// 칸 중심에서 한 번만 찍으니 경사 실루엣 밖으로 사각 블록이 삐져나온다. 16이면
+    /// 그림의 알파를 픽셀마다 읽어서 후면이 실루엣을 따라 잘린다.
+    /// </summary>
+    private const int RearPPU = 16;
 
     private sealed class Overlay
     {
@@ -144,22 +152,21 @@ public sealed class BackPlateView : MonoBehaviour
         var go = new GameObject("rooms");
         go.transform.SetParent(transform, worldPositionStays: false);
 
-        overlay.texture = new Texture2D(DM.width, DM.height, TextureFormat.RGBA32, false)
+        overlay.texture = new Texture2D(DM.width * RearPPU, DM.height * RearPPU, TextureFormat.RGBA32, false)
         {
-            filterMode = FilterMode.Point,
             wrapMode = TextureWrapMode.Clamp,
         };
 
-        overlay.pixels = new Color32[DM.width * DM.height];
+        overlay.pixels = new Color32[DM.width * RearPPU * DM.height * RearPPU];
 
         // 피벗은 한가운데. 모서리에 두면 부호나 축을 하나 틀려도 "조금 어긋난 그림"이라
         // 눈에 안 띄는데, 중심이면 대칭으로 틀어져서 바로 보인다. 실제로 처음엔 모서리
         // 피벗이었고 오버레이가 배 옆에 통째로 떠 있었다.
         var sprite = Sprite.Create(
             overlay.texture,
-            new Rect(0f, 0f, DM.width, DM.height),
+            new Rect(0f, 0f, DM.width * RearPPU, DM.height * RearPPU),
             new Vector2(0.5f, 0.5f),
-            pixelsPerUnit: 1f,
+            pixelsPerUnit: RearPPU,
             extrude: 0,
             meshType: SpriteMeshType.FullRect);
 
@@ -183,26 +190,69 @@ public sealed class BackPlateView : MonoBehaviour
 
         System.Array.Clear(overlay.pixels, 0, overlay.pixels.Length);
 
+        int widthPx = map.width * RearPPU;
+        int heightPx = map.height * RearPPU;
+        float k = 1 - Darken;
+
         for (int row = 0; row < map.height; row++)
         for (int col = 0; col < map.width; col++)
         {
-            if (structure.HasRear(new Vector2Int(col, row)))
+            if (!structure.TryGetRear(new Vector2Int(col, row), out HullStructure.RearCell wall))
+                continue;
+
+            // **발자국 마스킹은 실루엣용이다 - 우주와 닿은 경계 칸에만 건다.**
+            //
+            // 안쪽 벽까지 판 모양으로 깎으면, 모듈 자리의 얇은 패널(콜라이더가 칸보다
+            // 작은 판) 뒤가 투명해져서 외피 한가운데에 구멍이 뚫리고 내부 모듈이
+            // 비친다. 안쪽 벽의 후면은 칸 전체가 맞다 - 시뮬레이션의 후면이 칸
+            // 단위인 것과 같은 해상도다. 실루엣을 다듬어야 하는 곳은 우주에 보이는
+            // 가장자리뿐이다.
+            bool boundary = false;
+
+            for (int dy = -1; dy <= 1 && !boundary; dy++)
+            for (int dx = -1; dx <= 1; dx++)
             {
-                Vector2 uv = new Vector2((col + 0.5f) / map.width , 1f - (row + 0.5f) / map.height);
-                Color color;
+                int nc = col + dx, nr = row + dy;
 
-                if(structureTexture != null)
-                    color = structureTexture.GetPixelBilinear(uv.x, uv.y);
-                else
+                if (nc < 0 || nc >= map.width || nr < 0 || nr >= map.height
+                    || map.cells[nc, nr] == ShipGrid.Cell.Exterior)
                 {
-                    color = Structure;
+                    boundary = true;
+                    break;
                 }
-                float k = 1-Darken;
-                Color c = new Color(color.r * k, color.g * k, color.b * k, color.a);
+            }
 
-                overlay.pixels[
-                    (map.height - 1 - row) * map.width + col
-                ] = c;
+            // 칸 안을 픽셀 단위로. **마스크는 그림이 아니라 판의 발자국이다** - 그림
+            // 알파에 맡기면 텍스처가 없거나 못 읽어서 폴백(흰색, 알파 1)으로 넘어가는
+            // 순간 칸 전체가 네모로 나온다. 발자국은 그 자리에 서 있던 판의 기하라
+            // 텍스처와 무관하게 실루엣을 따라 잘린다. 시뮬레이션의 후면은 여전히
+            // 칸 단위다 - 여기는 그림뿐이다.
+            for (int py = 0; py < RearPPU; py++)
+            for (int px = 0; px < RearPPU; px++)
+            {
+                if (boundary && wall.footprint != null)
+                {
+                    // 발자국은 칸 중심 기준 배 좌표계(y 위)다. 텍스처 py는 아래로
+                    // 가므로 y를 뒤집어 넣는다.
+                    var local = new Vector2(
+                        (px + 0.5f) / RearPPU - 0.5f,
+                        0.5f - (py + 0.5f) / RearPPU);
+
+                    if (!Ballistics.PolygonContains(wall.footprint, local))
+                        continue;
+                }
+
+                Color color = structureTexture != null
+                    ? structureTexture.GetPixelBilinear(
+                        (col + (px + 0.5f) / RearPPU) / map.width,
+                        1f - (row + (py + 0.5f) / RearPPU) / map.height)
+                    : Structure;
+
+                // row도 칸 안의 py도 아래로 증가하고 텍스처 y는 위로 증가한다.
+                int texY = heightPx - 1 - (row * RearPPU + py);
+
+                overlay.pixels[texY * widthPx + (col * RearPPU + px)] =
+                    new Color(color.r * k, color.g * k, color.b * k, color.a);
             }
         }
 

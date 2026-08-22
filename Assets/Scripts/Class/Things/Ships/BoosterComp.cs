@@ -74,7 +74,7 @@ public sealed class BoosterComp : MonoBehaviour
             return;
 
         float target = on ? litIntensity : 0f;
-        float speed = on ? 24f : 6f;
+        float speed = on ? 24f : 128f;
 
         _light.intensity = Mathf.MoveTowards(_light.intensity, target, speed * Time.deltaTime);
         _light.pointLightOuterRadius = Mathf.Max(0.5f, litRadius * (_light.intensity / Mathf.Max(0.01f, litIntensity)));

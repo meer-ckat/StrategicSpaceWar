@@ -374,6 +374,39 @@ public abstract class Armor : Thing
     /// <summary>내보내기가 읽는다. 없으면 null.</summary>
     public Vector2[] Shape => shape;
 
+    /// <summary>
+    /// 판의 발자국을 **판이 앉은 칸 중심 기준, 배 좌표계** 폴리곤으로. 폴리곤 판은
+    /// 그 폴리곤, 사각형 판은 회전한 콜라이더의 네 귀퉁이다.
+    ///
+    /// 후면 그림이 쓴다 - 후면 칸은 1 m 정사각형인데 그 앞의 판이 경사면이면 정사각형이
+    /// 판 실루엣 밖으로 삐져나온다. 시뮬레이션(후면 HP)은 여전히 칸 단위다. 이것은
+    /// 모양 정보일 뿐이다.
+    /// </summary>
+    public Vector2[] FootprintLocal()
+    {
+        float rot = transform.localEulerAngles.z;
+
+        if (shape != null && shape.Length >= 3)
+        {
+            var pts = new Vector2[shape.Length];
+
+            for (int i = 0; i < shape.Length; i++)
+                pts[i] = Ballistics.Rotate(_cellOffset + shape[i], rot);
+
+            return pts;
+        }
+
+        Vector2 half = _cellSize * 0.5f;
+
+        return new[]
+        {
+            Ballistics.Rotate(_cellOffset + new Vector2(-half.x, -half.y), rot),
+            Ballistics.Rotate(_cellOffset + new Vector2(half.x, -half.y), rot),
+            Ballistics.Rotate(_cellOffset + new Vector2(half.x, half.y), rot),
+            Ballistics.Rotate(_cellOffset + new Vector2(-half.x, half.y), rot),
+        };
+    }
+
     public bool InsideShape(Vector2 localPoint)
         => Ballistics.PolygonContains(shape, localPoint - _cellOffset);
 
