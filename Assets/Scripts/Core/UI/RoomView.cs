@@ -265,6 +265,12 @@ public sealed class RoomView : MonoBehaviour
         if (ship == null || ship.Map == null || ship.rooms == null || ship.rooms.Count == 0)
             return false;
 
+        // **내 배만 칠한다.** 적함 상태는 구멍으로 읽는 것이 게임플레이인데, Tab이
+        // 적함 기압까지 보여주면 그 정보를 공짜로 주는 엑스레이가 된다. false를
+        // 돌려주면 호출자가 오버레이를 지우므로, 노획 같은 소속 변화도 저절로 따라온다.
+        if (!ship.IsPlayerControlled)
+            return false;
+
         if (!_overlays.TryGetValue(ship, out Overlay overlay))
             _overlays[ship] = overlay = new Overlay();
 

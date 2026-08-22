@@ -19,9 +19,15 @@ public sealed class BackPlateView : MonoBehaviour
     /// <summary>기본 BackplateColor fallBack</summary>
     
     private static readonly Color Structure = new(1f, 1f, 1f, 1f);
-    // 확인용 임시값. 마스킹이 맞는 걸 보면 Darken 0.5, SortingOrder -10으로 되돌린다.
-    private float Darken = 0f;
-    private const int SortingOrder = 100;
+    // **비대칭 화면: 소속이 곧 렌더 모드다** (설계도: 비대칭 화면 - 내 배는 안, 적함은 밖).
+    // 내 배(IsPlayerControlled) = 외피가 어둡게 뒤에 깔린 내부 단면. 적함·중립·잔해 =
+    // 외피가 위로 올라와 얼굴이 되고, 상태를 구멍으로 읽는다. 전환 버튼은 없다 -
+    // 파괴가 적함을 열고, Tab(RoomView)이 내 배 진단을 얹는다.
+    private const float MineDarken = 0.5f;
+    private const int MineOrder = -10;
+
+    private const float SkinDarken = 0f;
+    private const int SkinOrder = 100;
 
     /// <summary>
     /// 후면 텍스처의 칸당 픽셀. **1이면 마스킹 단위가 통째로 1 m 칸이다** - 선체 그림을
@@ -35,6 +41,9 @@ public sealed class BackPlateView : MonoBehaviour
 
     private sealed class Overlay
     {
+        /// <summary>이 오버레이가 내 배 것인가. Rebuild가 정하고 Paint가 읽는다.</summary>
+        public bool mine;
+
         public SpriteRenderer renderer;
         public Texture2D texture;
         public Color32[] pixels;
@@ -177,9 +186,15 @@ public sealed class BackPlateView : MonoBehaviour
             extrude: 0,
             meshType: SpriteMeshType.FullRect);
 
+        // 소속 판정. Ship은 HullStructure와 같은 GameObject다(RequireComponent).
+        // 잔해·Hulk는 Ship이 없으니 저절로 외피 쪽으로 떨어진다 - 내 배에서 떨어진
+        // 조각이 그 순간 외피를 입는 것은 받아들인 결정이다(진단 밖: 선이 끊겼으니
+        // 센서도 죽었다).
+        overlay.mine = structure.TryGetComponent(out Ship ship) && ship.IsPlayerControlled;
+
         overlay.renderer = go.AddComponent<SpriteRenderer>();
         overlay.renderer.sprite = sprite;
-        overlay.renderer.sortingOrder = SortingOrder;
+        overlay.renderer.sortingOrder = overlay.mine ? MineOrder : SkinOrder;
 
         overlay._designMap = DM;
 
@@ -199,7 +214,7 @@ public sealed class BackPlateView : MonoBehaviour
 
         int widthPx = map.width * RearPPU;
         int heightPx = map.height * RearPPU;
-        float k = 1 - Darken;
+        float k = 1 - (overlay.mine ? MineDarken : SkinDarken);
 
         for (int row = 0; row < map.height; row++)
         for (int col = 0; col < map.width; col++)
