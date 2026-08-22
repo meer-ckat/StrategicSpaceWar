@@ -23,7 +23,9 @@ public sealed class BackPlateView : MonoBehaviour
     // 내 배(IsPlayerControlled) = 외피가 어둡게 뒤에 깔린 내부 단면. 적함·중립·잔해 =
     // 외피가 위로 올라와 얼굴이 되고, 상태를 구멍으로 읽는다. 전환 버튼은 없다 -
     // 파괴가 적함을 열고, Tab(RoomView)이 내 배 진단을 얹는다.
-    private const float MineDarken = 0.5f;
+    // hull png가 이미 어두운 회색조라 0.5를 곱하면 우주 배경에 묻힌다.
+    // 0.35에서 시작 - 더 밝거나 어둡게는 이 숫자 하나다.
+    private const float MineDarken = 0.35f;
     private const int MineOrder = -10;
 
     private const float SkinDarken = 0f;

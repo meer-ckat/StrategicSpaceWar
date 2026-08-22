@@ -29,10 +29,19 @@ public sealed class ArmorSkin : MonoBehaviour
     private Armor _armor;
     private Collider2D _collider;
     private SpriteRenderer _renderer;
-    // 선체 그림(_shipHullTexture)을 입던 경로는 뺐다. 외피(BackPlateView)가 얼굴이
-    // 된 뒤로 판은 구멍으로 보이는 **뼈대**다 - 뼈대가 겉껍질 그림을 입을 이유가
-    // 없고, def 색 절차 텍스처가 곧 구조물 룩이다. ship.Map이 Awake 시점에 아직
-    // 없어서 판마다 그림이 복불복으로 빠지던 타이밍 버그도 이 결정이 같이 없앤다.
+    /// <summary>
+    /// **내 배의 판만 선체 그림을 입는다.** 비대칭 화면의 연장이다 - 색 괴리의 원인은
+    /// 한 배에서 판 아트와 외피 아트가 동시에 얼굴인 것이었는데, 내 배는 외피가 어둡게
+    /// 뒤로 빠지므로 판이 그림을 입어도 충돌할 상대가 없다. 적함 판은 절차 텍스처
+    /// 뼈대로 남는다 - 구멍으로만 보이고, "구멍 안은 외피보다 확연히 어둡다"가 가독성
+    /// 기준이라 밝은 그림을 입으면 그 대비가 죽는다.
+    ///
+    /// 타이밍은 안전하다: 여기는 Start라 Ship.Awake(Map 생성)가 이미 끝나 있다.
+    /// (이전 커밋 메시지의 "Awake 타이밍 버그" 진단은 틀렸다 - 원래부터 Start였다.)
+    /// </summary>
+    private Texture2D _shipHullTexture;
+    private ShipGrid.Map _map;
+    private Color32[] _art;
 
     private Texture2D _texture;
     private Sprite _sprite;
@@ -52,6 +61,13 @@ public sealed class ArmorSkin : MonoBehaviour
         _collider = GetComponent<Collider2D>();
         _renderer = GetComponent<SpriteRenderer>();
 
+        Ship ship = GetComponentInParent<Ship>();
+
+        if (ship != null && ship.IsPlayerControlled && ship.ShipHullPng != null && ship.Map != null)
+        {
+            _shipHullTexture = ship.ShipHullPng;
+            _map = ship.Map;
+        }
 
         if (_armor == null || _collider == null)
         {
@@ -143,6 +159,7 @@ public sealed class ArmorSkin : MonoBehaviour
         };
 
         _buffer = new Color32[w * h];
+        _art = _shipHullTexture != null ? new Color32[w * h] : null;
         _inside = new bool[w * h];
         _sub = new int[w * h];
         _grain = new float[w * h];
@@ -169,6 +186,19 @@ public sealed class ArmorSkin : MonoBehaviour
                           && _armor.InsideShape(local);
                 _sub[i] = _armor.SubIndexAtLocal(local);
                 _grain[i] = rng.Next01();
+
+                if (_art != null)
+                {
+                    // 판의 로컬 픽셀을 배 좌표로 올려 hull png의 같은 자리를 집는다.
+                    // BackPlateView와 같은 UV 식(설계도 격자 기준)이라 내 배의 판과
+                    // 어두운 외피 배경이 같은 그림의 앞뒤 층이 된다.
+                    Vector3 shipLocal = transform.localRotation * local + transform.localPosition;
+
+                    float uvX = (shipLocal.x + _map.width * 0.5f) / _map.width;
+                    float uvY = (shipLocal.y + _map.height * 0.5f) / _map.height;
+
+                    _art[i] = _shipHullTexture.GetPixelBilinear(uvX, uvY);
+                }
             }
         }
 
@@ -209,7 +239,9 @@ public sealed class ArmorSkin : MonoBehaviour
                 continue;
             }
             
-            _buffer[i] = Color.Lerp(damaged, healthy, f);
+            // 내 배 판은 그림, 적함 판은 절차 뼈대. 손상 침식과 적열은 양쪽 다
+            // 같은 규칙으로 그 위에 얹힌다.
+            _buffer[i] = _art != null ? _art[i] : Color.Lerp(damaged, healthy, f);
         }
 
         _texture.SetPixels32(_buffer);
