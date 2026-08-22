@@ -107,6 +107,13 @@ public static class ShipExporter
         // Spawn이 칸 좌표계 -> 로컬로 돌려서 넣는다. 뽑을 때 되돌려야 왕복이 닫힌다.
         if (box.offset != def.collider.offset)
             placement.offset = Ballistics.Rotate(box.offset - def.collider.offset, placement.rot);
+
+        // **모양도 같이 뽑는다.** 안 뽑으면 씬에서 export한 순간 폴리곤이 전부 사라지고,
+        // 배는 그대로 지어지고 방도 정상이라 아무 검사에도 안 걸린다. 증상은 "언제부터
+        // 이음매가 다시 보이지"뿐이다. 콜라이더 로컬 좌표라 회전을 되돌릴 것이 없다 -
+        // Armor가 읽는 공간과 여기가 쓰는 공간이 같다.
+        if (child.TryGetComponent(out Armor plate) && plate.Shape != null && plate.Shape.Length >= 3)
+            placement.shape = plate.Shape;
     }
 
     /// <summary>

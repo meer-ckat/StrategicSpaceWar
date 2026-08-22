@@ -73,7 +73,8 @@ public class ThingDef
         Vector2 localPosition,
         float rotationZ,
         Vector2 sizeOverride = default,
-        Vector2 offsetShift = default)
+        Vector2 offsetShift = default,
+        Vector2[] shapeOverride = null)
     {
         if (_mainType == null)
             return null;
@@ -135,6 +136,14 @@ public class ThingDef
 
         foreach (Type comp in _compTypes)
             JsonUtility.FromJsonOverwrite(raw, go.AddComponent(comp));
+
+        // **주 컴포넌트를 붙인 뒤, 켜기 전.** 두 경계 사이가 유일한 자리다 - 앞이면
+        // Armor가 아직 없어서 TryGetComponent가 조용히 실패하고(증상: 게임에서만
+        // 사각형), 뒤면 Awake의 BakeShape가 이미 사각형 기준으로 구운 뒤다.
+        //
+        // 배치가 준 모양이 def의 모양을 이긴다. Placement.size와 같은 규약이다.
+        if (shapeOverride != null && shapeOverride.Length >= 3 && thing is Armor armour)
+            armour.PrepareShape(shapeOverride);
 
         go.SetActive(true);
         return thing;

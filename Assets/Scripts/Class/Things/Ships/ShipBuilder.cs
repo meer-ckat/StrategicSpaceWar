@@ -391,7 +391,7 @@ public static class ShipBuilder
             // p.offset을 안 더한다** - localPosition이 곧 칸 번호라 그걸 밀면 Stamp가 다른
             // 칸을 읽는다. 미는 것은 콜라이더 offset뿐이다 (Placement.offset 참고).
             Thing spawned = DefDatabase.Spawn(
-                p.def, hull, map.ToLocal(cell.x, cell.y), p.rot, p.size, p.offset);
+                p.def, hull, map.ToLocal(cell.x, cell.y), p.rot, p.size, p.offset, p.shape);
 
             if (spawned == null)
             {

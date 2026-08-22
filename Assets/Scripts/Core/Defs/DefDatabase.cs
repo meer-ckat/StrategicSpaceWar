@@ -56,7 +56,8 @@ public static class DefDatabase
         Vector2 localPosition,
         float rotationZ,
         Vector2 sizeOverride = default,
-        Vector2 offsetShift = default)
+        Vector2 offsetShift = default,
+        Vector2[] shapeOverride = null)
     {
         Load();
 
@@ -64,7 +65,7 @@ public static class DefDatabase
             return null;
 
         return _defs.TryGetValue(defName, out ThingDef def)
-            ? def.Spawn(parent, localPosition, rotationZ, sizeOverride, offsetShift)
+            ? def.Spawn(parent, localPosition, rotationZ, sizeOverride, offsetShift, shapeOverride)
             : null;
     }
 

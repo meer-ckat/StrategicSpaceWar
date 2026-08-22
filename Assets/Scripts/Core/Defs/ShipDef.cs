@@ -59,6 +59,15 @@ public class Placement
     /// </summary>
     public Vector2 offset;
 
+    /// <summary>
+    /// 판의 실물 모양. 칸 로컬(콜라이더 중심 기준) 좌표이고, 비면 콜라이더 사각형이다.
+    ///
+    /// **def가 아니라 배치에 있다.** 세 방향이 만나는 이음매 칸은 같은 def라도 모양이
+    /// 자리마다 다르다 - 그것이 다각형을 넣은 이유 자체다. def에 두면 이음매마다
+    /// 새 def를 만들어야 하고, 그러면 판 종류가 배 모양을 따라 늘어난다.
+    /// </summary>
+    public Vector2[] shape;
+
     /// <summary>이 모듈이 볼트로 붙은 판의 칸. -1이면 선체 직속(= 판이 죽어도 안 죽는다).</summary>
     public int mountCol = -1;
     public int mountRow = -1;

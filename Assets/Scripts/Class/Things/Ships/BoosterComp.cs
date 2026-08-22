@@ -56,6 +56,7 @@ public sealed class BoosterComp : MonoBehaviour
         bool on = ship != null && ship.Boosting && !_engine.Neutralized;
 
         _engine.MaxPower = on ? boostPower : 0f;
+        _engine.MaxReversePower = on ? boostPower : 0f;
 
         Glow(on);
 

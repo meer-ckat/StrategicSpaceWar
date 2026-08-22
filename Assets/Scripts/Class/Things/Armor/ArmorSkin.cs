@@ -168,7 +168,11 @@ public sealed class ArmorSkin : MonoBehaviour
 
                 Vector2 local = min + new Vector2((x + 0.5f) * pixel, (y + 0.5f) * pixel);
 
-                _inside[i] = _collider.OverlapPoint(transform.TransformPoint(local));
+                // 콜라이더 **그리고** 판의 실물 모양. 콜라이더는 여전히 상자라 여기가
+                // 눈에 보이는 실루엣을 정하는 유일한 자리다. 픽셀 단위라 6x6 서브셀보다
+                // 훨씬 촘촘하다 - 모양은 픽셀, 저항은 서브셀이다.
+                _inside[i] = _collider.OverlapPoint(transform.TransformPoint(local))
+                          && _armor.InsideShape(local);
                 _sub[i] = _armor.SubIndexAtLocal(local);
                 _grain[i] = rng.Next01();
                 if(_shipHullTexture != null)
