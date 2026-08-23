@@ -129,6 +129,7 @@ public static partial class Ballistics
     /// 올리면 즉발에 가까워지고 스파이크가 돌아온다. 내리면 평탄해지는 대신 큰 폭발의
     /// 피해가 눈에 띄게 번져 들어온다.
     /// </summary>
+    /// <remarks>0이면 예산을 끈다 - 예전처럼 한 틱에 다 처리한다.</remarks>
     public const int MaxFragmentsPerPump = 256;
 
     /// <summary>

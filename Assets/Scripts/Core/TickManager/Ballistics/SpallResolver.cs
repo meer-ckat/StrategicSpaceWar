@@ -68,11 +68,14 @@ public static class SpallResolver
         [ReadOnly] public NativeArray<byte> active;
         [WriteOnly] public NativeArray<TraceWorld.JobHit> results;
 
+        /// <summary>world는 용량대로 잡혀 있다 - 실제로 쓰는 것은 여기까지.</summary>
+        public int worldCount;
+
         public void Execute(int index)
         {
             FragmentInput input = inputs[index];
             results[index] = TraceWorld.TraceJob(
-                world, active, input.start, input.direction, input.range, input.mask);
+                world, active, worldCount, input.start, input.direction, input.range, input.mask);
         }
     }
 
@@ -141,7 +144,11 @@ public static class SpallResolver
         if (_budgetTick != Core.TickManager.currentTick)
         {
             _budgetTick = Core.TickManager.currentTick;
-            _fragmentsLeft = Ballistics.MaxFragmentsPerPump;
+
+            // 0이면 예산을 끈다. 예전처럼 한 틱에 다 처리한다.
+            _fragmentsLeft = Ballistics.MaxFragmentsPerPump > 0
+                ? Ballistics.MaxFragmentsPerPump
+                : int.MaxValue;
         }
 
         return _fragmentsLeft;
@@ -479,9 +486,11 @@ public static class SpallResolver
         var results = new NativeArray<TraceWorld.JobHit>(
             fragmentCount, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
 
-        TraceWorld.CreateJobSnapshot(
+        // 세계 배열은 TraceWorld가 살려 두는 것이라 여기서 만들지도, 치우지도 않는다.
+        TraceWorld.GetJobSnapshot(
             out NativeArray<TraceWorld.JobEntry> world,
-            out NativeArray<byte> active);
+            out NativeArray<byte> active,
+            out int worldCount);
 
         try
         {
@@ -530,6 +539,7 @@ public static class SpallResolver
                 inputs = inputs,
                 world = world,
                 active = active,
+                worldCount = worldCount,
                 results = results,
             };
 
@@ -559,8 +569,6 @@ public static class SpallResolver
         }
         finally
         {
-            active.Dispose();
-            world.Dispose();
             results.Dispose();
             inputs.Dispose();
         }
@@ -673,6 +681,7 @@ public static class SpallResolver
                 inputs = inputs,
                 world = world,
                 active = active,
+                worldCount = world.Length,
                 results = results,
             }.Schedule(3, 1).Complete();
 

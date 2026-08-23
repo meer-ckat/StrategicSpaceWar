@@ -491,37 +491,100 @@ public static class TraceWorld
     /// active는 wave 직전의 Collider2D 생존 상태라 같은 틱에 먼저 죽은 유령을 거른다.
     /// 호출자는 Job 완료 뒤 두 배열을 반드시 Dispose한다.
     /// </summary>
-    internal static void CreateJobSnapshot(
+    // 워커가 읽는 배열은 **살려 둔다.** 파면마다 새로 만들면 세계 전체(OBB 1,500개)를
+    // 파면마다 다시 복사하게 되고, 파편 예산이 파면 수를 늘리는 순간 그 고정비가 그대로
+    // 렉이 된다 - 스파이크를 눕히려다 총량을 늘린 자리가 여기였다.
+    private static NativeArray<JobEntry> _jobWorld;
+    private static NativeArray<byte> _jobActive;
+    private static long _jobWorldTick = -1;
+    private static int _jobWorldEpoch = -1;
+
+    internal static void GetJobSnapshot(
         out NativeArray<JobEntry> entries,
-        out NativeArray<byte> active)
+        out NativeArray<byte> active,
+        out int count)
     {
         BuildIfStale();
 
-        entries = new NativeArray<JobEntry>(
-            _count, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-        active = new NativeArray<byte>(
-            _count, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+        if (!_jobWorld.IsCreated || _jobWorld.Length < _count)
+        {
+            DisposeJobSnapshot();
 
+            int capacity = Mathf.Max(256, Mathf.NextPowerOfTwo(Mathf.Max(1, _count)));
+            _jobWorld = new NativeArray<JobEntry>(
+                capacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            _jobActive = new NativeArray<byte>(
+                capacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+
+            _jobWorldTick = -1;   // 새 배열이면 기하를 다시 채워야 한다
+        }
+
+        // 기하는 스냅샷이 바뀔 때만. 틱당 최대 두 번이고 파면 수와 무관하다.
+        if (_jobWorldTick != _builtTick || _jobWorldEpoch != _epoch)
+        {
+            _jobWorldTick = _builtTick;
+            _jobWorldEpoch = _epoch;
+
+            for (int i = 0; i < _count; i++)
+            {
+                ref Entry e = ref _obb[i];
+
+                _jobWorld[i] = new JobEntry
+                {
+                    centre = new float2(e.centre.x, e.centre.y),
+                    axisU = new float2(e.axisU.x, e.axisU.y),
+                    axisV = new float2(e.axisV.x, e.axisV.y),
+                    halfU = e.halfU,
+                    halfV = e.halfV,
+                    radius = e.radius,
+                    layer = e.layer,
+                    isArmor = e.isArmor ? (byte)1 : (byte)0,
+                };
+            }
+        }
+
+        // 생존만 파면마다 다시 본다. 틱 안에서 판이 죽고, 그것이 스냅샷을 무효화하지
+        // 않는다는 것이 이 세계의 규칙이라(죽은 것은 채택할 때 거른다) 여기가 그 자리다.
         for (int i = 0; i < _count; i++)
         {
-            ref Entry e = ref _obb[i];
-
-            entries[i] = new JobEntry
-            {
-                centre = new float2(e.centre.x, e.centre.y),
-                axisU = new float2(e.axisU.x, e.axisU.y),
-                axisV = new float2(e.axisV.x, e.axisV.y),
-                halfU = e.halfU,
-                halfV = e.halfV,
-                radius = e.radius,
-                layer = e.layer,
-                isArmor = e.isArmor ? (byte)1 : (byte)0,
-            };
-
             Collider2D live = _colliders[i];
-            active[i] = live != null && live.enabled ? (byte)1 : (byte)0;
+            _jobActive[i] = live != null && live.enabled ? (byte)1 : (byte)0;
         }
+
+        entries = _jobWorld;
+        active = _jobActive;
+        count = _count;
     }
+
+    private static void DisposeJobSnapshot()
+    {
+        if (_jobWorld.IsCreated)
+            _jobWorld.Dispose();
+
+        if (_jobActive.IsCreated)
+            _jobActive.Dispose();
+
+        _jobWorldTick = -1;
+        _jobWorldEpoch = -1;
+    }
+
+    // 영속 NativeArray는 주인이 치워야 한다. 플레이 종료·도메인 리로드 둘 다에서.
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void InstallDisposal()
+    {
+        DisposeJobSnapshot();
+        Application.quitting -= DisposeJobSnapshot;
+        Application.quitting += DisposeJobSnapshot;
+    }
+
+#if UNITY_EDITOR
+    [UnityEditor.InitializeOnLoadMethod]
+    private static void InstallEditorDisposal()
+    {
+        UnityEditor.AssemblyReloadEvents.beforeAssemblyReload -= DisposeJobSnapshot;
+        UnityEditor.AssemblyReloadEvents.beforeAssemblyReload += DisposeJobSnapshot;
+    }
+#endif
 
     /// <summary>
     /// Burst Job에서 실행되는 OBB 전수 판정. UnityEngine.Object와 정적 mutable 상태를
@@ -530,6 +593,7 @@ public static class TraceWorld
     internal static JobHit TraceJob(
         NativeArray<JobEntry> entries,
         NativeArray<byte> active,
+        int count,
         float2 start,
         float2 dir,
         float range,
@@ -550,7 +614,8 @@ public static class TraceWorld
         const float TieEpsilon = 1e-3f;
         const float SurfaceSkin = 1e-3f;
 
-        for (int i = 0; i < entries.Length; i++)
+        // 배열은 용량대로 잡혀 있고 쓰는 것은 count까지다.
+        for (int i = 0; i < count; i++)
         {
             JobEntry e = entries[i];
 
