@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Unity.Profiling;
 using UnityEngine;
 
 namespace Core
@@ -175,6 +176,24 @@ namespace Core
         }
 
 
+        // 프로파일러 마커. 마커 없는 C# 틱 코드는 전부 "TickManager Self"로 뭉개져서
+        // 안이 안 보인다 - 리스너 타입별로 갈라 두면 일반 프로파일에 Tick.Ship/Tick.Gun
+        // 같은 항목이 바로 나온다. Begin/End는 릴리스 빌드에서 no-op이다.
+        private static readonly ProfilerMarker _earlyMarker = new("TickManager.Early");
+        private static readonly ProfilerMarker _lateMarker = new("TickManager.Late");
+        private static readonly ProfilerMarker _physicsMarker = new("TickManager.Physics2D");
+        private static readonly Dictionary<Type, ProfilerMarker> _typeMarkers = new();
+
+        private static ProfilerMarker MarkerFor(ITick listener)
+        {
+            Type type = listener.GetType();
+
+            if (!_typeMarkers.TryGetValue(type, out ProfilerMarker marker))
+                _typeMarkers[type] = marker = new ProfilerMarker("Tick." + type.Name);
+
+            return marker;
+        }
+
         private void RunTick()
         {
             _isTicking = true;
@@ -182,16 +201,22 @@ namespace Core
             currentTick++;
 
             // 1. 힘을 거는 것들 (함선 추력, 자세)
+            _earlyMarker.Begin();
             TickPhase(late: false);
+            _earlyMarker.End();
 
             // 2. 손으로 옮긴 Transform이 있으면 물리에 반영한 뒤,
             //    틱당 정확히 한 번 물리를 돌린다. FixedUpdate가 아니라 여기서 도는 덕에
             //    충돌 해결과 탄 판정이 같은 시계를 쓴다.
+            _physicsMarker.Begin();
             Physics2D.SyncTransforms();
             Physics2D.Simulate(TickDeltaTime);
+            _physicsMarker.End();
 
             // 3. projectiles resolve against that settled snapshot
+            _lateMarker.Begin();
             TickPhase(late: true);
+            _lateMarker.End();
 
             _isTicking = false;
 
@@ -209,7 +234,14 @@ namespace Core
             List<ITick> listeners = late ? _late : _early;
 
             for (int i = 0; i < listeners.Count; i++)
-                listeners[i].OnTick();
+            {
+                ITick listener = listeners[i];
+                ProfilerMarker marker = MarkerFor(listener);
+
+                marker.Begin();
+                listener.OnTick();
+                marker.End();
+            }
         }
 
 
