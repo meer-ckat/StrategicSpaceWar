@@ -343,20 +343,43 @@ public partial class Ship : Thing
         return saved ?? design;
     }
 
+    // Tick.Ship이 self로 뭉쳐 보여서 안을 가르는 마커. 릴리스에선 no-op.
+    private static readonly Unity.Profiling.ProfilerMarker _mSplit = new("Ship.Split");
+    private static readonly Unity.Profiling.ProfilerMarker _mRam = new("Ship.Ram");
+    private static readonly Unity.Profiling.ProfilerMarker _mDrive = new("Ship.Drive");
+    private static readonly Unity.Profiling.ProfilerMarker _mAim = new("Ship.Aim");
+    private static readonly Unity.Profiling.ProfilerMarker _mAtmosphere = new("Ship.Atmosphere");
+    private static readonly Unity.Profiling.ProfilerMarker _mWatch = new("Ship.Watch");
+
     public override void OnTick()
     {
         // 물리 콜백 밖에서, 이번 틱의 힘을 걸기 전에. 재부모화가 안전한 유일한 자리다.
+        _mSplit.Begin();
         SplitIfBroken();
+        _mSplit.End();
 
         // 지난 틱에 닿은 곳을 지금 부순다. Simulate보다 앞이라, 솔버는 살아남은 판만 본다.
+        _mRam.Begin();
         Ram();
+        _mRam.End();
 
+        _mDrive.Begin();
         if (isDriverReady) { Angle(); Drive(); }
+        _mDrive.End();
+
+        _mAim.Begin();
         if (isGunnerReady) AimGun();
+        _mAim.End();
+
+        _mAtmosphere.Begin();
         Atmosphere();
+        _mAtmosphere.End();
+
+        _mWatch.Begin();
         Crew();
         WatchForCritical();
         WatchForRoles();
+        _mWatch.End();
     }
 
     void WatchForRoles()
