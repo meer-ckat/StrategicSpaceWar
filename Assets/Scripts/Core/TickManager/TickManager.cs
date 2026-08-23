@@ -33,10 +33,22 @@ namespace Core
 
         public static long currentTick { get; private set; }
 
-        private readonly List<ITick> _listeners = new(); //현재 Tick()을 받아야할 대상들
-        //Pending이 있는 이유는, Tick 중에 갑자기 리스너 오브젝트가 사라지면/생기면 _listener를 순회할 때 MissingReferenceException이 나오기 때문에 현재 틱이 끝난 후 제거/생성 대상들을 모아놓는 것이다.
+        // 등록 시점에 ITickLate 여부로 두 리스트에 갈라 넣는다. 하나로 두고 페이즈마다
+        // 전체를 돌며 'is ITickLate'를 물으면, 리스너 대부분이 no-op인 판·문·엔진이라
+        // 순회 자체가 틱당 2회 전체 완주가 된다. 리스트 안 순서는 등록 순서 그대로라
+        // 결정론에 영향 없다 - 두 페이즈는 서로소 집합이다.
+        private readonly List<ITick> _early = new(); //힘을 거는 것들
+        private readonly List<ITick> _late = new();  //정착된 스냅샷을 읽는 것들(탄)
+        //Pending이 있는 이유는, Tick 중에 갑자기 리스너 오브젝트가 사라지면/생기면 리스트를 순회할 때 MissingReferenceException이 나오기 때문에 현재 틱이 끝난 후 제거/생성 대상들을 모아놓는 것이다.
         private readonly List<ITick> _pendingAdd = new(); //현재 Tick 이후 리스너 추가
         private readonly List<ITick> _pendingRemove = new(); //현재 Tick 이후 리스너 제거
+
+        // 목록과 나란히 드는 소속 집합. List.Contains는 O(n)이라 탄환·파편이 틱마다
+        // 수십 개 등록되는 판에서 등록 비용이 리스너 수에 비례해 버린다.
+        private readonly HashSet<ITick> _listenerSet = new();
+
+        private List<ITick> ListFor(ITick listener) =>
+            listener is ITickLate ? _late : _early;
 
         private bool _isTicking;
         private float _accumulator;
@@ -108,7 +120,7 @@ namespace Core
             {
                 _pendingRemove.Remove(listener);
 
-                if (!_listeners.Contains(listener) &&
+                if (!_listenerSet.Contains(listener) &&
                     !_pendingAdd.Contains(listener))
                 {
                     _pendingAdd.Add(listener);
@@ -117,8 +129,8 @@ namespace Core
                 return;
             }
 
-            if (!_listeners.Contains(listener))
-                _listeners.Add(listener);
+            if (_listenerSet.Add(listener))
+                ListFor(listener).Add(listener);
         }
 
 
@@ -134,7 +146,8 @@ namespace Core
                 return;
             }
 
-            _listeners.Remove(listener);
+            if (_listenerSet.Remove(listener))
+                ListFor(listener).Remove(listener);
         }
 
 
@@ -188,23 +201,15 @@ namespace Core
 
         private void TickPhase(bool late)
         {
-            for (int i = 0; i < _listeners.Count; i++)
-            {
-                ITick listener = _listeners[i];
+            // 여기서 IsDestroyed를 안 부른다. unityObject == null은 네이티브 생존 확인이라
+            // 리스너 전원 × 2페이즈 × 60틱이면 그것만으로 예산을 먹는데, 잡는 게 거의 없다 -
+            // Destroy()는 프레임 끝까지 지연되니 그 사이엔 == null도 false고, 실제 파괴
+            // 시점엔 OnDisable → Unregister가 이미 목록에서 뺀다. 남는 구멍은 활성 오브젝트를
+            // 런타임에 DestroyImmediate하는 경우뿐이고, 그런 경로는 없다(스폰 직후 재빌드 제외).
+            List<ITick> listeners = late ? _late : _early;
 
-                if (IsDestroyed(listener))
-                {
-                    if (!_pendingRemove.Contains(listener))
-                        _pendingRemove.Add(listener);
-
-                    continue;
-                }
-
-                if ((listener is ITickLate) != late)
-                    continue;
-
-                listener.OnTick();
-            }
+            for (int i = 0; i < listeners.Count; i++)
+                listeners[i].OnTick();
         }
 
 
@@ -212,7 +217,8 @@ namespace Core
         {
             for (int i = 0; i < _pendingRemove.Count; i++)
             {
-                _listeners.Remove(_pendingRemove[i]);
+                if (_listenerSet.Remove(_pendingRemove[i]))
+                    ListFor(_pendingRemove[i]).Remove(_pendingRemove[i]);
             }
 
             _pendingRemove.Clear();
@@ -225,8 +231,8 @@ namespace Core
                 if (IsDestroyed(listener))
                     continue;
 
-                if (!_listeners.Contains(listener))
-                    _listeners.Add(listener);
+                if (_listenerSet.Add(listener))
+                    ListFor(listener).Add(listener);
             }
 
             _pendingAdd.Clear();

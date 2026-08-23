@@ -110,11 +110,15 @@ public abstract class Armor : Thing
         _dead = 0;
         AnyBreached = false;
         DamageVersion++;
+        DirtySubs = ulong.MaxValue;
     }
 
     protected override void Awake()
     {
         base.Awake();
+
+        // def 규칙대로 부모가 다 잡힌 뒤에 켜지므로 여기서 읽는 parent가 곧 몸이다.
+        CachedBody = transform.parent;
 
         // 콜라이더를 먼저 읽는다. SubCellMaxHp가 넓이에서 나오므로 순서가 뒤집히면
         // 모든 판이 넓이 0의 체력, 즉 0을 들고 시작한다.
@@ -243,11 +247,20 @@ public abstract class Armor : Thing
     public Armor[] Neighbours = System.Array.Empty<Armor>();
 
     /// <summary>
+    /// 지금 붙어 있는 몸(= transform.parent) 캐시. transform.parent는 네이티브 호출인데
+    /// SameBodyAs가 충격 전도 BFS의 간선마다 두 번씩 읽는다. 재부모화 지점은
+    /// <see cref="HullStructure"/>의 MakeDebris 하나뿐이라 거기서만 갱신하면 안 썩는다.
+    /// </summary>
+    [System.NonSerialized] public Transform CachedBody;
+
+    /// <summary>
     /// 아직 같은 덩어리인가. 잔해로 떨어져 나가도 이웃 참조는 살아 있어서, 그냥 두면 충격이
     /// 100 m 떨어진 조각으로 건너뛴다. 판은 선체 직속 자식이므로 부모가 같으면 같은 덩어리다.
+    /// ReferenceEquals인 이유: 두 캐시가 같은 살아 있는 부모를 가리키거나 다르거나 둘뿐이라
+    /// Unity의 == 오버로드(생존 검사)가 필요 없다.
     /// </summary>
     public bool SameBodyAs(Armor other)
-        => other != null && other.transform.parent == transform.parent;
+        => other != null && ReferenceEquals(other.CachedBody, CachedBody);
 
     /// <summary>
     /// 판 **로컬** 좌표의 한 점이 들어 있는 서브셀. 바깥에서 "격자가 어디냐"를 물어도 되는
@@ -255,6 +268,10 @@ public abstract class Armor : Thing
     /// </summary>
     public int SubIndexAtLocal(Vector2 localPoint)
         => Ballistics.SubIndex(localPoint - _cellOffset, _cellSize);
+
+    /// <summary>서브셀 격자의 원본 숫자. 셰이더 스킨이 상수로 넘겨 받는다 - 수식은 여기 한 벌뿐이다.</summary>
+    public Vector2 CellOffset => _cellOffset;
+    public Vector2 CellSize => _cellSize;
 
     /// <summary>
     /// 적열. **그림 전용이다** - 시뮬레이션은 이 값을 한 번도 안 읽는다. 0이면 원래 색,
@@ -293,6 +310,24 @@ public abstract class Armor : Thing
     /// </summary>
     public int DamageVersion { get; private set; }
 
+    /// <summary>
+    /// 마지막 그리기 이후 변한 서브셀 비트(1UL &lt;&lt; subIndex). **그림 전용이다** -
+    /// DamageVersion이 "변했다"를 말하면 이것이 "어디가"를 말해서, 한 칸 맞은 판이
+    /// 전 픽셀을 다시 계산하지 않게 한다. SubCount 36이라 ulong 하나로 충분하다.
+    /// 전부 갱신(수리)은 전 비트로 표시한다.
+    /// </summary>
+    public ulong DirtySubs { get; private set; }
+
+    /// <summary>읽고 비운다. 소비자는 ArmorSkin 하나뿐이다.</summary>
+    public ulong ConsumeDirtySubs()
+    {
+        ulong dirty = DirtySubs;
+        DirtySubs = 0;
+        return dirty;
+    }
+
+    private int _lastPenetrateSoundFrame = -1;
+
     public void ApplyDamage(int subIndex, float amount)
     {
         if (amount <= 0f || _collapsed)
@@ -300,13 +335,22 @@ public abstract class Armor : Thing
 
         // 맞은 만큼 달아오른다. 서브셀 하나를 통째로 날리는 피해가 기준.
         AddHeat(amount / Mathf.Max(1e-3f, SubCellMaxHp) * Ballistics.HeatFromDamage);
-        SoundManager.AudioShot("Penetrate", transform.position, Mathf.Clamp01(amount / 100f));
+
+        // 소리는 판당 프레임당 한 번. SoundManager가 어차피 프레임 중복을 걸러서 들리는
+        // 결과는 같은데, 그 거름이 Play 안쪽이라 transform.position(네이티브)과 사전 조회는
+        // 호출마다 전액이었다 - 충각 그라인딩은 이 함수를 틱당 수천 번 부른다(판당 36칸).
+        if (_lastPenetrateSoundFrame != Time.frameCount)
+        {
+            _lastPenetrateSoundFrame = Time.frameCount;
+            SoundManager.AudioShot("Penetrate", transform.position, Mathf.Clamp01(amount / 100f));
+        }
         // 아래의 붕괴가 이 판을 또 때릴 수 있다. 0으로 **떨어지는 순간**에만 터뜨려야
         // 서브셀 하나가 두 번 무너지지 않는다.
         bool wasAlive = _hp[subIndex] > 0f;
 
         _hp[subIndex] = Mathf.Max(0f, _hp[subIndex] - amount);
         DamageVersion++;
+        DirtySubs |= 1UL << subIndex;
 
         if (!wasAlive || _hp[subIndex] > 0f)
             return;

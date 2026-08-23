@@ -193,6 +193,13 @@ public static partial class Ballistics
     public const int DebrisLifeTick = 3600;
 
     /// <summary>
+    /// 이 판 수 이하의 조각은 시각 전용 잔해다 - 구조·충각 스크립트 없이, 콜라이더 없이,
+    /// 관성으로만 날아가다 사라진다. 못 쏘고 못 갈고 배를 못 민다. 그라인딩 잔해의
+    /// 대부분이 한 장짜리라 이 문턱 하나가 잔해 구름의 물리·틱 비용을 정한다. 0이면 끔.
+    /// </summary>
+    public const int VisualDebrisMaxPlates = 1;
+
+    /// <summary>
     /// 갓 떨어져 나온 조각의 속도 상한(m/s). MaxSpallDepth와 같은 종류의 안전장치다.
     ///
     /// Breakaway는 접선속도를 `회전축에서의 거리 × 각속도`로 물려준다. 공식은 맞는데,

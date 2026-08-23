@@ -34,7 +34,14 @@ public sealed class HullStructure : MonoBehaviour
     /// 거기서 항상 신고한다. ShipBuilder.Spawn의 DestroyImmediate는 직후에 Build가 장부를
     /// 새로 만들므로 상관없다.
     /// </summary>
-    private readonly HashSet<Vector2Int> _alive = new();
+    /// 마스크 + 카운트다. HashSet이었는데, 파단 BFS의 입력이 정확히 이 모양의 마스크라
+    /// 매번 베끼고 있었다 - 처음부터 마스크로 들면 복사도 해싱도 없다.
+    /// 인덱스는 _map 기준 row * width + col. 맵 참조는 본체와 잔해가 공유하므로
+    /// (Breakaway 주석 참조) 칸 좌표계도 인덱스도 그대로 통한다.
+    private bool[] _alive = System.Array.Empty<bool>();
+    private int _aliveCount;
+
+    private int CellIndex(Vector2Int cell) => cell.y * _map.width + cell.x;
     /// <summary>
     /// 후면 칸 -> 남은 체력. 예전에는 집합이었는데 #9에서 체력이 붙었다.
     ///
@@ -56,7 +63,7 @@ public sealed class HullStructure : MonoBehaviour
     }
 
     /// <summary>이 덩어리가 생길 때 붙어 있던 칸. 처음부터 떠 있던 칸은 떼어내지 않는다.</summary>
-    private readonly HashSet<Vector2Int> _attached = new();
+    private bool[] _attached = System.Array.Empty<bool>();
 
     private ShipGrid.Map _map;
     private bool _hasMap;
@@ -66,13 +73,16 @@ public sealed class HullStructure : MonoBehaviour
     public IReadOnlyCollection<Vector2Int> Rear => _rear.Keys;
     public static readonly List<HullStructure> All = new();
 
+    /// <summary>충각 브로드페이즈가 읽는다. 함선·잔해·운석 전부 이 몸으로 움직인다.</summary>
+    public Rigidbody2D Body => _body;
+
     private void Awake() => _body = GetComponent<Rigidbody2D>();
 
     /// <summary>
     /// 장부에 남은 칸 수. 자식을 다시 세지 않으므로, 이 수가 실제 판 수와 어긋나면 어딘가에서
     /// 판이 신고 없이 사라졌다는 뜻이다 - 2,000장짜리 구조물을 디버깅할 때 제일 먼저 볼 값.
     /// </summary>
-    public int AliveCount => _alive.Count;
+    public int AliveCount => _aliveCount;
 
     /// <summary>
     /// 이 구조물이 두 덩어리 이상으로 갈라진 적이 있는가.
@@ -102,22 +112,39 @@ public sealed class HullStructure : MonoBehaviour
     /// </summary>
     public void ReportPlateLost(Transform plate)
     {
-        _dirty = true;
-
         // 선체 직속 자식만. Stamp가 도장을 찍는 규칙과 정확히 같아야 한다 - 판에 볼트로
         // 붙은 모듈의 localPosition은 판 기준이라 엉뚱한 칸을 지운다.
+        // 정체 모를 신고는 보수적으로 dirty - 드물어서 값이 없다.
         if (!_hasMap || plate == null || plate.parent != transform)
+        {
+            _dirty = true;
             return;
+        }
 
         Vector2Int cell = _map.ToCell(plate.localPosition);
 
         if (!_map.Inside(cell))
+        {
+            _dirty = true;
             return;
+        }
 
-        _alive.Remove(cell);
+        int idx = CellIndex(cell);
+
+        if (_alive[idx])
+        {
+            _alive[idx] = false;
+            _aliveCount--;
+        }
 
         if (ShipGrid.Solid(_map.cells[cell.x, cell.y]))
             _map.cells[cell.x, cell.y] = ShipGrid.Cell.Empty;
+
+        // 링 검사: 이 죽음이 선체를 못 가르면 파단 BFS 자체를 안 돈다. 그라인딩의 외판
+        // 피격 대부분이 여기 걸려서, "판이 죽는 틱마다 전체 BFS"가 "가를 수 있는 죽음이
+        // 있던 틱에만 BFS"로 줄어든다. true 쪽은 그대로 BFS에 묻는다 - 보수적으로만 틀린다.
+        if (ShipGrid.RemovalMightSplit(_alive, _map.width, _map.height, cell))
+            _dirty = true;
     }
 
     private ShipGrid.Map _designMap;
@@ -236,6 +263,44 @@ public sealed class HullStructure : MonoBehaviour
     }
 
     /// <summary>
+    /// 설계도 사각형을 덮는 보수적 원의 반경(월드). 전 몸 순회(Blast/Punch/SpallRear)가
+    /// 몸마다 InverseTransformPoint를 내기 전에 이 원으로 거른다 - 파편 한 발의 끝점을
+    /// 실제로 품는 몸은 한둘인데, 그라인딩 구름에서는 몸이 수백이다.
+    /// _designMap이 불변이라 세팅 시점(SeedRear/Adopt)에 한 번만 잰다.
+    /// </summary>
+    private float _rearBound;
+
+    private void CacheRearBound()
+    {
+        if (_designMap == null)
+        {
+            _rearBound = 0f;
+            return;
+        }
+
+        float rx = Mathf.Max(
+            Mathf.Abs(_designMap.origin.x),
+            Mathf.Abs(_designMap.origin.x + (_designMap.width - 1) * ShipGrid.CellSize));
+        float ry = Mathf.Max(
+            Mathf.Abs(_designMap.origin.y),
+            Mathf.Abs(_designMap.origin.y - (_designMap.height - 1) * ShipGrid.CellSize));
+
+        Vector3 s = transform.lossyScale;
+        float scale = Mathf.Max(Mathf.Abs(s.x), Mathf.Abs(s.y));
+
+        _rearBound = Mathf.Sqrt(rx * rx + ry * ry) * scale + ShipGrid.CellSize;
+    }
+
+    /// <summary>
+    /// 이 몸이 저 지점의 후면 피해 후보인가. 원 밖이면 CellAt의 Inside가 어차피 false고,
+    /// 후면이 빈 몸(Shed로 태어난 한 장짜리 잔해 전부)은 DamageRear가 어차피 no-op이다 -
+    /// 그 두 "어차피"를 네이티브 호출 전에 확정하는 것뿐이라 결과가 안 변한다.
+    /// </summary>
+    private bool NearRear(Vector2 worldPoint)
+        => _rear.Count > 0
+        && ((Vector2)transform.position - worldPoint).sqrMagnitude <= _rearBound * _rearBound;
+
+    /// <summary>
     /// 배 안에서 터진 것이 반대편 벽을 때린다. 살아 있는 모든 몸을 훑는다 - 유폭은 남의
     /// 배에도 건너가고(<c>Radiate</c>), 잔해도 후면을 들고 다니기 때문이다.
     ///
@@ -250,7 +315,7 @@ public sealed class HullStructure : MonoBehaviour
         {
             HullStructure body = All[i];
 
-            if (body == null || !body.CellAt(pivot, out Vector2Int at))
+            if (body == null || !body.NearRear(pivot) || !body.CellAt(pivot, out Vector2Int at))
                 continue;
 
             int reach = Mathf.CeilToInt(Ballistics.BlastRadius / ShipGrid.CellSize);
@@ -296,7 +361,7 @@ public sealed class HullStructure : MonoBehaviour
         {
             HullStructure body = All[i];
 
-            if (body == null || !body.CellAt(exit, out Vector2Int cell))
+            if (body == null || !body.NearRear(exit) || !body.CellAt(exit, out Vector2Int cell))
                 continue;
 
             if (!body._rear.TryGetValue(cell, out RearCell wall))
@@ -316,7 +381,8 @@ public sealed class HullStructure : MonoBehaviour
         {
             HullStructure body = All[i];
 
-            if (body != null && body.CellAt(worldPoint, out Vector2Int cell))
+            if (body != null && body.NearRear(worldPoint)
+                && body.CellAt(worldPoint, out Vector2Int cell))
                 body.DamageRear(cell, amount);
         }
     }
@@ -407,6 +473,7 @@ public sealed class HullStructure : MonoBehaviour
 
         _designMap = designMap;
         _shipHullPng = shipHullPng;
+        CacheRearBound();
 
         // 칸마다 다른 값을 준다. 판이 하나도 없으면(씬 저작 중인 배) 폴백 하나로 간다.
         Dictionary<Vector2Int, RearCell> plates = PlateHealthByCell(designMap);
@@ -445,8 +512,10 @@ public sealed class HullStructure : MonoBehaviour
         _hasMap = true;
         _breakawaySpeed = breakawaySpeed;
 
-        _alive.Clear();
-        _attached.Clear();
+        int size = map.width * map.height;
+        _alive = new bool[size];
+        _attached = new bool[size];
+        _aliveCount = 0;
 
         // 격자에서 그대로 베낀다. Stamp는 **살아 있는 자식만** 도장을 찍으므로 이 순간
         // "맵이 실물이라고 말한 칸"과 "지금 살아 있는 칸"은 같은 집합이다.
@@ -454,7 +523,10 @@ public sealed class HullStructure : MonoBehaviour
         for (int col = 0; col < map.width; col++)
         {
             if (ShipGrid.Solid(map.cells[col, row]))
-                _alive.Add(new Vector2Int(col, row));
+            {
+                _alive[row * map.width + col] = true;
+                _aliveCount++;
+            }
         }
 
         List<List<Vector2Int>> chunks = ShipGrid.BuildStructure(map, _alive);
@@ -463,7 +535,7 @@ public sealed class HullStructure : MonoBehaviour
             return;
 
         foreach (Vector2Int cell in chunks[0])
-            _attached.Add(cell);
+            _attached[CellIndex(cell)] = true;
 
         if (chunks.Count > 1)
             Debug.LogWarning(
@@ -485,9 +557,12 @@ public sealed class HullStructure : MonoBehaviour
         _breakawaySpeed = breakawaySpeed;
         _designMap = designMap;
         _shipHullPng = shiphullpng;
+        CacheRearBound();
 
-        _alive.Clear();
-        _attached.Clear();
+        int size = map.width * map.height;
+        _alive = new bool[size];
+        _attached = new bool[size];
+        _aliveCount = 0;
 
         // 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
         // 체력까지 그대로 물려받는다. 집합만 넘기면 갈라지는 순간 상한 후면이 새것으로
@@ -498,8 +573,15 @@ public sealed class HullStructure : MonoBehaviour
         // 잔해에게는 조각이 곧 전부다. 지금 살아 있는 칸이자 처음부터 붙어 있던 칸이다.
         foreach (Vector2Int cell in chunk)
         {
-            _alive.Add(cell);
-            _attached.Add(cell);
+            int idx = CellIndex(cell);
+
+            if (!_alive[idx])
+            {
+                _alive[idx] = true;
+                _aliveCount++;
+            }
+
+            _attached[idx] = true;
         }
     }
 
@@ -514,7 +596,7 @@ public sealed class HullStructure : MonoBehaviour
 
         _dirty = false;
 
-        if (!_hasMap || _alive.Count == 0)
+        if (!_hasMap || _aliveCount == 0)
             return false;
 
         // 장부를 그대로 넘긴다. 예전에는 여기서 자식 2,000개를 훑어 살아 있는 칸을 다시
@@ -626,7 +708,7 @@ public sealed class HullStructure : MonoBehaviour
     {
         foreach (Vector2Int cell in chunk)
         {
-            if (_attached.Contains(cell))
+            if (_attached[CellIndex(cell)])
                 return true;
         }
 
@@ -648,7 +730,7 @@ public sealed class HullStructure : MonoBehaviour
 
         Vector2Int cell = _map.ToCell(plate.localPosition);
 
-        if (!_map.Inside(cell) || !_alive.Contains(cell))
+        if (!_map.Inside(cell) || !_alive[CellIndex(cell)])
             return false;
 
         // 떼어내기 전에 격자에서 지운다. MakeDebris가 _alive에서 빼주지만 맵은 안 건드린다 -
@@ -656,7 +738,10 @@ public sealed class HullStructure : MonoBehaviour
         if (ShipGrid.Solid(_map.cells[cell.x, cell.y]))
             _map.cells[cell.x, cell.y] = ShipGrid.Cell.Empty;
 
-        _dirty = true;
+        // ReportPlateLost와 같은 링 검사. _alive에는 이 칸이 아직 있지만 검사가 칸 자신을
+        // 안 보므로 결과가 같다. Shed는 한 장짜리 이탈이라 대부분 여기서 걸러진다.
+        if (ShipGrid.RemovalMightSplit(_alive, _map.width, _map.height, cell))
+            _dirty = true;
 
         // **정적 버퍼를 안 쓴다.** 여기는 ApplyDamage 한가운데고, 그 아래로 붕괴 파편이
         // 다른 판을 죽이며 재진입할 수 있다. GameObject 하나를 새로 만드는 값에 비하면
@@ -664,7 +749,7 @@ public sealed class HullStructure : MonoBehaviour
         var chunk = new List<Vector2Int> { cell };
         var byCell = new Dictionary<Vector2Int, Transform> { [cell] = plate };
 
-        return MakeDebris(chunk, byCell, _alive.Count, new Dictionary<Vector2Int, RearCell>(), out _, out _);
+        return MakeDebris(chunk, byCell, _aliveCount, new Dictionary<Vector2Int, RearCell>(), out _, out _);
     }
 
     private void Breakaway(
@@ -760,9 +845,20 @@ public sealed class HullStructure : MonoBehaviour
 
             child.SetParent(go.transform, worldPositionStays: true);
 
+            // 여기가 재부모화의 유일한 자리다 - Armor.CachedBody(SameBodyAs가 읽는 몸 캐시)를
+            // 같이 갱신해야 충격 전도가 잔해로 건너뛰지 않는다.
+            if (child.TryGetComponent(out Armor reparented))
+                reparented.CachedBody = go.transform;
+
             // 장부에서도 넘긴다. 판이 죽은 게 아니라 남의 몸으로 간 것이라 ReportPlateLost가
             // 안 불린다 - 여기서 안 빼면 본체는 떠나간 칸을 영영 살아 있다고 센다.
-            _alive.Remove(cell);
+            int aliveIdx = CellIndex(cell);
+
+            if (_alive[aliveIdx])
+            {
+                _alive[aliveIdx] = false;
+                _aliveCount--;
+            }
         }
 
         if (moved == 0)
@@ -795,6 +891,23 @@ public sealed class HullStructure : MonoBehaviour
 
         body.angularVelocity = Mathf.Clamp(
             _body.angularVelocity, -Ballistics.DebrisMaxSpin, Ballistics.DebrisMaxSpin);
+
+        // 소형 조각은 **시각 전용 잔해**다. 구조·충각·파단 스크립트를 아예 안 붙이고
+        // 콜라이더를 꺼서, 관성으로 날아가는 그림만 남긴다 - 그라인딩 폭풍의 잔해 대부분이
+        // 한 장짜리라 물리 몸·틱 리스너·브로드페이즈 항목이 통째로 안 생긴다.
+        // 대가(의도된 것): 이 조각은 더 못 쏘고, 못 갈고, 배를 못 민다. 들고 있던 후면
+        // 칸도 같이 사라진다. 수명이 틱이 아니라 초 단위인 것도 그래서 무해하다 -
+        // 아무와도 상호작용하지 않는 것의 소멸 시각은 시뮬레이션에 안 보인다.
+        if (chunk.Count <= Ballistics.VisualDebrisMaxPlates)
+        {
+            foreach (Collider2D col in go.GetComponentsInChildren<Collider2D>())
+                col.enabled = false;
+
+            Destroy(go, Ballistics.DebrisLifeTick * Core.TickManager.TickDeltaTime);
+
+            debris = go;
+            return true;
+        }
 
         // 순서가 중요하다. Hulk.Awake가 HullStructure를 찾으므로 구조가 먼저 있어야 한다.
         go.AddComponent<HullStructure>().Adopt(_map, chunk, owned, _breakawaySpeed, _designMap, _shipHullPng);

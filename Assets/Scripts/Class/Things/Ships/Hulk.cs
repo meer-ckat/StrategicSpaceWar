@@ -86,8 +86,10 @@ public class Hulk : Thing
         _structure?.TrySplitIfBroken();
         Ram();
 
-        // 판이 하나도 안 남았으면 빈 리지드바디만 떠다니는 셈이다
-        if (GetComponentInChildren<Armor>() == null)
+        // 판이 하나도 안 남았으면 빈 리지드바디만 떠다니는 셈이다. 자식 트리를 매 틱
+        // 뒤지지 않는다 - HullStructure가 이미 살아 있는 칸 장부(_alive)를 정확히 든다.
+        // 운석(씬 배치)은 Awake의 Build가, 잔해는 Adopt가 채우므로 두 출신 다 성립한다.
+        if (_structure == null || _structure.AliveCount == 0)
         {
             Destroy(gameObject);
             return;
@@ -97,13 +99,18 @@ public class Hulk : Thing
             Destroy(gameObject);
     }
 
+    private Rigidbody2D _body;
+
     /// <summary>
     /// 덩어리도 부딪히면 부순다. 이게 없으면 운석이 체력 무한인 벽이라, 들이받은 함선만
     /// 일방적으로 갈려나간다. 함선과 같은 규칙 - 충돌 콜백 없이 매 틱 앞을 쓴다.
     /// </summary>
     private void Ram()
     {
-        if (TryGetComponent(out Rigidbody2D body))
-            RamImpact.Punch(transform, body, Vector2.zero);
+        if (_body == null)
+            TryGetComponent(out _body);
+
+        if (_body != null)
+            RamImpact.Punch(transform, _body, Vector2.zero);
     }
 }

@@ -115,7 +115,11 @@ public static class RamImpact
         // 접선속도가 7.9 m/s다 - RamMinSpeed보다 큰데 지금까지 0으로 세어졌다.
         float omega = body.angularVelocity * Mathf.Deg2Rad;      // rad/s
         Vector2 centre = body.worldCenterOfMass;
-        float rMax = FarthestReach(body, centre, out Vector2 farPoint);
+
+        // 반경은 캐시다. 매 틱 콜라이더 300개의 bounds를 다시 재는 게 잔해 구름의 틱
+        // 비용 대부분이었다. 상한이라 스윕이 약간 길 수 있는데, 아래 접점별 점속도 필터가
+        // 초과분을 걸러내므로 부술 판은 같다.
+        float rMax = CachedRadius(body);
 
         // 이번 틱에 이 몸의 **어느 점이든** 나아갈 수 있는 최대 거리. 스윕 길이의 상한이다.
         float reach = speed + Mathf.Abs(omega) * rMax;
@@ -130,7 +134,12 @@ public static class RamImpact
         if (speed > 1e-3f)
             dir = velocity / speed;
         else if (Mathf.Abs(omega) * rMax > 1e-3f)
+        {
+            // 제자리 회전일 때만 정확한 최원점이 필요하다. 이 분기는 희귀해서 여기서만
+            // 전체 콜라이더를 돈다.
+            FarthestReach(body, centre, out Vector2 farPoint);
             dir = (Ballistics.Rotate(farPoint - centre, 90f) * Mathf.Sign(omega)).normalized;
+        }
         else
             dir = thrust.normalized;
 
@@ -153,7 +162,18 @@ public static class RamImpact
         // 다 못 치운 나머지가 동시 접촉으로 배를 튕겨낸다.
         float lead = dt * Ballistics.RamLookahead;
         float step = reach * lead + Ballistics.RamSkin;
-        int n = body.Cast(dir, _punch, step);
+
+        // 사거리 안에 남의 몸이 없으면 스윕할 것도 없다. 부술 수 있는 것(Armor)은 전부
+        // HullStructure의 몸에 붙어 있으므로 후보는 All 목록뿐이다 - 포격전 거리에서는
+        // 충각이 이 float 비교 몇 번으로 끝난다.
+        if (!GatherNearBodies(body, centre, rMax + step))
+            return;
+
+        // body.Cast는 내 콜라이더 300개를 **전부** 스윕한다(ColliderCastAll). 이번 틱에
+        // 닿을 수 있는 건 남의 몸 반경 + step 안에 있는 앞면 몇 장뿐이라, 그것만 골라
+        // 하나씩 캐스트하고 거리순으로 합친다 - 아래 루프의 "거리순으로 온다" 가정이
+        // 이 정렬로 유지된다.
+        int n = SweepNearColliders(body, dir, step);
 
         if (n == 0)
             return;
@@ -365,6 +385,207 @@ public static class RamImpact
     /// 크게 나오는 쪽이 안전하다 - 이 값은 스윕 **상한**일 뿐이고, 실제로 어느 판이 닿는지는
     /// 점마다 v + ω x r로 다시 거른다.
     /// </summary>
+    /// <summary>
+    /// 몸의 도달 반경 캐시. 값은 콜라이더마다 "피벗까지 거리 + 피벗에서 AABB 중심까지 +
+    /// AABB 반대각"의 최대 - 진짜 도달거리의 **자세 불변 상한**이다. 세 항 모두 어느
+    /// 자세에서 재도 상한이 유지된다: 피벗(콜라이더 transform)은 몸에 강체로 붙어 있어
+    /// 중심거리가 불변이고, AABB 중심-피벗 거리는 콜라이더 offset의 크기라 불변이고,
+    /// AABB 반대각은 정렬 상태가 최소다. **bounds.center-질량중심으로 재면 안 된다** -
+    /// 포탑은 매 틱 자기 피벗 중심으로 도는데 offset이 있어서 bounds.center가 움직이고,
+    /// 콜라이더 수는 그대로라 캐시가 상한 노릇을 못 하게 된다.
+    ///
+    /// 콜라이더 **수**가 변하면(판 사망·파단·잔해 입양) 다시 잰다. 수리는 HP만 돌리고
+    /// 콜라이더를 안 만드니 수가 안 변하고, 그래서 캐시가 안 썩는다.
+    /// </summary>
+    private static readonly Dictionary<Rigidbody2D, (int count, float radius)> _reachCache = new();
+    private static readonly List<Rigidbody2D> _pruneScratch = new();
+    private static long _pruneTick = -1;
+
+    private static float CachedRadius(Rigidbody2D body)
+    {
+        int count = body.attachedColliderCount;
+
+        if (_reachCache.TryGetValue(body, out (int count, float radius) hit))
+        {
+            if (hit.count == count)
+                return hit.radius;
+
+            // 콜라이더가 **줄었으면** 재측정하지 않는다. 판 사망·파단은 반경을 늘리지
+            // 못하므로 기존 값이 여전히 유효한 상한이고, 그라인딩 중에는 거의 매 틱
+            // 판이 죽어서 여기서 재측정하면 캐시가 캐시 노릇을 못 한다. 실제 판정은
+            // 접점별 점속도 필터가 하니 헐거운 상한은 스윕만 약간 길게 할 뿐이다.
+            if (hit.count > count)
+            {
+                _reachCache[body] = (count, hit.radius);
+                return hit.radius;
+            }
+        }
+
+        // 죽은 몸의 항목은 넘칠 때만, 죽은 키만 걷어낸다. 통째로 Clear하면 잔해가 512개를
+        // 넘는 구름(정확히 이 캐시가 겨냥한 장면)에서 미스마다 전원 재측정하는 스래싱이 된다.
+        // 걷어내기는 틱당 1회 - 산 몸이 진짜로 상한을 넘으면 사전이 자라게 두는 쪽이 싸다.
+        if (_reachCache.Count > 1024 && _pruneTick != Core.TickManager.currentTick)
+        {
+            _pruneTick = Core.TickManager.currentTick;
+            _pruneScratch.Clear();
+
+            foreach (KeyValuePair<Rigidbody2D, (int count, float radius)> pair in _reachCache)
+            {
+                if (pair.Key == null)
+                    _pruneScratch.Add(pair.Key);
+            }
+
+            for (int i = 0; i < _pruneScratch.Count; i++)
+                _reachCache.Remove(_pruneScratch[i]);
+        }
+
+        Vector2 centre = body.worldCenterOfMass;
+        int n = body.GetAttachedColliders(_attached);
+        float best = 0f;
+
+        for (int i = 0; i < n; i++)
+        {
+            Collider2D c = _attached[i];
+
+            if (c == null || !c.enabled)
+                continue;
+
+            Bounds b = c.bounds;
+            Vector2 pivot = c.transform.position;
+
+            float r = (pivot - centre).magnitude
+                + ((Vector2)b.center - pivot).magnitude
+                + ((Vector2)b.extents).magnitude;
+
+            if (r > best)
+                best = r;
+        }
+
+        _reachCache[body] = (count, best);
+        return best;
+    }
+
+    /// <summary>
+    /// 이번 틱의 (몸, 중심, 반경) 스냅샷. Punch는 몸마다 매 틱 도는데, 각자
+    /// HullStructure.All 전체에 worldCenterOfMass·CachedRadius(네이티브)를 물으면
+    /// 잔해 N개 구름에서 O(N²) 네이티브 호출이 된다 - 그라인딩 지속 렉의 최대 단일 원인.
+    /// 틱 안에서는 Simulate가 한 번뿐이라 위치가 안 변하므로 첫 호출자가 지은 것을
+    /// 전원이 재사용해도 결과가 같다. 같은 틱에 태어난 잔해가 다음 틱까지 안 보이는
+    /// 창이 생기지만, 그 창은 지금도 OnTick 순회 순서로 이미 존재한다.
+    /// </summary>
+    private static readonly List<(Rigidbody2D body, Vector2 centre, float radius)> _bodySnapshot = new();
+    private static long _snapshotTick = -1;
+
+    private static void RefreshBodySnapshot()
+    {
+        if (_snapshotTick == Core.TickManager.currentTick)
+            return;
+
+        _snapshotTick = Core.TickManager.currentTick;
+        _bodySnapshot.Clear();
+
+        List<HullStructure> all = HullStructure.All;
+
+        for (int i = 0; i < all.Count; i++)
+        {
+            HullStructure other = all[i];
+
+            if (other == null)
+                continue;
+
+            Rigidbody2D otherBody = other.Body;
+
+            if (otherBody == null)
+                continue;
+
+            _bodySnapshot.Add((otherBody, otherBody.worldCenterOfMass, CachedRadius(otherBody)));
+        }
+    }
+
+    /// <summary>
+    /// 내 사거리 + 상대 반경 안의 남의 몸을 모아 둔다. Cast의 브로드페이즈이자,
+    /// <see cref="SweepNearColliders"/>가 콜라이더를 고르는 기준이다. 비었으면 false.
+    /// </summary>
+    private static readonly List<(Vector2 centre, float radius)> _nearBodies = new();
+
+    private static bool GatherNearBodies(Rigidbody2D self, Vector2 centre, float range)
+    {
+        RefreshBodySnapshot();
+
+        _nearBodies.Clear();
+
+        for (int i = 0; i < _bodySnapshot.Count; i++)
+        {
+            (Rigidbody2D otherBody, Vector2 at, float radius) = _bodySnapshot[i];
+
+            if (otherBody == self)
+                continue;
+
+            float r = range + radius;
+
+            if ((at - centre).sqrMagnitude <= r * r)
+                _nearBodies.Add((at, radius));
+        }
+
+        return _nearBodies.Count > 0;
+    }
+
+    private static readonly RaycastHit2D[] _castHits = new RaycastHit2D[128];
+
+    private sealed class HitDistance : System.Collections.Generic.IComparer<RaycastHit2D>
+    {
+        public int Compare(RaycastHit2D a, RaycastHit2D b) => a.distance.CompareTo(b.distance);
+    }
+
+    private static readonly HitDistance _byDistance = new();
+
+    /// <summary>
+    /// 남의 몸 근처에 있는 콜라이더만 골라 스윕한다. 판 300장짜리 배가 갈고 있어도
+    /// 실제로 캐스트되는 건 접촉면의 몇십 장이다. 결과는 거리순 - body.Cast가 주던
+    /// 순서를 정렬로 복원한다.
+    /// </summary>
+    private static int SweepNearColliders(Rigidbody2D body, Vector2 dir, float step)
+    {
+        int attached = body.GetAttachedColliders(_attached);
+        int n = 0;
+
+        for (int i = 0; i < attached; i++)
+        {
+            Collider2D c = _attached[i];
+
+            if (c == null || !c.enabled)
+                continue;
+
+            Bounds b = c.bounds;
+            float mine = ((Vector2)b.extents).magnitude + step;
+            bool near = false;
+
+            for (int k = 0; k < _nearBodies.Count; k++)
+            {
+                float r = _nearBodies[k].radius + mine;
+
+                if (((Vector2)b.center - _nearBodies[k].centre).sqrMagnitude <= r * r)
+                {
+                    near = true;
+                    break;
+                }
+            }
+
+            if (!near)
+                continue;
+
+            int hits = c.Cast(dir, _castHits, step, ignoreSiblingColliders: true);
+
+            for (int h = 0; h < hits && n < _punch.Length; h++)
+                _punch[n++] = _castHits[h];
+        }
+
+        if (n > 1)
+            System.Array.Sort(_punch, 0, n, _byDistance);
+
+        return n;
+    }
+
     private static float FarthestReach(Rigidbody2D body, Vector2 centre, out Vector2 farPoint)
     {
         farPoint = centre;

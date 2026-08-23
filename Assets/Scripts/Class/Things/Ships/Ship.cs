@@ -145,6 +145,36 @@ public partial class Ship : Thing
     [NonSerialized] private Texture2D shipHullPng;
     public Texture2D ShipHullPng => shipHullPng;
 
+    /// <summary>
+    /// 배 그림의 픽셀 사본. ArmorSkin이 판마다 굽는 자리에서 GetPixelBilinear를 픽셀당
+    /// 한 번씩 부르면 그것만으로 소환 스파이크가 난다 - 함선당 한 번만 뽑아 두고 나눠 쓴다.
+    /// 사본은 **텍스처 단위 정적 공유다** - destroyer급 사본이 ~37MB라, 같은 그림을 쓰는
+    /// 배 두 척이 각자 뽑으면 그 메가바이트가 소환 프레임에 두 번 할당된다.
+    /// </summary>
+    [NonSerialized] private Color32[] _hullPixels;
+    private static readonly Dictionary<Texture2D, Color32[]> _hullPixelsShared = new();
+
+    public Color32[] HullPixels
+    {
+        get
+        {
+            if (_hullPixels == null && shipHullPng != null)
+            {
+                if (!_hullPixelsShared.TryGetValue(shipHullPng, out _hullPixels) || _hullPixels == null)
+                    _hullPixelsShared[shipHullPng] = _hullPixels = shipHullPng.GetPixels32();
+            }
+
+            return _hullPixels;
+        }
+    }
+
+    /// <summary>
+    /// 그림 파일명 -> 디코드된 텍스처. PNG 동기 디코드(수십 ms)가 함선 소환마다 나가던 것을
+    /// 그림당 한 번으로 줄인다. 설계도 그림은 런타임 불변이라 안 썩고, 종류가 몇 개 안 돼서
+    /// 런 끝까지 들고 있어도 된다 - 그래서 개별 함선이 OnDestroy에서 지우면 **안 된다**.
+    /// </summary>
+    private static readonly Dictionary<string, Texture2D> _hullSkinShared = new();
+
     protected override void Awake()
     {
         base.Awake();
@@ -187,17 +217,36 @@ public partial class Ship : Thing
         if(design!=null&&!string.IsNullOrEmpty(design.hullSkin))
         {
             try{
-                
-                byte[] bytes = File.ReadAllBytes(ShipDef.SkinPathOf(design.hullSkin));
-                shipHullPng = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                bool ok = shipHullPng.LoadImage(bytes);
-                if(!ok)
+
+                // 같은 그림은 한 번만 디코드한다. 아군·적군이 같은 급이면 소환 프레임에
+                // 같은 PNG를 두 번 디코드하고 있었다.
+                if (_hullSkinShared.TryGetValue(design.hullSkin, out Texture2D shared) && shared != null)
                 {
-                    Destroy(shipHullPng);
-                    shipHullPng = null;
-                    Debug.LogAssertion("I'm not fucking ok. IM NOT FUCKING OK. FIX. I couldnt load the image, and i fired from cpu. fuck it.");
+                    shipHullPng = shared;
                 }
-                
+                else
+                {
+                    byte[] bytes = File.ReadAllBytes(ShipDef.SkinPathOf(design.hullSkin));
+                    shipHullPng = new Texture2D(2, 2, TextureFormat.RGBA32, false)
+                    {
+                        // 기본 Repeat면 최외곽 판의 가장자리 샘플이 반대편 색과 섞인다.
+                        // ArmorSkin의 수제 쌍선형과 BackPlateView의 GetPixelBilinear가 같은
+                        // 가장자리 규칙(clamp)을 쓰게 여기서 못 박는다.
+                        wrapMode = TextureWrapMode.Clamp,
+                    };
+                    bool ok = shipHullPng.LoadImage(bytes);
+                    if(!ok)
+                    {
+                        Destroy(shipHullPng);
+                        shipHullPng = null;
+                        Debug.LogAssertion("I'm not fucking ok. IM NOT FUCKING OK. FIX. I couldnt load the image, and i fired from cpu. fuck it.");
+                    }
+                    else
+                    {
+                        _hullSkinShared[design.hullSkin] = shipHullPng;
+                    }
+                }
+
             }
             catch(Exception e)
             {
@@ -522,8 +571,11 @@ public partial class Ship : Thing
     /// Awake에 캐시해 둔 Ship 참조도 shipEngines 목록도 그대로 살아 있다. 그냥 두면
     /// 배가 100m 뒤에 떠 있는 엔진으로 계속 가속하고, 날아간 포탑이 본체 포수의 명령을 받는다.
     /// </summary>
+    // IsChildOf는 네이티브 한 번이다. GetComponentInParent<Ship>였을 때 이 한 줄이
+    // 매 틱 × (엔진+포탑+원자로+판) 만큼 관리 계층 탐색을 냈다. 잔해는 루트가 다른
+    // 오브젝트라 "아직 이 트리 소속"과 "아직 이 배 소속"이 동치다.
     public static bool StillAboard(Component part, Ship ship)
-        => part != null && ship != null && part.GetComponentInParent<Ship>() == ship;
+        => part != null && ship != null && part.transform.IsChildOf(ship.transform);
 
     /// <summary>
     /// 추력은 함체 방향과 무관하게 월드 축으로 작용한다. 자세는 Angle()이 따로 제어한다.
@@ -697,7 +749,8 @@ public partial class Ship : Thing
     protected override void OnDestroy()
     {
         base.OnDestroy();
-        Destroy(shipHullPng);
+        // shipHullPng는 안 지운다 - _hullSkinShared가 같은 그림의 다른 배와 공유하는
+        // 텍스처라, 지우면 살아 있는 배의 판 굽기가 죽은 텍스처를 읽는다.
     }
 
     /// <summary>
@@ -712,9 +765,20 @@ public partial class Ship : Thing
         && team != other.team
         && other.IsCombatEffective;   // 잔해는 표적이 아니다
 
+    // 틱스탬프 캐시. 자동 포탑 N문 + AI가 같은 틱에 같은 답을 각자 전수 스캔으로 다시
+    // 구하고 있었다. 틱 안에서는 입력(All 목록·위치·전투력)이 불변이라 언제 계산해도
+    // 같은 답이다 - 피해는 다음 틱의 Simulate/ITickLate에서 들어온다.
+    private long _hostileTick = -1;
+    private Ship _cachedHostile;
+
     /// <summary>DetectionDistance 안에서 가장 가까운 적. 없으면 null.</summary>
     public Ship NearestHostile()
     {
+        if (_hostileTick == Core.TickManager.currentTick)
+            return _cachedHostile;
+
+        _hostileTick = Core.TickManager.currentTick;
+
         Ship best = null;
         float bestSqr = DetectionDistance * DetectionDistance;
 
@@ -735,6 +799,7 @@ public partial class Ship : Thing
             best = other;
         }
 
+        _cachedHostile = best;
         return best;
     }
 
