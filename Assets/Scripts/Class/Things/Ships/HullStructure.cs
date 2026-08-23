@@ -160,6 +160,21 @@ public sealed class HullStructure : MonoBehaviour
         // 있던 틱에만 BFS"로 줄어든다. true 쪽은 그대로 BFS에 묻는다 - 보수적으로만 틀린다.
         if (ShipGrid.RemovalMightSplit(_alive, _map.width, _map.height, cell))
             _dirty = true;
+
+        RearDiesWithLastPlate();
+    }
+
+    /// <summary>
+    /// 판이 한 장도 안 남은 몸의 후면은 지탱할 것이 없다. 안 지우면 판이 전멸한 자리에
+    /// 뒷벽 그룹만 떠서 산다 - 콜라이더도 없어 쏠 수조차 없는 유령이다.
+    /// </summary>
+    private void RearDiesWithLastPlate()
+    {
+        if (_aliveCount > 0 || _rear.Count == 0)
+            return;
+
+        _rear.Clear();
+        RearVersion++;
     }
 
     private ShipGrid.Map _designMap;
@@ -980,6 +995,9 @@ public sealed class HullStructure : MonoBehaviour
             return false;
         }
 
+        // 이 조각이 마지막 판들을 데려갔으면 본체 후면도 여기서 죽는다.
+        RearDiesWithLastPlate();
+
         centre = sum / moved;
 
         // 배가 돌고 있었으면 그 자리의 접선 속도를 그대로 물려받는다. 안 그러면 회전 중에
@@ -1012,10 +1030,31 @@ public sealed class HullStructure : MonoBehaviour
         // 대가(의도된 것): 이 조각은 더 못 쏘고, 못 갈고, 배를 못 민다. 들고 있던 후면
         // 칸도 같이 사라진다. 수명이 틱이 아니라 초 단위인 것도 그래서 무해하다 -
         // 아무와도 상호작용하지 않는 것의 소멸 시각은 시뮬레이션에 안 보인다.
-        if (chunk.Count <= Ballistics.VisualDebrisMaxPlates)
+        // **맨판만 시각 잔해가 된다.** 판의 자식은 모듈뿐이므로(판만 격자에 도장을 찍는다
+        // 불변식의 짝) 자식이 있으면 포탑·탄약고가 실려 있다 - 유령으로 만들면 쏠 수 없는
+        // 산 모듈이 60초를 떠다닌다. 그런 조각은 정식 잔해로 간다.
+        bool bareOnly = chunk.Count <= Ballistics.VisualDebrisMaxPlates;
+
+        if (bareOnly)
+        {
+            foreach (Transform plate in go.transform)
+            {
+                if (plate.childCount > 0)
+                {
+                    bareOnly = false;
+                    break;
+                }
+            }
+        }
+
+        if (bareOnly)
         {
             foreach (Collider2D col in go.GetComponentsInChildren<Collider2D>())
                 col.enabled = false;
+
+            // 콜라이더가 없으면 질량중심이 몸 원점(= 본체가 있던 자리)에 남는다. 그러면
+            // 각속도가 판을 그 먼 점 주위로 공전시킨다 - 판 자리로 옮겨야 제자리에서 돈다.
+            body.centerOfMass = go.transform.InverseTransformPoint(centre);
 
             Destroy(go, Ballistics.DebrisLifeTick * Core.TickManager.TickDeltaTime);
 
