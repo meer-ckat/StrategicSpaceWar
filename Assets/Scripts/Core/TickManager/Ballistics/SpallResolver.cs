@@ -38,19 +38,34 @@ public static class SpallResolver
 
     private struct Event
     {
+        /// <summary>
+        /// 결정론 커밋 순서. 지금(순차 계산)은 발급 순서 그대로라 정렬이 항등이지만,
+        /// 계산이 IJobParallelFor로 나가면 워커 완료 순서가 아니라 **이 키 정렬**이
+        /// 커밋 순서다 - 스케줄링이 결과에 새는 문을 지금 닫아 둔다.
+        /// </summary>
+        public long orderKey;
+
         public Kind kind;
         public Armor armor;
         public IDamageable target;
         public Component targetBody;   // 파괴 검사와 DamageLog용
         public Vector2 at;             // Miss면 끝점, 아니면 명중점
         public float energy;
-        public int channel;            // Armor일 때 _channelPool 인덱스
+        public int channelOffset;      // Armor일 때 _channels의 시작 (길이 SubCount)
     }
 
     private static readonly Queue<Request> _requests = new();
     private static readonly List<Event> _events = new();
-    private static readonly List<float[]> _channelPool = new();
-    private static int _channelUsed;
+
+    // 채널 가중치는 이벤트별 배열이 아니라 **평면 버퍼 + offset**이다. 할당이 없고,
+    // NativeArray로 옮길 때 이 모양 그대로 간다.
+    private static float[] _channels = new float[Ballistics.SubCount * 64];
+    private static int _channelFloats;
+    private static readonly float[] _channelScratch = new float[Ballistics.SubCount];
+
+    private static long _sequence;
+    private static readonly System.Comparison<Event> _byOrder =
+        (a, b) => a.orderKey.CompareTo(b.orderKey);
 
     private static bool _pumping;
 
@@ -126,8 +141,10 @@ public static class SpallResolver
                 int generation = _requests.Peek().generation;
 
                 // ---- 계산: 이 세대 전부, 읽기 전용. 여기가 나중에 잡으로 나가는 몸통이다.
+                // 파편 예산(MaxFragmentsPerPump 류)을 넣게 되면 이 while의 조건에 얹는다 -
+                // 구조가 큐라 남은 요청은 다음 기회로 자연스럽게 밀린다.
                 _events.Clear();
-                _channelUsed = 0;
+                _channelFloats = 0;
 
                 using (_mBurst.Auto())
                 {
@@ -135,9 +152,11 @@ public static class SpallResolver
                         Compute(_requests.Dequeue());
                 }
 
-                // ---- 커밋: 큐 순서 그대로(= 결정론). 연쇄 Burst는 다음 세대로 큐에 쌓인다.
+                // ---- 커밋: orderKey 정렬(= 결정론). 지금은 발급 순서라 항등이지만, 계산이
+                // 병렬로 나가면 이 정렬이 커밋 순서의 유일한 근거다.
                 using (_mCommit.Auto())
                 {
+                    _events.Sort(_byOrder);
                     _commitGeneration = generation;
 
                     try
@@ -151,10 +170,9 @@ public static class SpallResolver
                     }
                 }
 
-                // wave 사이 스냅샷 갱신은 여기서 안 한다. 죽음의 깔때기(Armor가 콜라이더를
-                // 끄는 자리, 시각 잔해가 끄는 자리)가 TraceWorld.Invalidate()를 직접 부르고,
-                // 죽음이 없던 wave 뒤에는 멀쩡한 스냅샷을 공짜로 재사용한다. 포즈는 틱 안에서
-                // Simulate 때만 변하고 그 자리는 이미 무효화한다.
+                // wave가 끝나면 세계가 변했다고 가정한다(정확성 우선 - 죽음 추적 최적화는
+                // 프로파일러가 시키면 그때). 재굽기는 다음 Trace가 필요할 때만 lazy로 돈다.
+                TraceWorld.Invalidate();
             }
         }
         finally
@@ -231,7 +249,13 @@ public static class SpallResolver
                 // 앞판을 하나도 못 맞고 날아갔다는 것은 **가로막은 실물이 없었다**는
                 // 뜻이다. 그 끝에 반대편 벽이 있으면 거기 박힌다 - 후면은 콜라이더가
                 // 없어서 위 판정에는 애초에 안 잡힌다.
-                _events.Add(new Event { kind = Kind.Miss, at = far, energy = perFragment });
+                _events.Add(new Event
+                {
+                    orderKey = _sequence++,
+                    kind = Kind.Miss,
+                    at = far,
+                    energy = perFragment,
+                });
                 continue;
             }
 
@@ -243,19 +267,21 @@ public static class SpallResolver
 
                 // 파편도 선이다. 맞은 면의 칸에만 넣으면 6x6 격자의 테두리만 갉히고
                 // 안쪽은 영원히 멀쩡하다 - 파편은 언제나 표면에 닿으니까.
-                // 채널은 wave 시작 상태에서 계산해 복사해 둔다 - 커밋 순서와 무관하다.
-                float[] channel = RentChannel();
-
+                // 채널은 wave 시작 상태에서 계산해 평면 버퍼에 복사한다 - 커밋 순서와 무관하다.
                 armor.TraceChannel(
-                    hit.point, d, Ballistics.SpallChannelDepth, channel, out _);
+                    hit.point, d, Ballistics.SpallChannelDepth, _channelScratch, out _);
+
+                int offset = ReserveChannel();
+                System.Array.Copy(_channelScratch, 0, _channels, offset, Ballistics.SubCount);
 
                 _events.Add(new Event
                 {
+                    orderKey = _sequence++,
                     kind = Kind.Armor,
                     armor = armor,
                     at = hit.point,
                     energy = perFragment,
-                    channel = _channelUsed - 1,
+                    channelOffset = offset,
                 });
             }
             else if (col.TryGetComponent(out IDamageable target))
@@ -264,6 +290,7 @@ public static class SpallResolver
 
                 _events.Add(new Event
                 {
+                    orderKey = _sequence++,
                     kind = Kind.Module,
                     target = target,
                     targetBody = col,
@@ -293,7 +320,12 @@ public static class SpallResolver
 
             case Kind.Armor:
                 if (e.armor != null)
-                    e.armor.ApplyDamageAlong(_channelPool[e.channel], e.energy);
+                {
+                    // ApplyDamageAlong은 배열 처음부터 SubCount개를 읽으므로 평면 버퍼의
+                    // 조각을 스크래치로 꺼내 넘긴다. 커밋은 순차라 스크래치 하나면 된다.
+                    System.Array.Copy(_channels, e.channelOffset, _channelScratch, 0, Ballistics.SubCount);
+                    e.armor.ApplyDamageAlong(_channelScratch, e.energy);
+                }
                 break;
 
             case Kind.Module:
@@ -306,12 +338,14 @@ public static class SpallResolver
         }
     }
 
-    private static float[] RentChannel()
+    private static int ReserveChannel()
     {
-        if (_channelUsed == _channelPool.Count)
-            _channelPool.Add(new float[Ballistics.SubCount]);
+        if (_channelFloats + Ballistics.SubCount > _channels.Length)
+            System.Array.Resize(ref _channels, _channels.Length * 2);
 
-        return _channelPool[_channelUsed++];
+        int offset = _channelFloats;
+        _channelFloats += Ballistics.SubCount;
+        return offset;
     }
 
     private static RaycastHit2D Nearest(int count)
