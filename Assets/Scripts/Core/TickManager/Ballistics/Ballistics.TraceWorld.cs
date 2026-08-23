@@ -66,10 +66,14 @@ public static class TraceWorld
     /// OBB로 뜬다. 박스가 아닌 콜라이더는 못 뜨고 센다 - 대조에서 그 콜라이더에 맞은
     /// 레이는 "불일치"가 아니라 "미지원"으로 분류해야 억울한 로그가 안 쌓인다.
     /// </summary>
+    private static readonly Unity.Profiling.ProfilerMarker _mBuild = new("TraceWorld.Build");
+
     private static void BuildIfStale()
     {
         if (_builtTick == Core.TickManager.currentTick && _builtEpoch == _epoch)
             return;
+
+        using var _ = _mBuild.Auto();
 
         _builtTick = Core.TickManager.currentTick;
         _builtEpoch = _epoch;
