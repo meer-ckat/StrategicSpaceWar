@@ -55,8 +55,12 @@ public static class RamImpact
 
     // 접점마다 새로 만들면 한 번 부딪힐 때 최대 16쌍이 쓰레기가 된다. 충각은 난전에서
     // 매 틱 들어온다.
-    private static readonly Queue<Armor> _wave = new();
-    private static readonly HashSet<Armor> _reached = new();
+    // 평면 배열 + head/tail. 파면은 판마다 최대 한 번 입큐라 되감기가 필요 없고,
+    // Queue<T>의 버전 검사·용량 조정이 통째로 빠진다. 도달 표시는 Armor.ConductStamp
+    // 도장이라 집합 자체가 없어졌다 - 간선마다 해싱하던 것이 int 비교 하나가 된다.
+    private static Armor[] _wave = new Armor[1024];
+    private static int _conductStamp;
+
 
     // Ship.Ram self가 뭉쳐 보여서 가르는 마커. 릴리스에선 no-op.
     private static readonly Unity.Profiling.ProfilerMarker _mGather = new("Ram.Gather");
@@ -759,17 +763,20 @@ public static class RamImpact
         using var _ = _mConduct.Auto();
 
         bool nested = _conducting > 0;
-        Queue<Armor> wave = nested ? new Queue<Armor>() : _wave;
-        HashSet<Armor> reached = nested ? new HashSet<Armor>() : _reached;
+        Armor[] wave = nested ? new Armor[Mathf.Max(16, maxPlates + 8)] : _wave;
+        HashSet<Armor> reached = nested ? new HashSet<Armor>() : null;
+        int head = 0, tail = 0, reachedCount = 0;
 
-        if (!nested)
-        {
-            _wave.Clear();
-            _reached.Clear();
-        }
+        // 이번 파면의 도장 번호. 안 겹치면 지울 일이 없다.
+        int stamp = ++_conductStamp;
 
-        wave.Enqueue(origin);
-        reached.Add(origin);
+        wave[tail++] = origin;
+        reachedCount++;
+
+        if (nested)
+            reached.Add(origin);
+        else
+            origin.ConductStamp = stamp;
 
         // **간선 계산을 전부 배 로컬로.** 판의 CellLocal은 캐시(재부모화에도 불변)라
         // 간선마다 나가던 transform.position 네이티브 호출이 0이 된다. 축만 한 번
@@ -798,9 +805,9 @@ public static class RamImpact
 
         try
         {
-            while (wave.Count > 0 && reached.Count < maxPlates)
+            while (head < tail && reachedCount < maxPlates)
             {
-                Armor at = wave.Dequeue();
+                Armor at = wave[head++];
 
                 if (at == null)
                     continue;
@@ -809,7 +816,10 @@ public static class RamImpact
                 {
                     // == null: 이미 부서진 판. 부서진 자리로는 충격이 안 지나간다.
                     // SameBodyAs: 잔해로 갈라진 조각. 참조는 살아 있어도 이제 남의 몸이다.
-                    if (neighbour == null || !at.SameBodyAs(neighbour) || reached.Contains(neighbour))
+                    if (neighbour == null || !at.SameBodyAs(neighbour))
+                        continue;
+
+                    if (nested ? reached.Contains(neighbour) : neighbour.ConductStamp == stamp)
                         continue;
 
                     Vector2 offset = neighbour.CellLocal - pivot;
@@ -824,9 +834,25 @@ public static class RamImpact
                     if (share < cutoff)
                         continue;
 
-                    reached.Add(neighbour);
+                    if (nested)
+                        reached.Add(neighbour);
+                    else
+                        neighbour.ConductStamp = stamp;
+
+                    reachedCount++;
+
+                    // 파면은 판마다 한 번씩만 들어오지만, 상한을 넘어서까지 자라지는
+                    // 않게 정적 버퍼는 넉넉히 키운다.
+                    if (tail == wave.Length)
+                    {
+                        System.Array.Resize(ref wave, wave.Length * 2);
+
+                        if (!nested)
+                            _wave = wave;
+                    }
+
+                    wave[tail++] = neighbour;
                     neighbour.ApplyDamageEvenly(share);
-                    wave.Enqueue(neighbour);
                 }
             }
         }

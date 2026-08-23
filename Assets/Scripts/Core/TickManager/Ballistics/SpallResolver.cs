@@ -94,8 +94,21 @@ public static class SpallResolver
     }
 
     private static readonly Queue<Request> _requests = new();
-    private static readonly List<Request> _waveRequests = new();
-    private static readonly List<Event> _events = new();
+
+    // 이번 파면의 요청과 이벤트는 평면 배열 + 개수다. 구조체 List는 인덱서마다 경계
+    // 검사가 두 번이고 자랄 때 할당한다 - 여기는 파편 수백 개가 한 파면에 몰리는 자리다.
+    private static Request[] _waveRequests = new Request[64];
+    private static int _waveRequestCount;
+    private static Event[] _events = new Event[512];
+    private static int _eventCount;
+
+    private static void AddEvent(in Event e)
+    {
+        if (_eventCount == _events.Length)
+            System.Array.Resize(ref _events, _events.Length * 2);
+
+        _events[_eventCount++] = e;
+    }
 
     // 채널 가중치는 이벤트별 배열이 아니라 **평면 버퍼 + offset**이다. 할당이 없고,
     // NativeArray로 옮길 때 이 모양 그대로 간다.
@@ -104,8 +117,13 @@ public static class SpallResolver
     private static readonly float[] _channelScratch = new float[Ballistics.SubCount];
 
     private static long _sequence;
-    private static readonly System.Comparison<Event> _byOrder =
-        (a, b) => a.orderKey.CompareTo(b.orderKey);
+    /// <summary>Array.Sort용 캐시 인스턴스. Comparison 람다는 정렬마다 래퍼를 만든다.</summary>
+    private sealed class OrderKeyComparer : IComparer<Event>
+    {
+        public int Compare(Event a, Event b) => a.orderKey.CompareTo(b.orderKey);
+    }
+
+    private static readonly OrderKeyComparer _byOrder = new();
 
     private static bool _pumping;
     private static int _deferPumpDepth;
@@ -217,16 +235,19 @@ public static class SpallResolver
                 // ---- 계산: 이 세대 전부, 읽기 전용. 여기가 나중에 잡으로 나가는 몸통이다.
                 // 파편 예산(MaxFragmentsPerPump 류)을 넣게 되면 이 while의 조건에 얹는다 -
                 // 구조가 큐라 남은 요청은 다음 기회로 자연스럽게 밀린다.
-                _events.Clear();
+                _eventCount = 0;
                 _channelFloats = 0;
-                _waveRequests.Clear();
+                _waveRequestCount = 0;
 
                 int fragmentCount = 0;
 
                 while (_requests.Count > 0 && _requests.Peek().generation == generation)
                 {
                     Request request = _requests.Dequeue();
-                    _waveRequests.Add(request);
+                    if (_waveRequestCount == _waveRequests.Length)
+                        System.Array.Resize(ref _waveRequests, _waveRequests.Length * 2);
+
+                    _waveRequests[_waveRequestCount++] = request;
                     fragmentCount += request.count;
                 }
 
@@ -235,7 +256,7 @@ public static class SpallResolver
                     if (fragmentCount >= ParallelFragmentThreshold)
                         ComputeParallel(fragmentCount);
                     else
-                        for (int i = 0; i < _waveRequests.Count; i++)
+                        for (int i = 0; i < _waveRequestCount; i++)
                             Compute(_waveRequests[i]);
                 }
 
@@ -243,12 +264,12 @@ public static class SpallResolver
                 // 병렬로 나가면 이 정렬이 커밋 순서의 유일한 근거다.
                 using (_mCommit.Auto())
                 {
-                    _events.Sort(_byOrder);
+                    System.Array.Sort(_events, 0, _eventCount, _byOrder);
                     _commitGeneration = generation;
 
                     try
                     {
-                        for (int i = 0; i < _events.Count; i++)
+                        for (int i = 0; i < _eventCount; i++)
                             Commit(_events[i]);
                     }
                     finally
@@ -338,7 +359,7 @@ public static class SpallResolver
                 // 앞판을 하나도 못 맞고 날아갔다는 것은 **가로막은 실물이 없었다**는
                 // 뜻이다. 그 끝에 반대편 벽이 있으면 거기 박힌다 - 후면은 콜라이더가
                 // 없어서 위 판정에는 애초에 안 잡힌다.
-                _events.Add(new Event
+                AddEvent(new Event
                 {
                     orderKey = _sequence++,
                     kind = Kind.Miss,
@@ -363,7 +384,7 @@ public static class SpallResolver
                 int offset = ReserveChannel();
                 System.Array.Copy(_channelScratch, 0, _channels, offset, Ballistics.SubCount);
 
-                _events.Add(new Event
+                AddEvent(new Event
                 {
                     orderKey = _sequence++,
                     kind = Kind.Armor,
@@ -377,7 +398,7 @@ public static class SpallResolver
             {
                 SpallTrails.Add(fragmentStart, hit.point, SpallTrails.Kind.Module);
 
-                _events.Add(new Event
+                AddEvent(new Event
                 {
                     orderKey = _sequence++,
                     kind = Kind.Module,
@@ -414,7 +435,7 @@ public static class SpallResolver
         {
             int at = 0;
 
-            for (int r = 0; r < _waveRequests.Count; r++)
+            for (int r = 0; r < _waveRequestCount; r++)
             {
                 Request request = _waveRequests[r];
                 var rng = new DeterministicRng(request.seed);
@@ -594,7 +615,7 @@ public static class SpallResolver
         {
             Vector2 far = fragmentStart + d.normalized * input.range;
             SpallTrails.Add(fragmentStart, far, SpallTrails.Kind.Miss);
-            _events.Add(new Event
+            AddEvent(new Event
             {
                 orderKey = _sequence++,
                 kind = Kind.Miss,
@@ -614,7 +635,7 @@ public static class SpallResolver
 
             int offset = ReserveChannel();
             System.Array.Copy(_channelScratch, 0, _channels, offset, Ballistics.SubCount);
-            _events.Add(new Event
+            AddEvent(new Event
             {
                 orderKey = _sequence++,
                 kind = Kind.Armor,
@@ -627,7 +648,7 @@ public static class SpallResolver
         else if (col.TryGetComponent(out IDamageable target))
         {
             SpallTrails.Add(fragmentStart, hit.point, SpallTrails.Kind.Module);
-            _events.Add(new Event
+            AddEvent(new Event
             {
                 orderKey = _sequence++,
                 kind = Kind.Module,

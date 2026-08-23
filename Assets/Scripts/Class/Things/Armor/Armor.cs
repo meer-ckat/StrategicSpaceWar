@@ -360,6 +360,16 @@ public abstract class Armor : Thing
     /// </summary>
     [System.NonSerialized] public Transform CachedBody;
 
+    /// <summary>
+    /// 충격 전도 BFS의 방문 표시. **집합이 아니라 도장이다** - HashSet<Armor>는 간선마다
+    /// 해싱하고 자라면서 할당하는데, 그라인딩 중 Conduct는 틱마다 수백 간선을 돈다.
+    /// 파면마다 새 도장 번호를 쓰므로 지울 일이 없다(0은 "아직 아무 파면도 안 닿음").
+    ///
+    /// 재진입(유폭 연쇄)은 이 도장을 안 쓴다 - 안쪽 파면이 도장을 덮어쓰면 바깥 파면이
+    /// 이미 때린 판을 다시 때린다. 그때만 지역 집합으로 간다.
+    /// </summary>
+    [System.NonSerialized] public int ConductStamp;
+
     /// <summary>배 로컬 위치 캐시. Awake에서 한 번. 재부모화가 보존하는 값이라 안 썩는다.</summary>
     [System.NonSerialized] public Vector2 CellLocal;
 
