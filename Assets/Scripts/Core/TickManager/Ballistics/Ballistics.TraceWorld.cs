@@ -46,7 +46,16 @@ public static class TraceWorld
     private static Collider2D[] _colliders = new Collider2D[1024];
     private static int _count;
     private static long _builtTick = -1;
+    private static int _builtEpoch = -1;
+    private static int _epoch;
     private static int _skippedNonBox;
+
+    /// <summary>
+    /// 스냅샷 무효화. **Simulate 직후에 반드시 한 번** - 틱 시작에 뜬 스냅샷을 탄 페이즈에
+    /// 쓰면 배가 이동한 만큼(틱당 ~0.5 m) 전부 어긋난다. 대조에서 그대로 나온 패턴이다.
+    /// wave 커밋 뒤에도 부른다(2단계) - "wave 단위 스냅샷"이 이 한 줄로 성립한다.
+    /// </summary>
+    public static void Invalidate() => _epoch++;
 
     private static readonly Collider2D[] _attached = new Collider2D[1024];
 
@@ -57,10 +66,11 @@ public static class TraceWorld
     /// </summary>
     private static void BuildIfStale()
     {
-        if (_builtTick == Core.TickManager.currentTick)
+        if (_builtTick == Core.TickManager.currentTick && _builtEpoch == _epoch)
             return;
 
         _builtTick = Core.TickManager.currentTick;
+        _builtEpoch = _epoch;
         _count = 0;
         _skippedNonBox = 0;
 
@@ -218,6 +228,14 @@ public static class TraceWorld
             }
 
             if (tMin > tMax || tMin <= 0f || tMin >= best)
+                continue;
+
+            // 스냅샷 뜬 뒤 같은 페이즈 안에서 죽은 콜라이더(유폭 연쇄가 이 창을 상시로
+            // 연다) - Physics2D처럼 없는 것으로 친다. 네이티브 검사가 후보에게만 나가고,
+            // 2단계의 wave 스냅샷이 이 검사를 구조적으로 대체한다.
+            Collider2D live = _colliders[i];
+
+            if (live == null || !live.enabled)
                 continue;
 
             best = tMin;

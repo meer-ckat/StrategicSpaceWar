@@ -213,6 +213,10 @@ namespace Core
             Physics2D.Simulate(TickDeltaTime);
             _physicsMarker.End();
 
+            // 탄도 스냅샷은 여기서 낡는다. 안 알리면 램 페이즈에 뜬 판 위치를 탄 페이즈가
+            // 읽어서, 배가 이동한 만큼 전부 어긋난다.
+            TraceWorld.Invalidate();
+
             // 3. projectiles resolve against that settled snapshot
             _lateMarker.Begin();
             TickPhase(late: true);
