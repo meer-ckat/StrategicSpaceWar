@@ -125,8 +125,11 @@ namespace IMGUI
 
         public static GUILabel Label(string id, Rect rect, string text, GUIStyle style = null)
         {
-            GUILabel label = Get(id, () => new GUILabel(new GUIContent(text), rect, style));
+            Entry entry = Touch(id);
+            GUILabel label = Existing<GUILabel>(entry, id)
+                ?? Adopt(entry, new GUILabel(new GUIContent(text), rect, style));
 
+            Reset(label);
             label.Content.text = text;
             label.Rect = rect;
             label.Style = style;
@@ -135,8 +138,11 @@ namespace IMGUI
 
         public static GUIBoxLabel BoxLabel(string id, Rect rect, string text, GUIStyle style = null)
         {
-            GUIBoxLabel box = Get(id, () => new GUIBoxLabel(new GUIContent(text), rect, style));
+            Entry entry = Touch(id);
+            GUIBoxLabel box = Existing<GUIBoxLabel>(entry, id)
+                ?? Adopt(entry, new GUIBoxLabel(new GUIContent(text), rect, style));
 
+            Reset(box);
             box.Content.text = text;
             box.Rect = rect;
             box.Style = style;
@@ -147,8 +153,11 @@ namespace IMGUI
             string id, Rect rect, Texture texture,
             ScaleMode scaleMode = ScaleMode.StretchToFill, GUIStyle style = null)
         {
-            GUIImage image = Get(id, () => new GUIImage(texture, rect, scaleMode, style));
+            Entry entry = Touch(id);
+            GUIImage image = Existing<GUIImage>(entry, id)
+                ?? Adopt(entry, new GUIImage(texture, rect, scaleMode, style));
 
+            Reset(image);
             image.SetTexture(texture);
             image.Rect = rect;
             image.ScaleMode = scaleMode;
@@ -159,8 +168,11 @@ namespace IMGUI
             string id, Rect rect, Sprite sprite,
             ScaleMode scaleMode = ScaleMode.ScaleToFit, GUIStyle style = null)
         {
-            GUIImage image = Get(id, () => new GUIImage(sprite, rect, scaleMode, style));
+            Entry entry = Touch(id);
+            GUIImage image = Existing<GUIImage>(entry, id)
+                ?? Adopt(entry, new GUIImage(sprite, rect, scaleMode, style));
 
+            Reset(image);
             image.SetSprite(sprite);
             image.Rect = rect;
             image.ScaleMode = scaleMode;
@@ -182,17 +194,18 @@ namespace IMGUI
         public static bool Button(string id, Rect rect, string text, GUIStyle style = null)
         {
             Entry entry = Touch(id);
-            GUIButton button = Materialise(entry, id, () =>
-            {
-                // 클로저가 엔트리를 잡는다. 위젯이 걷히면 이 콜백도 같이 간다.
-                Entry captured = entry;
-                return new GUIButton(new GUIContent(text), rect,
-                    () => captured.pressed = true, style);
-            });
+            GUIButton button = Existing<GUIButton>(entry, id);
 
             if (button == null)
-                return false;
+            {
+                // 클로저가 엔트리를 잡는다. 위젯이 걷히면 이 콜백도 같이 간다.
+                // **미스일 때만 만들어진다** - 눌림 콜백은 위젯의 수명 것이지 프레임 것이 아니다.
+                Entry captured = entry;
+                button = Adopt(entry, new GUIButton(new GUIContent(text), rect,
+                    () => captured.pressed = true, style));
+            }
 
+            Reset(button);
             button.Content.text = text;
             button.Rect = rect;
             button.Style = style;
@@ -206,9 +219,11 @@ namespace IMGUI
         public static bool Toggle(string id, Rect rect, bool value, string text = "",
             GUIStyle style = null)
         {
-            GUIToggle toggle = Get(id,
-                () => new GUIToggle(new GUIContent(text), rect, value, null, style));
+            Entry entry = Touch(id);
+            GUIToggle toggle = Existing<GUIToggle>(entry, id)
+                ?? Adopt(entry, new GUIToggle(new GUIContent(text), rect, value, null, style));
 
+            Reset(toggle);
             toggle.Content.text = text;
             toggle.Rect = rect;
             toggle.Style = style;
@@ -218,9 +233,11 @@ namespace IMGUI
         public static float Slider(string id, Rect rect, float value, float min, float max,
             GUIStyle style = null, GUIStyle thumbStyle = null)
         {
-            GUISlider slider = Get(id,
-                () => new GUISlider(rect, value, min, max, null, style, thumbStyle));
+            Entry entry = Touch(id);
+            GUISlider slider = Existing<GUISlider>(entry, id)
+                ?? Adopt(entry, new GUISlider(rect, value, min, max, null, style, thumbStyle));
 
+            Reset(slider);
             slider.Rect = rect;
             slider.Min = min;
             slider.Max = max;
@@ -229,8 +246,11 @@ namespace IMGUI
 
         public static string TextField(string id, Rect rect, string value, GUIStyle style = null)
         {
-            GUITextField field = Get(id, () => new GUITextField(rect, value, null, style));
+            Entry entry = Touch(id);
+            GUITextField field = Existing<GUITextField>(entry, id)
+                ?? Adopt(entry, new GUITextField(rect, value, null, style));
 
+            Reset(field);
             field.Rect = rect;
             field.Style = style;
             return field.Value;
@@ -238,15 +258,37 @@ namespace IMGUI
 
         // -----------------------------------------------------------------
 
-        private static T Get<T>(string id, Func<T> make) where T : GUIItem
-            => Materialise(Touch(id), id, make);
-
-        private static T Materialise<T>(Entry entry, string id, Func<T> make) where T : GUIItem
+        /// <summary>
+        /// 캐시에 있으면 그것, 없으면 null. **팩토리 람다를 안 받는 것이 요점이다** -
+        /// 람다는 text·rect·style을 잡으므로 캐시 히트에도, 즉 위젯이 이미 있어서 만들
+        /// 일이 없어도 호출부에서 display class와 델리게이트가 할당된다. 즉시 모드라
+        /// 그 호출이 매 프레임이고 위젯 수만큼 곱해진다.
+        ///
+        /// 그래서 만드는 일은 호출부의 ?? 오른쪽에 둔다 - 미스일 때만 평가된다.
+        /// </summary>
+        private static T Existing<T>(Entry entry, string id) where T : GUIItem
         {
-            T item = Resolve(entry, id, make);
+            if (entry.item is T existing)
+                return existing;
 
-            Reset(item);
-            return item;
+            if (entry.item != null)
+            {
+                Debug.LogWarning(
+                    $"[ImGui] id '{id}'가 {entry.item.GetType().Name}였는데 {typeof(T).Name}로 " +
+                    "다시 선언됐다. 같은 id를 두 곳에서 쓰고 있지 않은지 볼 것.");
+
+                Retire(entry.item);
+                entry.pressed = false;
+            }
+
+            return null;
+        }
+
+        private static T Adopt<T>(Entry entry, T fresh) where T : GUIItem
+        {
+            entry.item = fresh;
+            GUIManager.Register(fresh);
+            return fresh;
         }
 
         /// <summary>
@@ -282,26 +324,6 @@ namespace IMGUI
         /// InvalidCastException이 나는데, 그건 대개 id 오타라 프레임 하나가 아니라
         /// 게임이 죽는다. 경고를 남기고 새 것으로 가는 편이 낫다.
         /// </summary>
-        private static T Resolve<T>(Entry entry, string id, Func<T> make) where T : GUIItem
-        {
-            if (entry.item is T existing)
-                return existing;
-
-            if (entry.item != null)
-            {
-                Debug.LogWarning(
-                    $"[ImGui] id '{id}'가 {entry.item.GetType().Name}였는데 {typeof(T).Name}로 " +
-                    "다시 선언됐다. 같은 id를 두 곳에서 쓰고 있지 않은지 볼 것.");
-
-                Retire(entry.item);
-                entry.pressed = false;
-            }
-
-            T fresh = make();
-            entry.item = fresh;
-            GUIManager.Register(fresh);
-            return fresh;
-        }
 
         /// <summary>이번 프레임에 선언됐다고 표시한다. 없으면 빈 자리만 만든다.</summary>
         private static Entry Touch(string id)

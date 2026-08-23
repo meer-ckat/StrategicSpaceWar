@@ -18,6 +18,20 @@ public class Dialogue
     /// <summary>즉시 모드 위젯 id. 같은 대사가 두 번 나와도 겹치지 않게 일련번호를 쓴다.</summary>
     public readonly string id;
 
+    /// <summary>
+    /// 위젯 조각마다의 id. **한 번 만들고 만다** - 즉시 모드는 매 프레임 같은 id로 다시
+    /// 선언하는 것이라, `id + "_plate"`를 선언부에 두면 대사 한 줄이 프레임마다 문자열
+    /// 여덟 개를 남긴다. 화면에 대사가 떠 있는 내내다.
+    /// </summary>
+    public readonly string idPlate;
+    public readonly string idAccent;
+    public readonly string idHeader;
+    public readonly string idMessage;
+    public readonly string idSystemPlate;
+    public readonly string idSystemAccent;
+    public readonly string idSystemHeader;
+    public readonly string idSystemMessage;
+
     public readonly string message;
     public readonly string author;
 
@@ -91,6 +105,14 @@ public class Dialogue
         float revealSpeed = 0f)
     {
         this.id = id;
+        idPlate = id + "_plate";
+        idAccent = id + "_accent";
+        idHeader = id + "_header";
+        idMessage = id + "_msg";
+        idSystemPlate = id + "_system_plate";
+        idSystemAccent = id + "_system_accent";
+        idSystemHeader = id + "_system_header";
+        idSystemMessage = id + "_system_msg";
         this.message = message;
         this.author = author;
         this.duration = duration;
@@ -948,7 +970,7 @@ public class StoryScriptManager : MonoBehaviour
         if (drawPlate)
         {
             GUIImage plate = ImGui.Image(
-                line.id + "_plate",
+                line.idPlate,
                 new Rect(
                     framePos - platePadding,
                     new Vector2(blockWidth + platePadding.x * 2f, blockHeight + platePadding.y * 2f)),
@@ -959,7 +981,7 @@ public class StoryScriptManager : MonoBehaviour
 
             float barWidth = accentWidth * presentation.accentScale;
             GUIImage accent = ImGui.Image(
-                line.id + "_accent",
+                line.idAccent,
                 new Rect(
                     new Vector2(framePos.x - platePadding.x, framePos.y - platePadding.y),
                     new Vector2(barWidth, blockHeight + platePadding.y * 2f)),
@@ -971,7 +993,7 @@ public class StoryScriptManager : MonoBehaviour
 
         // Header가 body보다 먼저 뜬다. 누가 말하는지 먼저 읽히는 것이 v2의 핵심이다.
         GUILabel header = ImGui.Label(
-            line.id + "_header",
+            line.idHeader,
             new Rect(textPos, new Vector2(blockWidth, headerHeight)),
             HeaderText(line, presentation),
             AuthorStyle());
@@ -981,7 +1003,7 @@ public class StoryScriptManager : MonoBehaviour
         header.RenderScale = Vector2.one * (1f + punch01 * authorPunchScale * line.intensity);
 
         GUILabel message = ImGui.Label(
-            line.id + "_msg",
+            line.idMessage,
             new Rect(
                 textPos + new Vector2(0f, headerHeight + headerBodyGap),
                 new Vector2(WidthForLane(lane), bodyHeight)),
@@ -1004,7 +1026,7 @@ public class StoryScriptManager : MonoBehaviour
         Vector2 framePos = line.pos + new Vector2(0f, -punch01 * 5f * line.intensity);
 
         GUIImage plate = ImGui.Image(
-            line.id + "_system_plate",
+            line.idSystemPlate,
             new Rect(
                 framePos - platePadding,
                 new Vector2(width + platePadding.x * 2f, blockHeight + platePadding.y * 2f)),
@@ -1014,7 +1036,7 @@ public class StoryScriptManager : MonoBehaviour
         plate.Opacity = line.alpha * frameFlicker;
 
         GUIImage top = ImGui.Image(
-            line.id + "_system_accent",
+            line.idSystemAccent,
             new Rect(
                 new Vector2(framePos.x - platePadding.x, framePos.y - platePadding.y),
                 new Vector2(width + platePadding.x * 2f, 2f)),
@@ -1024,7 +1046,7 @@ public class StoryScriptManager : MonoBehaviour
         top.Opacity = line.alpha;
 
         GUILabel header = ImGui.Label(
-            line.id + "_system_header",
+            line.idSystemHeader,
             new Rect(framePos, new Vector2(width, headerHeight)),
             "SYSTEM // PRIORITY STATUS",
             AuthorStyle());
@@ -1033,7 +1055,7 @@ public class StoryScriptManager : MonoBehaviour
         header.Opacity = line.alpha;
 
         GUILabel message = ImGui.Label(
-            line.id + "_system_msg",
+            line.idSystemMessage,
             new Rect(
                 framePos + new Vector2(0f, headerHeight + headerBodyGap),
                 new Vector2(width, bodyHeight)),
@@ -1783,6 +1805,26 @@ public class StoryScriptManager : MonoBehaviour
 
 
 
+    /// <summary>
+    /// 패턴 행 위젯 id. **미리 만들어 둔다** - 즉시 모드라 이 선언이 매 프레임 도는데,
+    /// 보간 문자열을 그 자리에 두면 행 수만큼 문자열이 프레임마다 새로 태어난다.
+    /// row는 -2부터 시작하므로 두 칸 밀어 담는다.
+    /// </summary>
+    private static string[] _patternRowIds = System.Array.Empty<string>();
+
+    private static string PatternRowId(int row)
+    {
+        int index = row + 2;
+
+        if (index >= _patternRowIds.Length)
+        {
+            int size = Mathf.Max(16, index + 1);
+            System.Array.Resize(ref _patternRowIds, size);
+        }
+
+        return _patternRowIds[index] ??= $"comm_pattern_{row}";
+    }
+
     private void DrawCommunicationPattern(float alpha)
     {
         EnsurePatternLine();
@@ -1806,7 +1848,7 @@ public class StoryScriptManager : MonoBehaviour
                 row * patternDiagonalOffset;
 
             GUILabel bg = ImGui.Label(
-                $"comm_pattern_{row}",
+                PatternRowId(row),
                 new Rect(
                     new Vector2(x, y),
                     new Vector2(width + patternStartXPadding * 2f, patternRowHeight)
