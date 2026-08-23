@@ -16,6 +16,9 @@ Shader "SUPERRADIANCE/PlateSkin"
         _MaskTex("Mask", 2D) = "white" {}                 // URP 2D 라이팅 마스크 규약
         _HullTex("Hull Art", 2D) = "white" {}
         _DamageMask("Damage Mask", 2D) = "white" {}       // 6x6 R8, 서브셀 HP
+        _ShapeMask("Shape Mask", 2D) = "white" {}         // 폴리곤 판 실루엣. InsideShape의 캐시
+        _ShapeScale("Shape Scale", Vector) = (1,1,0,0)
+        _HasShape("Has Shape", Float) = 0
         _LocalMin("Local Min(xy) / UVToLocal(zw)", Vector) = (0,0,1,1)
         _Rect("Centre(xy) / Half(zw)", Vector) = (0,0,0.5,0.5)
         _Cell("Cell Offset(xy) / Size(zw)", Vector) = (0,0,1,1)
@@ -83,6 +86,8 @@ Shader "SUPERRADIANCE/PlateSkin"
             SAMPLER(sampler_HullTex);
             TEXTURE2D(_DamageMask);
             SAMPLER(sampler_DamageMask);
+            TEXTURE2D(_ShapeMask);
+            SAMPLER(sampler_ShapeMask);
 
             half4 _Color;
             half4 _Damaged;
@@ -93,8 +98,10 @@ Shader "SUPERRADIANCE/PlateSkin"
             float4 _HullA;
             float4 _HullB;
             float4 _GrainSeed;
+            float4 _ShapeScale;
             float _ErodeBelow;
             float _HasHull;
+            float _HasShape;
             float _GrainPpu;
 
             #if USE_SHAPE_LIGHT_TYPE_0
@@ -136,6 +143,15 @@ Shader "SUPERRADIANCE/PlateSkin"
                 // 콜라이더 사각형 밖 - 쿼드가 픽셀 반올림만큼 넓어서 여기서 자른다
                 if (abs(local.x - _Rect.x) > _Rect.z || abs(local.y - _Rect.y) > _Rect.w)
                     discard;
+
+                // 판의 실물 모양(폴리곤 판만). Armor.InsideShape를 구운 마스크다.
+                if (_HasShape > 0.5)
+                {
+                    float2 shapeUV = (local - _LocalMin.xy) * _ShapeScale.xy;
+
+                    if (SAMPLE_TEXTURE2D(_ShapeMask, sampler_ShapeMask, shapeUV).r < 0.5)
+                        discard;
+                }
 
                 // 서브셀. Ballistics.SubIndex와 같은 수식(경계 clamp 포함)
                 float2 subUV = saturate((local - _Cell.xy) / _Cell.zw + 0.5);

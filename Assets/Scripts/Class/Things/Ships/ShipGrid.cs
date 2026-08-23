@@ -17,7 +17,12 @@ public static class ShipGrid
     /// <see cref="MarkExterior"/>가 남은 칸을 우주와 실내로 가른다. 기본값이 Exterior면
     /// "아직 안 정해진 칸"과 "우주"가 구분되지 않아 flood가 자기 결과를 다시 읽는다.
     /// </summary>
-    public enum Cell { Unset, Exterior, Wall, Empty, Door }
+    /// <remarks>
+    /// Vent는 "실물인데 밀폐하지 않는 칸"이다. def의 <c>sealsRoom: false</c>가 여기로
+    /// 온다 - 안테나·마스트·노즐처럼 선체 밖으로 튀어나온 구조물. 판으로 붙어 있으므로
+    /// 맞고, 끊기고, 잔해가 된다. 장식 레이어로 뺐으면 하나도 못 하는 일이다.
+    /// </remarks>
+    public enum Cell { Unset, Exterior, Wall, Empty, Door, Vent }
 
     public class Map
     {
@@ -75,13 +80,34 @@ public static class ShipGrid
 
     /// <summary>공기가 다니는 칸. 엔진은 이제 벽에 붙은 모듈이라 격자에 아예 안 나온다.</summary>
     public static bool Passable(Cell c) => c == Cell.Empty;
-    public static bool BackPlate(Cell c) => c != Cell.Exterior;
+    /// <summary>
+    /// 뒤에 후면 판이 깔리는 칸. Vent가 빠지는 것은 그 칸이 선체 안쪽이 아니라 우주에
+    /// 튀어나온 자리이기 때문이다. 넣어두면 안테나 뒤에 보이지 않는 장갑이 생기고,
+    /// 증상은 "안테나가 이상하게 단단하다"뿐이라 원인이 안 보인다.
+    /// </summary>
+    public static bool BackPlate(Cell c) => c != Cell.Exterior && c != Cell.Vent;
 
     /// <summary>
-    /// 하중을 받는 칸. 공기가 다니는 그래프(Passable)와 정반대인 것이 요점이다 -
-    /// 방은 빈 칸으로 이어지고, 선체는 실물로 이어진다.
+    /// 하중을 받는 칸. 방은 빈 칸으로 이어지고 선체는 실물로 이어진다.
+    ///
+    /// **"실물이 있다"와 "공기를 막는다"는 다른 질문이다.** 예전에는 이 하나가 둘 다에
+    /// 답했는데, <see cref="Cell.Vent"/>가 그 둘을 갈랐다 - 안테나는 실물이지만 밀폐하지
+    /// 않는다. 공기 쪽은 <see cref="Airtight"/>가 답한다.
     /// </summary>
-    public static bool Solid(Cell c) => c == Cell.Wall || c == Cell.Door;
+    public static bool Solid(Cell c) => c == Cell.Wall || c == Cell.Door || c == Cell.Vent;
+
+    /// <summary>
+    /// 공기를 막는 칸. <see cref="MarkExterior"/>의 flood **두 자리**만 이걸 본다.
+    ///
+    /// Vent를 그냥 <see cref="Solid"/>에서 빼면 안 되는 이유가 이 함수가 존재하는 이유다.
+    /// Solid는 flood 말고도 <see cref="HullStructure"/>의 살아 있는 칸 장부와 판 소실
+    /// 처리를 먹인다. Vent를 거기서 빼면 안테나가 구조 BFS에 안 들어와서 **쏴도 안 끊기고**,
+    /// 게다가 MarkExterior의 마지막 칠하기 루프가 Solid로 걸러내므로 Vent 칸이 통째로
+    /// Exterior로 덮어써진다 - 값이 태어나자마자 지워져서 기능이 조용히 0이 된다.
+    ///
+    /// 그래서 칠하기 루프는 Solid를 그대로 쓴다. **Airtight로 바꾸면 안 된다.**
+    /// </summary>
+    public static bool Airtight(Cell c) => Solid(c) && c != Cell.Vent;
 
     /// <summary>
     /// Wall/Door가 다 찍힌 맵에서 나머지 칸을 우주와 실내로 가른다.
@@ -109,7 +135,8 @@ public static class ShipGrid
         {
             bool border = col == 0 || row == 0 || col == w - 1 || row == h - 1;
 
-            if (!border || Solid(map.cells[col, row]) || outside[row * w + col])
+            // flood 두 자리는 Airtight다 - Vent(밀폐 안 하는 실물)는 공기가 지나간다.
+            if (!border || Airtight(map.cells[col, row]) || outside[row * w + col])
                 continue;
 
             outside[row * w + col] = true;
@@ -132,7 +159,7 @@ public static class ShipGrid
 
                 int ni = nr * w + nc;
 
-                if (outside[ni] || Solid(map.cells[nc, nr]))
+                if (outside[ni] || Airtight(map.cells[nc, nr]))
                     continue;
 
                 outside[ni] = true;

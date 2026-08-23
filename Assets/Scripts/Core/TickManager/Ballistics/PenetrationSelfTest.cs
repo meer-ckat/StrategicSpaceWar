@@ -19,6 +19,8 @@ public static class PenetrationSelfTest
         _pass = 0;
         _fail = 0;
 
+        PolygonTests();
+
         Vector2 head = Vector2.down;   // straight into an upward-facing plate
 
         // 0deg, 3x penetration -> clean pass-through
@@ -522,6 +524,97 @@ public static class PenetrationSelfTest
         s.normal[0] = n0; s.rha[0] = rha0;
         s.normal[1] = n1; s.rha[1] = rha1;
         return s;
+    }
+
+    /// <summary>
+    /// 폴리곤 넓이 클리핑. **오목한 모양이 핵심이다** - Sutherland-Hodgman은 볼록 창으로
+    /// 자르지만 원본이 오목하면 잘린 결과에 잇는 변이 생긴다. 신발끈 공식이 그 겹침을
+    /// 부호로 상쇄한다는 것이 이 검사가 지키는 전제이고, 그게 깨지면 증상은 "이 판이
+    /// 왜 이렇게 약하지"다 - 서브셀 잠김 비율이 조용히 틀린다.
+    /// </summary>
+    private static void PolygonTests()
+    {
+        // 2x2에서 오른쪽 위 1x1을 도려낸 L자. 넓이 3.
+        var l = new[]
+        {
+            new Vector2(0f, 0f), new Vector2(2f, 0f), new Vector2(2f, 1f),
+            new Vector2(1f, 1f), new Vector2(1f, 2f), new Vector2(0f, 2f),
+        };
+
+        Near("L 전체 넓이", Ballistics.PolygonArea(l), 3f);
+
+        // 칸별로 자른 합이 전체와 같아야 한다. 직선을 칸마다 조각내는 저작 도구가
+        // 기대는 성질이 정확히 이것이다 - 조각의 합집합이 원본과 같다.
+        float total = 0f;
+
+        for (int x = 0; x < 2; x++)
+        for (int y = 0; y < 2; y++)
+            total += Ballistics.ClippedArea(l, new Vector2(x, y), new Vector2(x + 1f, y + 1f));
+
+        Near("L 칸별 합", total, 3f);
+
+        // 창이 오목한 노치를 정통으로 가로지르는 경우.
+        Near("L 노치 가로지르기",
+            Ballistics.ClippedArea(l, new Vector2(0.5f, 0.5f), new Vector2(1.5f, 1.5f)), 0.75f);
+
+        // U자. 창이 **떨어진 두 팔**을 동시에 걸치는 것이 최악의 경우다 - 잘린 결과가
+        // 두 덩어리라 잇는 변이 반드시 생긴다.
+        var u = new[]
+        {
+            new Vector2(0f, 0f), new Vector2(3f, 0f), new Vector2(3f, 3f), new Vector2(2f, 3f),
+            new Vector2(2f, 1f), new Vector2(1f, 1f), new Vector2(1f, 3f), new Vector2(0f, 3f),
+        };
+
+        Near("U 전체 넓이", Ballistics.PolygonArea(u), 7f);
+        Near("U 두 팔 걸치기",
+            Ballistics.ClippedArea(u, new Vector2(0f, 2f), new Vector2(3f, 3f)), 2f);
+
+        // 감기 방향이 반대여도 같은 값이어야 한다. 대칭 복사가 감기를 뒤집는다.
+        System.Array.Reverse(l);
+        Near("감기 반대", Ballistics.PolygonArea(l), 3f);
+
+        // 볼록 껍질. **입출력이 같은 배열인 채로** 부른다 - 호출자들이 실제로 그렇게
+        // 쓰고, 모노톤 체인의 중간 출력이 2*count까지 부푸는 것을 내부 버퍼가 받아야
+        // 한다. 이게 깨졌을 때 증상은 껍질이 틀리는 게 아니라 IndexOutOfRange로
+        // 도구가 통째로 죽는 것이었다.
+        var sq = new[]
+        {
+            new Vector2(0f, 0f), new Vector2(1f, 0f),
+            new Vector2(1f, 1f), new Vector2(0f, 1f),
+        };
+
+        int hullCount = Ballistics.ConvexHull(sq, 4, sq);
+        Check($"정사각형 껍질 점 4 ({hullCount})", hullCount == 4);
+        Near("정사각형 껍질 넓이", Ballistics.PolygonArea(sq), 1f);
+
+        // 안쪽 점은 껍질에서 빠져야 한다.
+        var withInner = new[]
+        {
+            new Vector2(0f, 0f), new Vector2(2f, 0f), new Vector2(0.9f, 0.3f),
+            new Vector2(2f, 2f), new Vector2(0f, 2f), new Vector2(1f, 1f),
+        };
+
+        int hull2 = Ballistics.ConvexHull(withInner, 6, withInner);
+        Check($"안쪽 점 제거 ({hull2})", hull2 == 4);
+
+        // 점 포함 판정. 노치 안쪽은 밖이다.
+        Check("L 노치는 바깥", !Ballistics.PolygonContains(l, new Vector2(1.5f, 1.5f)));
+        Check("L 밑동은 안쪽", Ballistics.PolygonContains(l, new Vector2(0.5f, 0.5f)));
+    }
+
+    private static void Near(string name, float got, float want)
+        => Check($"{name} ({got:0.####} vs {want:0.####})", Mathf.Abs(got - want) < 1e-3f);
+
+    private static void Check(string name, bool ok)
+    {
+        if (ok)
+        {
+            _pass++;
+            return;
+        }
+
+        _fail++;
+        Debug.LogError($"[Ballistics] FAIL {name}");
     }
 
     private static void Check(string name, bool ok, in HitResult r)

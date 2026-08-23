@@ -60,6 +60,21 @@ public sealed class HullStructure : MonoBehaviour
     {
         public float hp;
         public float rha;
+
+        /// <summary>
+        /// 그 자리에 서 있던 판의 발자국(칸 중심 기준, 배 좌표계). **그림 전용이다** -
+        /// 후면 피해도 기압도 이 값을 안 읽는다. null이면 칸 전체.
+        /// 판이 죽어도 남는 것이 맞다: 후면은 판이 죽은 뒤의 벽이고, 그 벽의 모양은
+        /// 죽은 판이 서 있던 모양이다.
+        /// </summary>
+        public Vector2[] footprint;
+
+        /// <summary>
+        /// 심을 때의 체력. **그림 전용이다** - 시뮬레이션은 hp만 읽는다. hp/maxHp가
+        /// 세월이다: 외피가 상한 만큼 어두워지고 갉아먹힌다. 이게 없으면 후면은
+        /// 죽는 순간까지 새것이고, 판만 삭아서 그림에 시간이 안 흐른다.
+        /// </summary>
+        public float maxHp;
     }
 
     /// <summary>이 덩어리가 생길 때 붙어 있던 칸. 처음부터 떠 있던 칸은 떼어내지 않는다.</summary>
@@ -153,6 +168,9 @@ public sealed class HullStructure : MonoBehaviour
     public Texture2D ShipHullPng => _shipHullPng;
     public bool HasRear(Vector2Int cell) => _rear.ContainsKey(cell);
 
+    /// <summary>후면 그림용. 발자국까지 필요해서 HasRear와 따로 있다.</summary>
+    public bool TryGetRear(Vector2Int cell, out RearCell wall) => _rear.TryGetValue(cell, out wall);
+
     /// <summary>
     /// 살아 있는 격자의 칸이 **뒤가 뚫려 있나**. 방이 물어보는 자리다.
     ///
@@ -164,6 +182,57 @@ public sealed class HullStructure : MonoBehaviour
     /// 설계에 애초에 후면이 없던 칸(격자 밖, 우주)은 뚫린 것이 아니다 - 뚫리려면 먼저
     /// 있어야 한다.
     /// </summary>
+    /// <summary>
+    /// 이 칸에 후면이 깔리나. **세 자리(SeedRear·LostRear·RearBreached)가 전부 이
+    /// 술어를 써야 한다** - 갈라두면 저장·복원에서 Strut 후면만 안 돌아오는 반쪽
+    /// 상태가 생긴다.
+    ///
+    /// ShipGrid.BackPlate에 하나를 얹는다: **우주에 닿지 않은 Vent에도 후면이 깔린다.**
+    /// BackPlate가 Vent를 뺀 전제는 "Vent = 우주에 튀어나온 안테나"였는데, Strut이
+    /// 선체 안쪽 바닥으로 쓰이면서 전제가 깨졌다 - 안 얹으면 Strut 칸 뒤로는 탄이
+    /// 후면 저항 없이 나가고, 외피 그림에는 그 칸만 구멍이 뚫린다. 같은 실내에서
+    /// 빈 칸은 후면이 있는데 Strut 칸은 없는 것이 애초에 비일관이다.
+    ///
+    /// 안테나는 지금처럼 후면이 없다 - 8방향에 우주가 닿아 있어서 걸러진다. 우주에
+    /// 열린 엔진 노즐 밑 Strut도 같다.
+    /// </summary>
+    private static bool RearWorthy(ShipGrid.Map map, int col, int row)
+    {
+        ShipGrid.Cell c = map.cells[col, row];
+
+        if (ShipGrid.BackPlate(c))
+            return true;
+
+        if (c != ShipGrid.Cell.Vent)
+            return false;
+
+        for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            int nc = col + dx, nr = row + dy;
+
+            // 격자 밖도 우주다.
+            if (nc < 0 || nc >= map.width || nr < 0 || nr >= map.height
+                || map.cells[nc, nr] == ShipGrid.Cell.Exterior)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// 설계도 칸 기준으로 "여기 후면이 있었는데 지금 없다". 그림이 구멍 가장자리를
+    /// 물어뜯는 데 쓴다 - RearBreached와 같은 질문이지만 그쪽은 살아 있는 몸의 칸을
+    /// 받아 변환부터 한다.
+    /// </summary>
+    public bool RearTorn(Vector2Int designCell)
+        => _designMap != null
+        && _designMap.Inside(designCell)
+        && RearWorthy(_designMap, designCell.x, designCell.y)
+        && !_rear.ContainsKey(designCell);
+
     public bool RearBreached(Vector2Int liveCell)
     {
         if (_designMap == null || !_hasMap)
@@ -171,7 +240,7 @@ public sealed class HullStructure : MonoBehaviour
 
         Vector2Int cell = _designMap.ToCell(_map.ToLocal(liveCell.x, liveCell.y));
 
-        if (!_designMap.Inside(cell) || !ShipGrid.BackPlate(_designMap.cells[cell.x, cell.y]))
+        if (!_designMap.Inside(cell) || !RearWorthy(_designMap, cell.x, cell.y))
             return false;
 
         return !_rear.ContainsKey(cell);
@@ -210,7 +279,7 @@ public sealed class HullStructure : MonoBehaviour
         for (int col = 0; col < _designMap.width; col++)
         for (int row = 0; row < _designMap.height; row++)
         {
-            if (!ShipGrid.BackPlate(_designMap.cells[col, row]))
+            if (!RearWorthy(_designMap, col, row))
                 continue;
 
             var cell = new Vector2Int(col, row);
@@ -228,17 +297,59 @@ public sealed class HullStructure : MonoBehaviour
     /// **한 번 빠진 칸은 안 돌아온다.** #8의 저장 포맷("사라진 칸만 적는다")이 그 위에 서
     /// 있고, <see cref="SeedRear"/>의 "이미 차 있으면 안 한다" 가드가 그것을 지킨다.
     /// </summary>
+    /// <summary>
+    /// 후면이 바뀔 때마다 오른다. 그림이 이걸 보고 다시 굽는다 - 칸 **수**만 보면
+    /// 부분 손상(hp만 깎임)이 화면에 영영 안 나온다.
+    /// </summary>
+    public int RearVersion { get; private set; }
+
+    /// <summary>
+    /// 그림 전용: 변한 후면 칸의 기록. **여기는 기록만 한다** - 링에 덮어쓰며 총 수만
+    /// 단조 증가하고, 소비자(BackPlateView)가 자기 커서로 "어디까지 봤는지"를 들고 있다가
+    /// 커서가 링 용량보다 밀렸으면 스스로 전체 재굽기로 폴백한다. 소비자가 몇이든,
+    /// 하나가 게을러도 여기는 안 무너진다.
+    /// </summary>
+    private readonly Vector2Int[] _rearDirtyRing = new Vector2Int[RearDirtyRingSize];
+    public const int RearDirtyRingSize = 128;   // 2의 제곱 - 인덱스가 & 하나로 돈다
+
+    /// <summary>지금까지 기록된 총 수. 소비자 커서의 기준점.</summary>
+    public long RearDirtyTotal { get; private set; }
+
+    public Vector2Int RearDirtyAt(long index) => _rearDirtyRing[index & (RearDirtyRingSize - 1)];
+
+    private void MarkRearDirty(Vector2Int cell, bool removed)
+    {
+        _rearDirtyRing[RearDirtyTotal & (RearDirtyRingSize - 1)] = cell;
+        RearDirtyTotal++;
+
+        // 칸이 빠지면 이웃 4칸의 뜯긴 가장자리(bite)가 새로 생긴다 - 걔들도 다시 굽는다.
+        if (!removed)
+            return;
+
+        _rearDirtyRing[RearDirtyTotal & (RearDirtyRingSize - 1)] = new Vector2Int(cell.x - 1, cell.y);
+        RearDirtyTotal++;
+        _rearDirtyRing[RearDirtyTotal & (RearDirtyRingSize - 1)] = new Vector2Int(cell.x + 1, cell.y);
+        RearDirtyTotal++;
+        _rearDirtyRing[RearDirtyTotal & (RearDirtyRingSize - 1)] = new Vector2Int(cell.x, cell.y - 1);
+        RearDirtyTotal++;
+        _rearDirtyRing[RearDirtyTotal & (RearDirtyRingSize - 1)] = new Vector2Int(cell.x, cell.y + 1);
+        RearDirtyTotal++;
+    }
+
     public void DamageRear(Vector2Int cell, float amount)
     {
         if (amount <= 0f || !_rear.TryGetValue(cell, out RearCell wall))
             return;
 
         wall.hp -= amount;
+        RearVersion++;
 
         if (wall.hp > 0f)
             _rear[cell] = wall;
         else
             _rear.Remove(cell);
+
+        MarkRearDirty(cell, removed: wall.hp <= 0f);
     }
 
     /// <summary>
@@ -368,9 +479,14 @@ public sealed class HullStructure : MonoBehaviour
                 continue;
 
             if (penetration >= wall.rha)
+            {
                 body._rear.Remove(cell);
+                body.MarkRearDirty(cell, removed: true);
+            }
             else
+            {
                 body.DamageRear(cell, damage);
+            }
         }
     }
 
@@ -425,15 +541,34 @@ public sealed class HullStructure : MonoBehaviour
                 best = near;
         }
 
-        return Thinned(best.hp > 0f ? best : fallback);
+        RearCell wall = Thinned(best.hp > 0f ? best : fallback);
+
+        // **이웃에서 빌린 발자국은 버린다.** 발자국은 그 판이 앉은 칸 중심 기준이라,
+        // 실내 칸에 그대로 대면 엉뚱한 자리를 깎는다. 실내 뒷벽은 칸 전체가 맞다.
+        wall.footprint = null;
+
+        return wall;
     }
 
-    /// <summary>판 한 장을 후면 한 겹으로 얇게 만든다. 체력과 관통 저항이 따로 준다.</summary>
-    private static RearCell Thinned(RearCell plate) => new()
+    /// <summary>
+    /// 판 한 장을 후면 한 겹으로 얇게 만든다. 체력과 관통 저항이 따로 준다.
+    /// **발자국은 그대로 옮긴다** - 여기서 빼먹으면 모든 후면이 이 함수를 지나므로
+    /// 마스킹이 통째로 죽는데, 증상은 "후면이 네모로 나온다"뿐이라 원인이 한참
+    /// 떨어져 보인다. Tidy가 shape를 버리던 것과 같은 패턴이다: 값 타입을 새로
+    /// 지으면서 필드 하나를 잊는 것.
+    /// </summary>
+    private static RearCell Thinned(RearCell plate)
     {
-        hp = plate.hp * Ballistics.RearHpFactor,
-        rha = plate.rha * Ballistics.RearRhaFactor,
-    };
+        float hp = plate.hp * Ballistics.RearHpFactor;
+
+        return new RearCell
+        {
+            hp = hp,
+            maxHp = hp,
+            rha = plate.rha * Ballistics.RearRhaFactor,
+            footprint = plate.footprint,
+        };
+    }
 
     /// <summary>
     /// 칸 -> 그 자리 판의 체력. 살아 있는 자식에서 뽑는다 - SeedRear는 배가 지어진 뒤에
@@ -460,7 +595,12 @@ public sealed class HullStructure : MonoBehaviour
             Vector2Int cell = designMap.ToCell(child.localPosition);
 
             if (designMap.Inside(cell))
-                plates[cell] = new RearCell { hp = plate.PlateHp, rha = plate.RHA };
+                plates[cell] = new RearCell
+                {
+                    hp = plate.PlateHp,
+                    rha = plate.RHA,
+                    footprint = plate.FootprintLocal(),
+                };
         }
 
         return plates;
@@ -485,8 +625,7 @@ public sealed class HullStructure : MonoBehaviour
         {
             for(int row = 0; row < designMap.height; row++)
             {
-                ShipGrid.Cell c = designMap.cells[col,row];
-                if(ShipGrid.BackPlate(c))
+                if(RearWorthy(designMap, col, row))
                 {
                     var cell = new Vector2Int(col, row);
                     _rear[cell] = RearWallAt(cell, plates, bare);
@@ -876,12 +1015,13 @@ public sealed class HullStructure : MonoBehaviour
 
         // 조각 중심이 본체 중심과 겹치는 퇴화 케이스. Unity 전역 RNG를 쓰면 여기 하나 때문에
         // 리플레이가 어긋나므로, 다른 곳과 같은 해시로 방향을 뽑는다.
+
         Vector2 push = arm.sqrMagnitude > 1e-6f
             ? arm.normalized
             : Ballistics.Rotate(
                 Vector2.up,
                 new DeterministicRng(
-                    Ballistics.Hash(GetInstanceID(), Core.TickManager.currentTick, chunk.Count))
+                    Ballistics.Hash(0, Core.TickManager.currentTick, chunk.Count))
                     .Range(0f, 360f));
 
         // 상한을 건다. spin은 `거리 × 각속도`라 반지름 120 m짜리 거울에서는 각속도가 조금만

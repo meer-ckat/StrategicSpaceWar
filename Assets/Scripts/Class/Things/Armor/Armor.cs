@@ -39,6 +39,7 @@ public abstract class Armor : Thing
     [SerializeField] private LayerMask debrisLayer;
 
     private readonly float[] _hp = new float[SubCount];
+    public bool sealsRoom = true;
     private int _dead;
 
     // 고립 서브셀 판정용. 판마다 하나씩 - 한 판을 쓰는 동안 다른 판이 끼어들 수 있다
@@ -67,12 +68,52 @@ public abstract class Armor : Thing
     /// <summary>m². Awake에서 콜라이더를 읽은 직후 정해지고 그 뒤로 안 바뀐다.</summary>
     private float _cellArea = 1f;
 
+    /// <summary>
+    /// 판의 실물 모양. **콜라이더 중심 기준 로컬 좌표**다 - 서브셀 격자와 같은 공간이라
+    /// 변환이 없다. 비어 있으면 콜라이더 사각형 전체이고, 그것이 기본값이다.
+    ///
+    /// 콜라이더는 이 모양을 안 따라간다. 여전히 상자다. 그래서 단계 1에서 바뀌는 것은
+    /// **모양과 무게뿐이고 각도는 아니다** - 도탄과 /cosθ는 레이캐스트가 준 상자 면의
+    /// 법선을 읽으므로, 다각형으로 빗면을 만들어도 경사각 이득이 0이다. 뾰족한 뱃머리가
+    /// 잘 튕기는 게 아니라 그냥 얇은 뱃머리가 된다. 그것이 필요해지면 PolygonCollider2D다.
+    /// </summary>
+    [SerializeField] private Vector2[] shape;
+
+    /// <summary>
+    /// 서브셀이 <see cref="shape"/>에 얼마나 잠겼나(0~1). Awake에서 한 번 굽고 안 바뀐다.
+    ///
+    /// **이 값은 RHA에 곱하고 가중치에는 접지 않는다.** 가중치로 옮기면 SubCellPath가
+    /// 합을 1로 재정규화하면서 빈 부분이 분모에서 사라져 삼각형의 뾰족한 끝이 밑동만큼
+    /// 막는다. CLAUDE.md 불변식에 한 줄 있다.
+    /// </summary>
+    private readonly float[] _solid = new float[SubCount];
+
+    /// <summary>m². 폴리곤이 없으면 <see cref="_cellArea"/>와 같다.</summary>
+    private float _shapeArea = 1f;
+
     public float PlateThickness => plateThickness;
 
-    /// <summary>판 전체 구조 예산. 넓이를 곱한 뒤의 값이라 이게 진짜 총량이다.</summary>
-    public float PlateHp => hpPerSquareMetre * _cellArea;
+    /// <summary>
+    /// 판 전체 구조 예산. 넓이를 곱한 뒤의 값이라 이게 진짜 총량이다.
+    /// **콜라이더 넓이가 아니라 실물 넓이다** - 반쯤 파낸 판이 온전한 판만큼 튼튼하면
+    /// 다각형을 넣은 의미가 절반 사라진다.
+    /// </summary>
+    public float PlateHp => hpPerSquareMetre * _shapeArea;
 
-    public float SubCellMaxHp => PlateHp / SubCount;
+    /// <summary>서브셀 하나가 **꽉 찼을 때의** 체력. 모양과 무관한 눈금이다.</summary>
+    public float SubCellFullHp => hpPerSquareMetre * _cellArea / SubCount;
+
+    /// <summary>
+    /// 서브셀 i가 실제로 가질 수 있는 최대 체력.
+    ///
+    /// **비율을 여기로 나눠야 한다.** 꽉 찬 칸의 체력으로 나누면 반만 실물인 칸이
+    /// 태어나자마자 50% 손상으로 읽혀서, RhaCurve도 그림도 열도 전부 "이 판은 이미
+    /// 상했다"고 말한다. 삼각형 판의 빗변 전체가 그렇게 된다.
+    /// </summary>
+    public float MaxHpAt(int subIndex) => SubCellFullHp * _solid[subIndex];
+
+    /// <summary>서브셀 i의 실물 비율(0~1). Inspector가 "여기가 왜 안 막았나"를 설명할 값.</summary>
+    public float SolidAt(int subIndex) => _solid[subIndex];
 
     /// <summary>안 상한 상태의 명목 RHA.</summary>
     public float RHA => rha;
@@ -105,7 +146,7 @@ public abstract class Armor : Thing
         float f = Mathf.Clamp01(fraction);
 
         for (int i = 0; i < SubCount; i++)
-            _hp[i] = SubCellMaxHp * f;
+            _hp[i] = MaxHpAt(i) * f;
 
         _dead = 0;
         AnyBreached = false;
@@ -117,10 +158,10 @@ public abstract class Armor : Thing
     {
         base.Awake();
 
-        // def 규칙대로 부모가 다 잡힌 뒤에 켜지므로 여기서 읽는 parent가 곧 몸이다.
+// def 규칙대로 부모가 다 잡힌 뒤에 켜지므로 여기서 읽는 parent가 곧 몸이다.
         CachedBody = transform.parent;
 
-        // 콜라이더를 먼저 읽는다. SubCellMaxHp가 넓이에서 나오므로 순서가 뒤집히면
+        // 콜라이더를 먼저 읽는다. 체력이 넓이에서 나오므로 순서가 뒤집히면
         // 모든 판이 넓이 0의 체력, 즉 0을 들고 시작한다.
         if (TryGetComponent(out BoxCollider2D box))
         {
@@ -135,8 +176,50 @@ public abstract class Armor : Thing
 
         _cellArea = Mathf.Max(1e-4f, _cellSize.x * _cellSize.y);
 
+        BakeShape();
+
         for (int i = 0; i < SubCount; i++)
-            _hp[i] = SubCellMaxHp;
+            _hp[i] = MaxHpAt(i);
+    }
+
+    /// <summary>
+    /// 서브셀마다 폴리곤에 잠긴 비율을 굽는다. **콜라이더를 읽은 뒤, 체력 초기화보다
+    /// 먼저** 돌아야 한다 - MaxHpAt이 이 값에서 나온다.
+    ///
+    /// 폴리곤이 없으면 전부 1이고 넓이는 콜라이더 넓이다. 그래서 지금 있는 배들은
+    /// 이 코드가 들어와도 **한 바이트도 안 바뀐다.** 그게 이 설계의 안전장치다.
+    /// </summary>
+    private void BakeShape()
+    {
+        if (shape == null || shape.Length < 3)
+        {
+            for (int i = 0; i < SubCount; i++)
+                _solid[i] = 1f;
+
+            _shapeArea = _cellArea;
+            return;
+        }
+
+        Vector2 sub = _cellSize / Ballistics.SubGrid;
+        float subArea = Mathf.Max(1e-6f, sub.x * sub.y);
+        float total = 0f;
+
+        for (int i = 0; i < SubCount; i++)
+        {
+            // 서브셀 인덱스 규약은 Ballistics.SubCell과 같아야 한다 - col이 낮은 비트다.
+            int col = i % Ballistics.SubGrid;
+            int row = i / Ballistics.SubGrid;
+
+            var min = new Vector2(col * sub.x - _cellSize.x * 0.5f, row * sub.y - _cellSize.y * 0.5f);
+            float area = Ballistics.ClippedArea(shape, min, min + sub);
+
+            _solid[i] = Mathf.Clamp01(area / subArea);
+            total += area;
+        }
+
+        // 클리핑 넓이의 합이 곧 폴리곤 넓이다 - 따로 재면 두 값이 어긋날 자리가 생긴다.
+        // 콜라이더 밖으로 삐져나간 부분은 여기서 저절로 빠진다.
+        _shapeArea = Mathf.Max(1e-4f, total);
     }
 
     // ponytail: 판의 scale이 1이라고 가정한다. 바뀌면 lossyScale로 나눌 것.
@@ -168,14 +251,17 @@ public abstract class Armor : Thing
         float diameter = 0f)
     {
         if (!TraceChannel(worldEntry, worldDirection, 1f, weights, out entry, diameter)) //만약 이게 실패했다면
-            return EffectiveRhaAt(entry);
+            return EffectiveRhaAt(entry) * _solid[entry];
 
         float total = 0f;
 
         for (int i = 0; i < SubCount; i++)
         {
+            // **실물 비율은 값에 곱하고 weights에는 안 접는다.** 가중치로 옮기면
+            // SubCellPath가 합을 1로 재정규화하면서 빈 부분이 분모에서 사라져,
+            // 삼각형의 뾰족한 끝이 밑동만큼 막는다. CLAUDE.md 불변식 참고.
             if (weights[i] > 0f)
-                total += weights[i] * EffectiveRhaAt(i);
+                total += weights[i] * EffectiveRhaAt(i) * _solid[i];
         }
 
         return total;
@@ -216,16 +302,32 @@ public abstract class Armor : Thing
         }
     }
 
-    public float HpFraction(int subIndex) => _hp[subIndex] / SubCellMaxHp;
+    /// <summary>
+    /// 서브셀에 남은 구조 비율. **자기 최대치로 나눈다** - 반만 실물인 칸이 반만큼의
+    /// 체력을 가진 것은 손상이 아니라 원래 그런 것이다. 실물이 아예 없으면 0을 돌려주고,
+    /// 그러면 RhaCurve가 0을 내서 저항도 0이 된다.
+    /// </summary>
+    public float HpFraction(int subIndex)
+    {
+        float max = MaxHpAt(subIndex);
+        return max > 0f ? _hp[subIndex] / max : 0f;
+    }
 
     public float RhaMultiplier(int subIndex) =>
-        Ballistics.RhaCurve(_hp[subIndex] / SubCellMaxHp);
+        Ballistics.RhaCurve(HpFraction(subIndex));
 
     public float EffectiveRhaAt(int subIndex) =>
         rha * RhaMultiplier(subIndex);
 
-    /// <summary>HP 0인 서브셀은 기압을 못 버틴다. 그 뒤의 방이 샌다.</summary>
-    public bool IsBreached(int subIndex) => _hp[subIndex] <= 0f;
+    /// <summary>
+    /// HP 0인 서브셀은 기압을 못 버틴다. 그 뒤의 방이 샌다.
+    ///
+    /// **애초에 실물이 없던 칸은 뚫린 것이 아니다.** 안 거르면 삼각형 판이 태어나는
+    /// 순간부터 뒤의 방이 새고, 원인이 "이 배는 왜 처음부터 공기가 없지"로 나온다.
+    /// 다각형은 콜라이더 안쪽 모양일 뿐이고 격자는 여전히 그 칸을 실물로 본다 -
+    /// 격자와 콜라이더가 다른 층이라는 규칙이 여기서도 그대로다.
+    /// </summary>
+    public bool IsBreached(int subIndex) => _solid[subIndex] > 0f && _hp[subIndex] <= 0f;
 
     /// <summary>구멍을 뚫은 그 명중에서 걸린다. 그래서 기압 계산이 서브셀을 훑을 일이 없다.</summary>
     public bool AnyBreached { get; private set; }
@@ -271,7 +373,58 @@ public abstract class Armor : Thing
 
     /// <summary>서브셀 격자의 원본 숫자. 셰이더 스킨이 상수로 넘겨 받는다 - 수식은 여기 한 벌뿐이다.</summary>
     public Vector2 CellOffset => _cellOffset;
-    public Vector2 CellSize => _cellSize;
+
+    /// <summary>
+    /// 이 점이 판의 실물 모양 안인가. <see cref="SubIndexAtLocal"/>과 **같은 공간**을
+    /// 받는다 - 콜라이더 offset을 빼는 자리가 둘이면 언젠가 한쪽만 고쳐진다.
+    ///
+    /// 폴리곤이 없으면 언제나 true다. 그림 쪽에서 콜라이더 판정과 AND로 묶이므로
+    /// 지금 있는 배들은 이 함수가 생겨도 아무것도 안 바뀐다.
+    /// </summary>
+    /// <summary>
+    /// 배치가 준 모양을 꽂는다. **활성화 전에만 부른다** - 굽는 일은 Awake의 BakeShape가
+    /// 하므로, 켜진 뒤에 바꾸면 체력과 잠김 비율이 옛 모양으로 남는다.
+    /// </summary>
+    public void PrepareShape(Vector2[] points) => shape = points;
+
+    /// <summary>내보내기가 읽는다. 없으면 null.</summary>
+    public Vector2[] Shape => shape;
+
+    /// <summary>
+    /// 판의 발자국을 **판이 앉은 칸 중심 기준, 배 좌표계** 폴리곤으로. 폴리곤 판은
+    /// 그 폴리곤, 사각형 판은 회전한 콜라이더의 네 귀퉁이다.
+    ///
+    /// 후면 그림이 쓴다 - 후면 칸은 1 m 정사각형인데 그 앞의 판이 경사면이면 정사각형이
+    /// 판 실루엣 밖으로 삐져나온다. 시뮬레이션(후면 HP)은 여전히 칸 단위다. 이것은
+    /// 모양 정보일 뿐이다.
+    /// </summary>
+    public Vector2[] FootprintLocal()
+    {
+        float rot = transform.localEulerAngles.z;
+
+        if (shape != null && shape.Length >= 3)
+        {
+            var pts = new Vector2[shape.Length];
+
+            for (int i = 0; i < shape.Length; i++)
+                pts[i] = Ballistics.Rotate(_cellOffset + shape[i], rot);
+
+            return pts;
+        }
+
+        Vector2 half = _cellSize * 0.5f;
+
+        return new[]
+        {
+            Ballistics.Rotate(_cellOffset + new Vector2(-half.x, -half.y), rot),
+            Ballistics.Rotate(_cellOffset + new Vector2(half.x, -half.y), rot),
+            Ballistics.Rotate(_cellOffset + new Vector2(half.x, half.y), rot),
+            Ballistics.Rotate(_cellOffset + new Vector2(-half.x, half.y), rot),
+        };
+    }
+
+    public bool InsideShape(Vector2 localPoint)
+        => Ballistics.PolygonContains(shape, localPoint - _cellOffset);
 
     /// <summary>
     /// 적열. **그림 전용이다** - 시뮬레이션은 이 값을 한 번도 안 읽는다. 0이면 원래 색,
@@ -334,7 +487,7 @@ public abstract class Armor : Thing
             return;
 
         // 맞은 만큼 달아오른다. 서브셀 하나를 통째로 날리는 피해가 기준.
-        AddHeat(amount / Mathf.Max(1e-3f, SubCellMaxHp) * Ballistics.HeatFromDamage);
+AddHeat(amount / Mathf.Max(1e-3f, SubCellFullHp) * Ballistics.HeatFromDamage);
 
         // 소리는 판당 프레임당 한 번. SoundManager가 어차피 프레임 중복을 걸러서 들리는
         // 결과는 같은데, 그 거름이 Play 안쪽이라 transform.position(네이티브)과 사전 조회는
@@ -499,13 +652,15 @@ public abstract class Armor : Thing
         Vector2 world = transform.TransformPoint(
             Ballistics.SubCellCentre(subIndex, _cellSize) + _cellOffset);
 
+        Debug.Assert(stableId >= 0, $"[Armor line.458] '{defName}'에 stableId가 없다. def로 안 지어진 배다.", this);
+
         SpallResolver.Burst(
             world,
             transform.up,
             Ballistics.CollapseSpread,
-            SubCellMaxHp * Ballistics.CollapseEnergyFraction,
+            SubCellFullHp * Ballistics.CollapseEnergyFraction,
             Ballistics.CollapseFragmentCount,
-            Ballistics.Hash(GetInstanceID(), TickManager.currentTick, subIndex),
+            Ballistics.Hash((stableId < 0)? GetInstanceID() : stableId, TickManager.currentTick, subIndex),
             debrisLayer);
     }
 
@@ -519,14 +674,14 @@ public abstract class Armor : Thing
 
         if (living <= 0)
             return;
-
+        Debug.Assert(stableId >= 0, $"[Armor line.480] '{defName}'에 stableId가 없다. def로 안 지어진 배다.", this);
         SpallResolver.Burst(
             transform.TransformPoint(_cellOffset),
             transform.up,
             Ballistics.CollapseSpread,
-            living * SubCellMaxHp * Ballistics.CollapseEnergyFraction,
+            living * SubCellFullHp * Ballistics.CollapseEnergyFraction,
             Mathf.Clamp(living, 1, Ballistics.SpallMaxCount),
-            Ballistics.Hash(GetInstanceID(), TickManager.currentTick, SubCount),
+            Ballistics.Hash((stableId < 0)? GetInstanceID() : stableId, TickManager.currentTick, SubCount),
             debrisLayer);
     }
 }

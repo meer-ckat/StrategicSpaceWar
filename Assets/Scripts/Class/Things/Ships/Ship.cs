@@ -97,8 +97,26 @@ public partial class Ship : Thing
 
     /// <summary>수리는 사람이 한다. 전기가 나가도 손으로 때운다.</summary>
     public bool isEngineerReady => CrewAlive;
+    public bool HasLiveEngine => AnyModuleInLivingRoom(this, shipEngines); 
+    public bool HasLiveGun => AnyModuleInLivingRoom(this, shipGuns);
+    private bool _engineerLost, _gunnerLost;
 
     
+    /// <summary>
+    /// 승무원의 자리. **개별 승무원이 아니다** - 이 배에 그 일을 할 사람이 아직 있느냐다.
+    ///
+    /// 여기에 대사 화자 이름("기관")을 안 적는 것이 요점이다. Ship은 대본을 모른다.
+    /// enum -> 화자 이름 대응은 대사 쪽에 한 번만 둔다.
+    /// </summary>
+    public enum ShipRole
+    {
+        /// <summary>기관. 살아 있는 조건은 <see cref="HasLiveEngine"/>.</summary>
+        Engineer,
+
+        /// <summary>전술. 살아 있는 조건은 <see cref="HasLiveGun"/>.</summary>
+        Gunner,
+    }
+
     public enum Team
     {
         Neutral,
@@ -283,6 +301,14 @@ public partial class Ship : Thing
         // 여기서 한 번만 적어 둔다.
         _needsPower = false;
 
+        // **설계에 그 역할이 있었는가.** 위와 같은 질문이고 답이 갈리는 자리도 같다.
+        // 걸쇠를 처음부터 올려두면 WatchForRoles가 아예 안 본다 - 무장이 없는 dart도,
+        // 엔진도 포탑도 없는 asteroid/derelict/mirror도 첫 틱에 "상실"을 기록하지 않는다.
+        // 잃은 적이 없는 것을 잃었다고 적으면 로그가 사건 넷으로 시작하고, 거기에
+        // 붙는 것들(tension, UI)이 전부 그 거짓말 위에 선다.
+        _engineerLost = shipEngines.Count == 0;
+        _gunnerLost = shipGuns.Count == 0;
+
         for (int i = 0; i < shipCriticals.Count; i++)
         {
             if (shipCriticals[i] != null && shipCriticals[i].providesPower)
@@ -330,6 +356,21 @@ public partial class Ship : Thing
         Atmosphere();
         Crew();
         WatchForCritical();
+        WatchForRoles();
+    }
+
+    void WatchForRoles()
+    {
+        if(!_engineerLost && !HasLiveEngine)
+        {
+            _engineerLost = true;
+            RunLog.RoleLost(this, ShipRole.Engineer);
+        }
+        if(!_gunnerLost && !HasLiveGun)
+        {
+            _gunnerLost = true;
+            RunLog.RoleLost(this, ShipRole.Gunner);
+        }
     }
 
     /// <summary>
@@ -577,6 +618,48 @@ public partial class Ship : Thing
     public static bool StillAboard(Component part, Ship ship)
         => part != null && ship != null && part.transform.IsChildOf(ship.transform);
 
+    public static bool AnyModuleInLivingRoom(Ship ship, IEnumerable<Component> comps)
+    {
+        if(ship == null) return false;
+        if(ship.rooms.Count <= 0) return true;
+
+        foreach(Component comp in comps)
+        {
+            if(ModuleInLivingRoom(comp, ship, ship.rooms))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static bool ModuleInLivingRoom(Component part, Ship ship, List<Room> rooms)
+    {
+        if(StillAboard(part, ship))
+        {
+            if(rooms.Count <= 0)
+                return true;
+
+            //먼저 벽에 붙어있는지 검사
+            var armor = (part.transform.parent != null)? part.transform.parent.GetComponent<Armor>() : null;
+            if(armor == null) return false;
+                
+            //해당 cell이 기압 있는 room에 있는지 검사
+            foreach(Room room in rooms)
+            {
+                if(room.Pressure < Ballistics.CrewMinPressure)
+                    continue;
+
+                if(room.walls.Contains(armor))
+                {
+                    return true;
+                }
+            
+            }
+        }
+        return false;
+    }
+
     /// <summary>
     /// 추력은 함체 방향과 무관하게 월드 축으로 작용한다. 자세는 Angle()이 따로 제어한다.
     /// 실제 우주선의 RCS와 같은 구조 - 옆으로 미끄러지면서 등을 보일 수 있다.
@@ -618,7 +701,24 @@ public partial class Ship : Thing
         float rate = rig.angularVelocity;
 
         rate += angleInput * angleAccel * dt;
-        rate *= 1 - (angleInput == 0f ? angleBrake : angleDrag) * dt;
+
+        // **제동도 RCS가 하는 일이라 같은 토크 상한을 받는다.** 예전에는 비율로만 깎아서
+        // (rate *= 1 - brake*dt) RCS에 무한한 토크가 있었다 - 2 도/초든 300 도/초든 똑같이
+        // 0.3초면 멎었고, 그래서 충각으로 배를 팽이처럼 돌려도 아무 일도 없었던 것처럼
+        // 즉시 자세가 잡혔다. 반동을 넣어도 태어나자마자 지워지는 것도 같은 이유다.
+        //
+        // 조종감은 한 톨도 안 바뀐다. 입력 중 종단 각속도가 angleAccel / angleDrag이고,
+        // **바로 그 지점에서 깎는 양이 정확히 angleAccel * dt가 된다** - 클램프 경계와
+        // 종단이 같은 값이라 종단 아래에서는 클램프가 아예 안 걸린다. 걸리는 것은 종단을
+        // 넘는 회전(충각, 반동, 유폭)뿐이다.
+        //
+        // 이 클램프가 손잡이 둘을 갈라 놓는다. 큰 회전에서 되잡는 시간은 angleAccel 혼자
+        // 정하고(300 도/초 / 20 도/초² = 15초), angleBrake는 경계 아래에서 마무리를 얼마나
+        // 야무지게 하느냐만 정한다. 예전에는 둘이 같은 것을 두 번 말하고 있었다.
+        float damp = rate * (angleInput == 0f ? angleBrake : angleDrag) * dt;
+        float limit = angleAccel * dt;
+
+        rate -= Mathf.Clamp(damp, -limit, limit);
 
         rig.angularVelocity = rate;
     }

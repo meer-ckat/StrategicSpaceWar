@@ -1,0 +1,44 @@
+{
+  "defName": "Strut",
+  "thingClass": "BallisticArmor",
+  "comps": [
+    "ArmorSkin"
+  ],
+  "layer": "Armor",
+  "collider": {
+    "size": {
+      "x": 0.25,
+      "y": 1
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "sealsRoom": false,
+  "rha": 20,
+  "hpPerSquareMetre": 300,
+  "plateThickness": 0.05,
+  "fallbackCellSize": {
+    "x": 1,
+    "y": 1
+  },
+  "debrisLayer": {
+    "m_Bits": 128
+  },
+  "pixelsPerUnit": 48,
+  "maxTextureSize": 256,
+  "healthy": {
+    "r": 0.52,
+    "g": 0.55,
+    "b": 0.58,
+    "a": 1.0
+  },
+  "damaged": {
+    "r": 0.22,
+    "g": 0.21,
+    "b": 0.2,
+    "a": 1.0
+  },
+  "erodeBelow": 0.8
+}

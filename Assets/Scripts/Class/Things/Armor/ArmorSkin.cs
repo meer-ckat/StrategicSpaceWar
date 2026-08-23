@@ -3,12 +3,15 @@ using UnityEngine;
 /// <summary>
 /// 장갑판의 그림 - GPU판. 판은 자기 텍스처를 굽지 않는다. 배 그림(함선 공유 텍스처)과
 /// 6x6 손상 마스크(서브셀 HP)를 PlateSkin 셰이더가 프래그먼트에서 조합한다.
-/// CPU가 픽셀을 만지는 곳은 피해 시 마스크 36바이트 갱신뿐이다 - 판당 텍스처 굽기,
-/// 픽셀 재칠, 배 그림 픽셀 사본이 전부 사라졌다.
+/// CPU가 픽셀을 만지는 곳은 피해 시 마스크 36바이트 갱신과, 폴리곤 판의 실루엣 마스크
+/// 1회 굽기뿐이다.
+///
+/// **내 배의 판만 선체 그림을 입는다.** 비대칭 화면의 연장이다 - 내 배는 외피가 어둡게
+/// 뒤로 빠지므로 판이 그림을 입어도 충돌할 상대가 없다. 적함 판은 절차 색 뼈대로 남는다.
 ///
 /// 규칙의 원본은 여전히 C#이다: 서브셀 격자(Armor.CellOffset/CellSize), 판 사각형
-/// (콜라이더), 판->배 그림 대응(로컬 아핀)을 여기서 계산해 상수로 셰이더에 넘긴다.
-/// 셰이더는 숫자를 조합만 하고, 수식이 두 벌이 되지 않는다.
+/// (콜라이더), 실물 모양(Armor.InsideShape), 판->배 그림 대응(로컬 아핀)을 여기서
+/// 계산해 상수·마스크로 셰이더에 넘긴다. 셰이더는 숫자를 조합만 한다.
 /// </summary>
 [RequireComponent(typeof(SpriteRenderer))]
 public sealed class ArmorSkin : MonoBehaviour
@@ -28,11 +31,17 @@ public sealed class ArmorSkin : MonoBehaviour
     private const float QuadPpu = 32f;
     private const int SharedTexSize = 256;   // 최대 판 8m. 콜라이더 상한 2x2의 대각도 여유
 
+    /// <summary>폴리곤 실루엣 마스크 한 변. 2m 판 기준 32px/m - 눈에 보이는 톱니가 없는 선.</summary>
+    private const int ShapeMaskSize = 64;
+
     private static Texture2D _sharedWhite;
     private static Material _sharedMaterial;
 
     private static readonly int HullTexId = Shader.PropertyToID("_HullTex");
     private static readonly int DamageMaskId = Shader.PropertyToID("_DamageMask");
+    private static readonly int ShapeMaskId = Shader.PropertyToID("_ShapeMask");
+    private static readonly int ShapeScaleId = Shader.PropertyToID("_ShapeScale");
+    private static readonly int HasShapeId = Shader.PropertyToID("_HasShape");
     private static readonly int LocalMinId = Shader.PropertyToID("_LocalMin");
     private static readonly int RectId = Shader.PropertyToID("_Rect");
     private static readonly int CellId = Shader.PropertyToID("_Cell");
@@ -48,12 +57,13 @@ public sealed class ArmorSkin : MonoBehaviour
     private Armor _armor;
     private Collider2D _collider;
     private SpriteRenderer _renderer;
-    private Ship ship;
     private ShipGrid.Map _map;
+    private Texture2D _shipHullTexture;
 
     private Sprite _sprite;
     private Texture2D _mask;
     private byte[] _maskBytes;
+    private Texture2D _shapeMask;
     private MaterialPropertyBlock _props;
 
     private int _paintedVersion = -1;
@@ -80,10 +90,16 @@ public sealed class ArmorSkin : MonoBehaviour
         _armor = GetComponent<Armor>();
         _collider = GetComponent<Collider2D>();
         _renderer = GetComponent<SpriteRenderer>();
-        ship = GetComponentInParent<Ship>();
 
-        if (ship != null)
+        // **내 배의 판만 선체 그림을 입는다** (비대칭 화면). 적함 판은 절차 색 뼈대.
+        // 타이밍은 안전하다: 여기는 Start라 Ship.Awake(Map 생성)가 이미 끝나 있다.
+        Ship ship = GetComponentInParent<Ship>();
+
+        if (ship != null && ship.IsPlayerControlled && ship.ShipHullPng != null && ship.Map != null)
+        {
+            _shipHullTexture = ship.ShipHullPng;
             _map = ship.Map;
+        }
 
         if (_armor == null || _collider == null)
         {
@@ -125,8 +141,8 @@ public sealed class ArmorSkin : MonoBehaviour
     }
 
     /// <summary>
-    /// 콜라이더나 서브셀 격자가 바뀌었을 때 부른다. 픽셀 루프가 없어서 이제 소환
-    /// 프레임에 판 수백 장을 한꺼번에 지어도 스파이크가 안 난다.
+    /// 콜라이더나 서브셀 격자가 바뀌었을 때 부른다. 픽셀 루프가 폴리곤 실루엣 마스크
+    /// 하나뿐이라(그것도 폴리곤 판만) 소환 프레임에 판 수백 장을 지어도 스파이크가 없다.
     /// </summary>
     public void Rebuild()
     {
@@ -140,12 +156,19 @@ public sealed class ArmorSkin : MonoBehaviour
 
         EnsureShared();
 
+        if (_sharedMaterial == null)
+        {
+            enabled = false;
+            return;
+        }
+
         // 픽셀 정수 개로 딱 떨어지게 넓혀 잡고, 넘치는 만큼은 셰이더의 사각형 검사가
         // 잘라낸다 - CPU판의 투명 여백과 같은 역할이다.
         float pixel = 1f / QuadPpu;
         int w = Mathf.Clamp(Mathf.CeilToInt(size.x * QuadPpu), 1, SharedTexSize);
         int h = Mathf.Clamp(Mathf.CeilToInt(size.y * QuadPpu), 1, SharedTexSize);
         Vector2 min = centre - new Vector2(w, h) * (pixel * 0.5f);
+        var quadSize = new Vector2(w * pixel, h * pixel);
 
         if (_sprite != null)
             Destroy(_sprite);
@@ -154,7 +177,7 @@ public sealed class ArmorSkin : MonoBehaviour
         _sprite = Sprite.Create(
             _sharedWhite,
             new Rect(0f, 0f, w, h),
-            new Vector2(-min.x / (w * pixel), -min.y / (h * pixel)),
+            new Vector2(-min.x / quadSize.x, -min.y / quadSize.y),
             QuadPpu,
             0,
             SpriteMeshType.FullRect);
@@ -186,13 +209,56 @@ public sealed class ArmorSkin : MonoBehaviour
         _props.SetFloat(GrainPpuId, pixelsPerUnit);
         _props.SetTexture(DamageMaskId, _mask);
 
-        // erode 무늬가 판마다 다르게 - 결정론 rng와 같은 해시 씨앗. 시각 전용이다.
-        var rng = new DeterministicRng(Ballistics.Hash(GetInstanceID(), 0, 0));
+        // erode 무늬 씨앗 - 결정론 규약 그대로 stableId, 씬 저작 배만 인스턴스 ID 폴백.
+        Debug.Assert(_armor.stableId >= 0,
+            $"[ArmorSkin] '{_armor.defName}'에 stableId가 없다. def로 안 지어진 배다.", this);
+        var rng = new DeterministicRng(
+            Ballistics.Hash(_armor.stableId < 0 ? _armor.GetInstanceID() : _armor.stableId, 0, 0));
         _props.SetVector(GrainSeedId, new Vector4(rng.Range(0f, 4096f), rng.Range(0f, 4096f), 0f, 0f));
+
+        // 판의 실물 모양(폴리곤). 셰이더가 매 픽셀 다각형을 풀 수는 없으니 실루엣을
+        // 마스크 한 장으로 여기서 한 번 굽는다 - InsideShape가 원본이고, 이 마스크는
+        // 그 수식의 캐시다. 사각형 판은 마스크 자체가 없다.
+        bool hasShape = _armor.Shape != null && _armor.Shape.Length >= 3;
+
+        if (hasShape)
+        {
+            if (_shapeMask == null)
+            {
+                _shapeMask = new Texture2D(ShapeMaskSize, ShapeMaskSize, TextureFormat.R8, false)
+                {
+                    filterMode = FilterMode.Bilinear,
+                    wrapMode = TextureWrapMode.Clamp,
+                };
+            }
+
+            var bytes = new byte[ShapeMaskSize * ShapeMaskSize];
+
+            for (int y = 0; y < ShapeMaskSize; y++)
+            for (int x = 0; x < ShapeMaskSize; x++)
+            {
+                var local = new Vector2(
+                    min.x + (x + 0.5f) / ShapeMaskSize * quadSize.x,
+                    min.y + (y + 0.5f) / ShapeMaskSize * quadSize.y);
+
+                bytes[y * ShapeMaskSize + x] = _armor.InsideShape(local) ? (byte)255 : (byte)0;
+            }
+
+            _shapeMask.SetPixelData(bytes, 0);
+            _shapeMask.Apply(false);
+            _props.SetTexture(ShapeMaskId, _shapeMask);
+            _props.SetVector(ShapeScaleId, new Vector4(1f / quadSize.x, 1f / quadSize.y, 0f, 0f));
+        }
+        else
+        {
+            _props.SetTexture(ShapeMaskId, _sharedWhite);
+        }
+
+        _props.SetFloat(HasShapeId, hasShape ? 1f : 0f);
 
         // 판 로컬 -> 배 그림 uv 아핀. 판은 선체 직속 자식이라 localRotation/localPosition이
         // 곧 배 좌표이고, 잔해로 재부모화돼도 이 둘은 안 변한다(칸 좌표 불변식) - 갱신 불필요.
-        bool hasHull = ship != null && ship.ShipHullPng != null && _map != null;
+        bool hasHull = _shipHullTexture != null && _map != null;
 
         if (hasHull)
         {
@@ -202,7 +268,7 @@ public sealed class ArmorSkin : MonoBehaviour
             float mw = _map.width;
             float mh = _map.height;
 
-            _props.SetTexture(HullTexId, ship.ShipHullPng);
+            _props.SetTexture(HullTexId, _shipHullTexture);
             _props.SetVector(HullAId, new Vector4(rx.x / mw, ry.x / mw, rx.y / mh, ry.y / mh));
             _props.SetVector(HullBId, new Vector4((lp.x + mw * 0.5f) / mw, (lp.y + mh * 0.5f) / mh, 0f, 0f));
         }
@@ -269,7 +335,7 @@ public sealed class ArmorSkin : MonoBehaviour
 
     /// <summary>
     /// 콜라이더가 로컬 공간에서 차지하는 사각형. Box는 정확히, 나머지는 월드 AABB를
-    /// 되돌려 넉넉하게 - 비박스는 셰이더의 사각형 검사도 AABB라 모양이 근사된다.
+    /// 되돌려 넉넉하게 - 넘치는 만큼은 셰이더의 사각형·실루엣 검사가 잘라낸다.
     /// </summary>
     private void LocalRect(out Vector2 centre, out Vector2 size)
     {
@@ -308,5 +374,8 @@ public sealed class ArmorSkin : MonoBehaviour
 
         if (_mask != null)
             Destroy(_mask);
+
+        if (_shapeMask != null)
+            Destroy(_shapeMask);
     }
 }
