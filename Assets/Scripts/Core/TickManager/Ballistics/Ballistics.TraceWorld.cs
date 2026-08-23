@@ -39,6 +39,7 @@ public static class TraceWorld
         public Vector2 axisV;
         public float halfU;
         public float halfV;
+        public float radius;   // 브로드페이즈용: max(halfU, halfV)의 외접원이면 충분하다
         public int layer;
         public bool isArmor;   // 동점 규칙용: 겹친 면에서는 판이 탄을 받는다
     }
@@ -125,6 +126,7 @@ public static class TraceWorld
                     axisV = v / hv,
                     halfU = hu,
                     halfV = hv,
+                    radius = Mathf.Sqrt(hu * hu + hv * hv),
                     layer = c.gameObject.layer,
                     isArmor = c.TryGetComponent(out Armor _),
                 };
@@ -156,6 +158,10 @@ public static class TraceWorld
         Vector2 bestNormal = default;
         const float TieEpsilon = 1e-3f;   // 모듈이 판 면에 딱 붙은 자리의 동점 창
 
+        // 브로드페이즈: 사거리 원 밖의 OBB는 슬래브 검사 자체를 안 한다. 거울 링은
+        // 지름 120 m에 파편 사거리가 15 m라, 이 한 줄이 후보의 대부분을 자른다.
+        float reach = range;
+
         for (int i = 0; i < _count; i++)
         {
             ref Entry e = ref _obb[i];
@@ -165,6 +171,11 @@ public static class TraceWorld
 
             // OBB 로컬로: 슬래브 검사
             Vector2 rel = start - e.centre;
+
+            float cull = reach + e.radius;
+
+            if (rel.sqrMagnitude > cull * cull)
+                continue;
             float ru = Vector2.Dot(rel, e.axisU);
             float rv = Vector2.Dot(rel, e.axisV);
             float du = Vector2.Dot(dir, e.axisU);
@@ -283,18 +294,20 @@ public static class TraceWorld
     private static int _agreed;
     private static int _disagreed;
     private static int _ties;
+    private static int _surface;
     private static int _unsupported;
     private static int _logged;
     private const int MaxLogs = 20;
 
     /// <summary>
-    /// Physics2D가 이미 낸 답과 대조한다. 권위는 언제나 Physics2D 쪽 - 이 함수는 세지만
-    /// 판정을 바꾸지 않는다. 어긋남 로그는 20건에서 멈춘다(그 뒤로는 카운트만).
+    /// Physics2D의 답과 **이미 계산해 둔 우리 답**을 대조한다(다시 트레이스하지 않는다 -
+    /// 대조 모드에서 판정이 두 번 돌던 낭비 제거). 판정의 권위는 이제 우리 쪽이고,
+    /// 이 함수는 세기만 한다.
     /// </summary>
     public static void Verify(
-        Vector2 start, Vector2 dir, float range, int layerMask, Collider2D physicsHit, float physicsDistance)
+        Vector2 start, Vector2 dir, float range, int layerMask,
+        Collider2D physicsHit, float physicsDistance, bool mine, in Hit hit)
     {
-        bool mine = Trace(start, dir, range, layerMask, out Hit hit);
 
         // Physics2D가 맞힌 것이 박스가 아니면 이 세계엔 애초에 없다 - 미지원으로 분류
         if (physicsHit != null && physicsHit is not BoxCollider2D)
@@ -325,6 +338,14 @@ public static class TraceWorld
             return;
         }
 
+        // Physics2D가 표면 바로 위(수 mm)에서 맞았다고 하는 것 = 파편을 낳은 면 위의
+        // 그레이징. 우리 규칙(표면 스킨: 낳아준 면을 도로 맞지 않는다)의 의도된 차이다.
+        if (physicsHit != null && physicsDistance < 0.005f)
+        {
+            _surface++;
+            return;
+        }
+
         _disagreed++;
 
         if (_logged < MaxLogs)
@@ -338,8 +359,8 @@ public static class TraceWorld
     }
 
     public static string VerifyReport()
-        => $"[TraceWorld] 일치 {_agreed} / 동점(겹친 면, 판 우선 규칙) {_ties} / 불일치 {_disagreed} "
-         + $"/ 미지원(비박스) {_unsupported}"
+        => $"[TraceWorld] 일치 {_agreed} / 동점(판 우선 규칙) {_ties} / 표면(스킨 규칙) {_surface} "
+         + $"/ 불일치 {_disagreed} / 미지원(비박스) {_unsupported}"
          + (_skippedNonBox > 0 ? $" (스냅샷 제외 비박스 콜라이더 {_skippedNonBox}개)" : "");
 
     public static void ResetVerify()
@@ -347,6 +368,7 @@ public static class TraceWorld
         _agreed = 0;
         _disagreed = 0;
         _ties = 0;
+        _surface = 0;
         _unsupported = 0;
         _logged = 0;
     }

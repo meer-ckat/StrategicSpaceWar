@@ -170,9 +170,10 @@ public static class SpallResolver
                     }
                 }
 
-                // wave가 끝나면 세계가 변했다고 가정한다(정확성 우선 - 죽음 추적 최적화는
-                // 프로파일러가 시키면 그때). 재굽기는 다음 Trace가 필요할 때만 lazy로 돈다.
-                TraceWorld.Invalidate();
+                // wave 사이 무효화는 죽음의 깔때기가 한다(Armor 붕괴·시각 잔해가 콜라이더를
+                // 끄는 자리에서 직접 Invalidate). 처음엔 여기서 무조건 무효화했는데,
+                // 프로파일러가 그 재굽기(펌프 21회 x 콜라이더 1,500개)를 프레임 100ms의
+                // 주범으로 지목했다 - 포즈는 Simulate에서만 변하니 죽음만 신고하면 충분하다.
             }
         }
         finally
@@ -236,7 +237,7 @@ public static class SpallResolver
                 int n = Physics2D.RaycastNonAlloc(fragmentStart, d, _hits, range, request.mask);
                 RaycastHit2D pv = n > 0 ? Nearest(n) : default;
                 TraceWorld.Verify(fragmentStart, d, range, request.mask,
-                    n > 0 ? pv.collider : null, n > 0 ? pv.distance : 0f);
+                    n > 0 ? pv.collider : null, n > 0 ? pv.distance : 0f, hitSomething, in hit);
             }
 
             if (!hitSomething)
