@@ -65,7 +65,7 @@ public static class SpallResolver
         if (count <= 0 || energy <= 0f || _depth >= Ballistics.MaxSpallDepth)
             return;
 
-        using var _ = _mBurst.Auto();
+        using var marker = _mBurst.Auto();
 
         if (direction.sqrMagnitude < 1e-6f)
             direction = Vector2.up;
