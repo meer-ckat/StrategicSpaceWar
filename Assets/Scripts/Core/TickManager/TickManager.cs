@@ -200,6 +200,10 @@ namespace Core
 
             currentTick++;
 
+            // 0. 지난 틱 파편 예산에 밀린 것부터. 새 파편이 안 날아오는 틱에도 큐가 마르게
+            //    하는 유일한 자리다 - Burst가 부르는 펌프는 새 요청이 있을 때만 돈다.
+            SpallResolver.PumpDeferred();
+
             // 1. 힘을 거는 것들 (함선 추력, 자세)
             _earlyMarker.Begin();
             TickPhase(late: false);

@@ -128,6 +128,32 @@ public static class SpallResolver
     private static bool _pumping;
     private static int _deferPumpDepth;
 
+    // 틱당 예산. 큐에 남은 파편 수를 같이 세어 밀린 빚이 얼마인지 안다.
+    private static long _budgetTick = -1;
+    private static int _fragmentsLeft;
+    private static int _pendingFragments;
+
+    private static int TakeBudget()
+    {
+        if (_budgetTick != Core.TickManager.currentTick)
+        {
+            _budgetTick = Core.TickManager.currentTick;
+            _fragmentsLeft = Ballistics.MaxFragmentsPerPump;
+        }
+
+        return _fragmentsLeft;
+    }
+
+    /// <summary>
+    /// 지난 틱의 예산에 밀린 파편을 이어 간다. TickManager가 틱 앞에서 한 번 부른다 -
+    /// 새 파편이 안 날아오는 틱에도 밀린 것이 처리되어야 큐가 마르지 않는다.
+    /// </summary>
+    public static void PumpDeferred()
+    {
+        if (_requests.Count > 0 && !_pumping && _deferPumpDepth == 0)
+            Pump();
+    }
+
     internal struct PumpScope : System.IDisposable
     {
         private bool _active;
@@ -218,6 +244,8 @@ public static class SpallResolver
             generation = generation,
         });
 
+        _pendingFragments += count;
+
         if (!_pumping && _deferPumpDepth == 0)
             Pump();
     }
@@ -230,11 +258,18 @@ public static class SpallResolver
         {
             while (_requests.Count > 0)
             {
+                // **예산은 틱당이다.** 넘친 요청은 큐에 남고 다음 틱이 이어 간다 - 총량은
+                // 그대로고 스파이크만 눕는다. 밀린 것이 너무 많으면 예산을 무시하고
+                // 따라잡는다(빚을 지는 것과 스파이크를 눕히는 것은 다른 일이다).
+                bool catchUp = _pendingFragments
+                    > Ballistics.MaxFragmentsPerPump * Ballistics.SpallBacklogCatchUp;
+
+                if (!catchUp && TakeBudget() <= 0)
+                    break;
+
                 int generation = _requests.Peek().generation;
 
-                // ---- 계산: 이 세대 전부, 읽기 전용. 여기가 나중에 잡으로 나가는 몸통이다.
-                // 파편 예산(MaxFragmentsPerPump 류)을 넣게 되면 이 while의 조건에 얹는다 -
-                // 구조가 큐라 남은 요청은 다음 기회로 자연스럽게 밀린다.
+                // ---- 계산: 이 세대 전부, 읽기 전용. 여기가 잡으로 나가는 몸통이다.
                 _eventCount = 0;
                 _channelFloats = 0;
                 _waveRequestCount = 0;
@@ -243,6 +278,16 @@ public static class SpallResolver
 
                 while (_requests.Count > 0 && _requests.Peek().generation == generation)
                 {
+                    // 예산을 다 쓰면 같은 세대라도 여기서 끊는다. **남은 요청은 다음 파면이
+                    // 된다** - 그 파편들은 갱신된 스냅샷을 보게 되는데, 애초에 "같은 파면은
+                    // 서로를 못 본다"가 규칙이라 같은 종류의 근사다.
+                    // 요청 하나는 절대 안 쪼갠다: 최소 하나는 처리해야 전진이 보장된다.
+                    if (!catchUp && _waveRequestCount > 0
+                        && fragmentCount + _requests.Peek().count > _fragmentsLeft)
+                    {
+                        break;
+                    }
+
                     Request request = _requests.Dequeue();
                     if (_waveRequestCount == _waveRequests.Length)
                         System.Array.Resize(ref _waveRequests, _waveRequests.Length * 2);
@@ -250,6 +295,9 @@ public static class SpallResolver
                     _waveRequests[_waveRequestCount++] = request;
                     fragmentCount += request.count;
                 }
+
+                _pendingFragments -= fragmentCount;
+                _fragmentsLeft -= fragmentCount;
 
                 using (_mBurst.Auto())
                 {
@@ -515,6 +563,51 @@ public static class SpallResolver
     }
 
 #if UNITY_EDITOR
+    /// <summary>
+    /// 예산의 위험은 느려지는 것이 아니라 **큐가 안 마르는 것**이다. 한 틱에 다 못 하고,
+    /// 다음 틱에 이어 가고, 언젠가 반드시 끝나는 세 가지를 못 박는다.
+    /// (콜라이더가 하나도 없는 편집 모드라 모든 파편이 빗나가고 커밋은 빈 몸 순회다.)
+    /// </summary>
+    internal static bool FragmentBudgetSelfTest()
+    {
+        _requests.Clear();
+        _pendingFragments = 0;
+        _budgetTick = -1;
+
+        int over = Ballistics.MaxFragmentsPerPump * 3;
+
+        using (DeferPump())
+        {
+            for (int i = 0; i < over; i += 8)
+            {
+                Burst(Vector2.zero, Vector2.up, 10f, 80f, 8, (uint)(i + 1), 0);
+            }
+        }
+        // 스코프가 끝나며 한 번 펌프했다. 예산이 있으니 전부는 못 했어야 한다.
+        bool stoppedEarly = _requests.Count > 0 && _pendingFragments > 0;
+        int afterFirst = _pendingFragments;
+
+        // 다음 틱: 예산이 다시 차고 더 나아간다.
+        _budgetTick = -1;
+        PumpDeferred();
+
+        bool madeProgress = _pendingFragments < afterFirst;
+
+        // 그리고 언젠가 끝난다. 틱을 넉넉히 굴려도 안 마르면 그게 버그다.
+        int guard = 0;
+
+        while (_requests.Count > 0 && guard++ < 64)
+        {
+            _budgetTick = -1;
+            PumpDeferred();
+        }
+
+        bool drained = _requests.Count == 0 && _pendingFragments == 0;
+
+        _budgetTick = -1;
+        return stoppedEarly && madeProgress && drained;
+    }
+
     /// <summary>메뉴 셀프테스트가 실제 Job 스케줄과 결과 슬롯 순서를 검증한다.</summary>
     internal static bool TraceJobSelfTest()
     {

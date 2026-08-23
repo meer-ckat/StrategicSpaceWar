@@ -21,6 +21,7 @@ public static class PenetrationSelfTest
 
         PolygonTests();
         Check("spall trace IJobParallelFor", SpallResolver.TraceJobSelfTest());
+        Check("spall budget defers but always drains", SpallResolver.FragmentBudgetSelfTest());
         Check("trace world cached source follows transform", TraceWorld.CachedSourceSelfTest());
 
         {
