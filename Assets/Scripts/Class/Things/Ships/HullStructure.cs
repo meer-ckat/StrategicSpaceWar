@@ -304,37 +304,13 @@ public sealed class HullStructure : MonoBehaviour
     public int RearVersion { get; private set; }
 
     /// <summary>
-    /// 그림 전용: 변한 후면 칸의 기록. **여기는 기록만 한다** - 링에 덮어쓰며 총 수만
-    /// 단조 증가하고, 소비자(BackPlateView)가 자기 커서로 "어디까지 봤는지"를 들고 있다가
-    /// 커서가 링 용량보다 밀렸으면 스스로 전체 재굽기로 폴백한다. 소비자가 몇이든,
-    /// 하나가 게을러도 여기는 안 무너진다.
+    /// 그림(RearSkin 셰이더)이 칸 마스크를 다시 채울 때 읽는다. 값까지 필요해서
+    /// Rear(키만)로는 모자라다.
     /// </summary>
-    private readonly Vector2Int[] _rearDirtyRing = new Vector2Int[RearDirtyRingSize];
-    public const int RearDirtyRingSize = 128;   // 2의 제곱 - 인덱스가 & 하나로 돈다
+    public IEnumerable<KeyValuePair<Vector2Int, RearCell>> RearEntries => _rear;
 
-    /// <summary>지금까지 기록된 총 수. 소비자 커서의 기준점.</summary>
-    public long RearDirtyTotal { get; private set; }
-
-    public Vector2Int RearDirtyAt(long index) => _rearDirtyRing[index & (RearDirtyRingSize - 1)];
-
-    private void MarkRearDirty(Vector2Int cell, bool removed)
-    {
-        _rearDirtyRing[RearDirtyTotal & (RearDirtyRingSize - 1)] = cell;
-        RearDirtyTotal++;
-
-        // 칸이 빠지면 이웃 4칸의 뜯긴 가장자리(bite)가 새로 생긴다 - 걔들도 다시 굽는다.
-        if (!removed)
-            return;
-
-        _rearDirtyRing[RearDirtyTotal & (RearDirtyRingSize - 1)] = new Vector2Int(cell.x - 1, cell.y);
-        RearDirtyTotal++;
-        _rearDirtyRing[RearDirtyTotal & (RearDirtyRingSize - 1)] = new Vector2Int(cell.x + 1, cell.y);
-        RearDirtyTotal++;
-        _rearDirtyRing[RearDirtyTotal & (RearDirtyRingSize - 1)] = new Vector2Int(cell.x, cell.y - 1);
-        RearDirtyTotal++;
-        _rearDirtyRing[RearDirtyTotal & (RearDirtyRingSize - 1)] = new Vector2Int(cell.x, cell.y + 1);
-        RearDirtyTotal++;
-    }
+    /// <summary>설계도 정적 마스크 굽기용 공개 창구. 판정 자체는 RearWorthy 하나다.</summary>
+    public static bool RearWorthyAt(ShipGrid.Map map, int col, int row) => RearWorthy(map, col, row);
 
     public void DamageRear(Vector2Int cell, float amount)
     {
@@ -348,8 +324,6 @@ public sealed class HullStructure : MonoBehaviour
             _rear[cell] = wall;
         else
             _rear.Remove(cell);
-
-        MarkRearDirty(cell, removed: wall.hp <= 0f);
     }
 
     /// <summary>
@@ -481,7 +455,7 @@ public sealed class HullStructure : MonoBehaviour
             if (penetration >= wall.rha)
             {
                 body._rear.Remove(cell);
-                body.MarkRearDirty(cell, removed: true);
+                body.RearVersion++;   // 그림이 이걸 보고 칸 마스크를 다시 채운다
             }
             else
             {
