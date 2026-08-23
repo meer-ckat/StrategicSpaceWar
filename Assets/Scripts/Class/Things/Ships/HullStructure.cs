@@ -805,6 +805,7 @@ public sealed class HullStructure : MonoBehaviour
     private static readonly List<Dictionary<Vector2Int, RearCell>> _carried = new();
     private static bool[] _chunkAttached = System.Array.Empty<bool>();
     private static readonly Dictionary<Vector2Int, Transform> _byCell = new();
+    private static readonly List<Collider2D> _debrisColliders = new();
 
     private static void EnsureSplitScratch(int chunkCount)
     {
@@ -1204,8 +1205,11 @@ public sealed class HullStructure : MonoBehaviour
 
         if (bareOnly)
         {
-            foreach (Collider2D col in go.GetComponentsInChildren<Collider2D>())
-                col.enabled = false;
+            // 잔해 하나마다 배열 하나였다. 갈리는 중에는 매 틱 여러 개가 태어난다.
+            go.GetComponentsInChildren(_debrisColliders);
+
+            for (int i = 0; i < _debrisColliders.Count; i++)
+                _debrisColliders[i].enabled = false;
 
             // VisualDebrisMaxPlates가 1이고 bareOnly 판정까지 통과했으므로 자식은 맨판 하나다.
             // 루트와 자식 원점을 같은 자리로 접어야 회전축이 특정 먼 지점에 남지 않는다.

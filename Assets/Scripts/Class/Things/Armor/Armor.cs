@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Serialization;
 using Core;
@@ -577,10 +578,25 @@ AddHeat(amount / Mathf.Max(1e-3f, SubCellFullHp) * Ballistics.HeatFromDamage);
         //
         // 이 호출이 유폭 연쇄를 통째로 여기서 시작한다. 위의 _collapsing이 그 연쇄가
         // 이 판으로 돌아왔을 때를 막는다.
-        foreach (CriticalModule critical in GetComponentsInChildren<CriticalModule>())
+        // **List 오버로드다.** 판이 죽을 때마다 배열이 하나씩 태어나는데, 갈리는 중에는
+        // 그게 매 틱 여러 장이다. 그리고 이 루프는 유폭 연쇄를 시작하는 자리라
+        // 재진입한다 - 그래서 목록도 깊이별로 든다(정적 하나면 안쪽 폭발이 바깥의
+        // 순회 대상을 갈아치운다).
+        List<CriticalModule> criticals = RentCriticals(_collapseDepth++);
+
+        try
         {
-            if (critical != null)
-                critical.TakeDamage(float.MaxValue);
+            GetComponentsInChildren(criticals);
+
+            for (int i = 0; i < criticals.Count; i++)
+            {
+                if (criticals[i] != null)
+                    criticals[i].TakeDamage(float.MaxValue);
+            }
+        }
+        finally
+        {
+            _collapseDepth--;
         }
 
         if (GetComponentInParent<Ship>() != null
@@ -609,8 +625,10 @@ AddHeat(amount / Mathf.Max(1e-3f, SubCellFullHp) * Ballistics.HeatFromDamage);
         // 보고하지 못했고, 그래서 잔해는 한 번 떨어진 뒤로 영영 안 쪼개졌다.
         GetComponentInParent<HullStructure>()?.ReportPlateLost(transform);
 
-        foreach (Collider2D col in GetComponentsInChildren<Collider2D>())
-             col.enabled = false;
+        GetComponentsInChildren(_dyingColliders);
+
+        for (int i = 0; i < _dyingColliders.Count; i++)
+            _dyingColliders[i].enabled = false;
 
         Destroy(gameObject);
     }
@@ -645,6 +663,20 @@ AddHeat(amount / Mathf.Max(1e-3f, SubCellFullHp) * Ballistics.HeatFromDamage);
     /// 죽이는 방법은 ApplyDamage 그대로다. 파편도 나가고 붕괴 판정도 그대로 탄다 -
     /// 여기만 특별한 길로 빠지면 "재료는 어디론가 간다"는 규칙에 예외가 생긴다.
     /// </summary>
+    // 죽는 길의 목록 둘. 판이 죽을 때마다 배열을 새로 만들던 자리다.
+    // 콜라이더 쪽은 재진입하지 않는다(끄고 바로 Destroy) - 깊이가 필요한 것은 모듈뿐이다.
+    private static readonly List<Collider2D> _dyingColliders = new();
+    private static readonly List<List<CriticalModule>> _criticalsByDepth = new();
+    private static int _collapseDepth;
+
+    private static List<CriticalModule> RentCriticals(int depth)
+    {
+        while (_criticalsByDepth.Count <= depth)
+            _criticalsByDepth.Add(new List<CriticalModule>());
+
+        return _criticalsByDepth[depth];
+    }
+
     private static readonly Unity.Profiling.ProfilerMarker _mKillOrphans = new("Armor.KillOrphans");
 
     private void KillOrphans()
