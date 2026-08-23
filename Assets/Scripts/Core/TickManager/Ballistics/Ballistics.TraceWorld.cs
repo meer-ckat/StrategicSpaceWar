@@ -170,8 +170,14 @@ public static class TraceWorld
             float du = Vector2.Dot(dir, e.axisU);
             float dv = Vector2.Dot(dir, e.axisV);
 
-            // 시작점이 안이면 통째로 무시 - queriesStartInColliders = false
-            if (Mathf.Abs(ru) < e.halfU && Mathf.Abs(rv) < e.halfV)
+            // 시작점이 안이면 통째로 무시 - queriesStartInColliders = false.
+            // **표면 1mm 안도 "안"이다.** 파편은 방금 맞은 면 위에서 태어난다 - Physics2D는
+            // 이 서브밀리 경계에서 미스와 0m 명중을 오락가락했고(대조 잔여 2건 전부 이것),
+            // 여기는 규칙이다: 낳아준 면을 도로 맞지 않는다. SpallResolver의 Epsilon 넛지와
+            // 같은 의도를 판정 쪽에서 못박는 것.
+            const float SurfaceSkin = 1e-3f;
+
+            if (Mathf.Abs(ru) < e.halfU + SurfaceSkin && Mathf.Abs(rv) < e.halfV + SurfaceSkin)
                 continue;
 
             float tMin = 0f;
