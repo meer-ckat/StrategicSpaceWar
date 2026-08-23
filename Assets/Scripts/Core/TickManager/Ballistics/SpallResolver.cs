@@ -1,35 +1,61 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
 /// 파편을 실제로 날려서 맞은 것에 피해를 준다. 무엇이 파편을 낳을지는 PenetrationManager가
 /// 정하고, 여기는 그걸 집행만 한다.
 ///
-/// Phase A: fragments are not Things. One-shot rays resolved inside the same tick,
-/// so there is no ongoing cost. Promote to real Projectiles when they need to cross a ship.
+/// **wave 구조다 (멀티스레딩 2단계).** Burst는 요청을 큐에 넣을 뿐이고, 첫 호출자가
+/// 펌프를 돌린다: 같은 세대의 파편 전부를 **읽기 전용으로 계산**(판정은 TraceWorld,
+/// 채널 가중치는 복사)하고, 큐 순서 그대로 **커밋**(피해 적용)한다. 커밋 중에 태어나는
+/// 파편(붕괴·유폭)은 다음 세대 큐로 간다. 같은 wave의 파편들은 서로를 못 본다 -
+/// 전부 wave 시작 스냅샷 기준으로 계산되고, 그것이 규칙이다(같은 순간 도착).
+///
+/// 이 분리가 병렬의 전제다: 계산 단계는 상태를 안 바꾸므로 나중에 그대로
+/// IJobParallelFor로 나가고, 커밋만 메인 스레드에 남는다.
+///
+/// **판정의 권위는 TraceWorld다.** Physics2D 레이는 Verify 모드에서 대조용으로만 나간다.
+/// MaxSpallDepth는 이제 호출 깊이가 아니라 세대 수 상한이다 - 허용되는 세대 수는 같다.
 /// </summary>
 public static class SpallResolver
 {
     private static readonly RaycastHit2D[] _hits = new RaycastHit2D[8];
 
-    /// <summary>
-    /// 파편이 서브셀을 죽이면 그 서브셀이 또 파편을 낳는다. 한 세대는 판이 부서지는
-    /// 것처럼 읽히지만, 막지 않으면 한 발이 함선을 통째로 지운다.
-    /// </summary>
-    private static int _depth;
-
-    // 깊이마다 따로. ApplyDamageAlong이 서브셀을 죽이면 그 자리에서 Collapse가 다시
-    // Burst를 부르므로, 하나를 돌려쓰면 바깥 루프가 읽는 중인 채널이 덮인다.
-    private static readonly float[][] _channel = BuildChannels();
-
-    private static float[][] BuildChannels()
+    private struct Request
     {
-        var buffers = new float[Ballistics.MaxSpallDepth + 1][];
-
-        for (int i = 0; i < buffers.Length; i++)
-            buffers[i] = new float[Ballistics.SubCount];
-
-        return buffers;
+        public Vector2 origin;
+        public Vector2 direction;
+        public float spread;
+        public float energy;
+        public int count;
+        public uint seed;
+        public int mask;
+        public float caliber;
+        public int generation;
     }
+
+    private enum Kind { Miss, Armor, Module }
+
+    private struct Event
+    {
+        public Kind kind;
+        public Armor armor;
+        public IDamageable target;
+        public Component targetBody;   // 파괴 검사와 DamageLog용
+        public Vector2 at;             // Miss면 끝점, 아니면 명중점
+        public float energy;
+        public int channel;            // Armor일 때 _channelPool 인덱스
+    }
+
+    private static readonly Queue<Request> _requests = new();
+    private static readonly List<Event> _events = new();
+    private static readonly List<float[]> _channelPool = new();
+    private static int _channelUsed;
+
+    private static bool _pumping;
+
+    /// <summary>지금 커밋 중인 세대. 커밋이 낳는 파편은 이 다음 세대로 간다. 평시 -1.</summary>
+    private static int _commitGeneration = -1;
 
     public static void Resolve(in HitResult r, LayerMask mask)
     {
@@ -47,12 +73,14 @@ public static class SpallResolver
             r.calliber);
     }
 
-    /// <summary>
-    /// 한 점에서 부채꼴로 파편을 뿌린다. 관통 뒤의 스폴도, 무너지는 판의 파편도 전부 이것 하나다.
-    /// spread는 반각(도).
-    /// </summary>
     private static readonly Unity.Profiling.ProfilerMarker _mBurst = new("Spall.Burst");
+    private static readonly Unity.Profiling.ProfilerMarker _mCommit = new("Spall.Commit");
 
+    /// <summary>
+    /// 한 점에서 부채꼴로 파편을 뿌린다. 관통 뒤의 스폴도, 무너지는 판의 파편도 전부 이것
+    /// 하나다. spread는 반각(도). **여기서는 아무 일도 안 일어난다** - 큐에 넣고, 바깥
+    /// 호출이면 펌프가 돌아 이번 틱 안에서 전부 끝난다. 바깥에서 보면 예전과 같이 동기다.
+    /// </summary>
     public static void Burst(
         Vector2 origin,
         Vector2 direction,
@@ -62,128 +90,228 @@ public static class SpallResolver
         uint seed,
         LayerMask mask, float caliber = 0f)
     {
-        if (count <= 0 || energy <= 0f || _depth >= Ballistics.MaxSpallDepth)
-            return;
+        int generation = _commitGeneration + 1;
 
-        using var marker = _mBurst.Auto();
+        if (count <= 0 || energy <= 0f || generation >= Ballistics.MaxSpallDepth)
+            return;
 
         if (direction.sqrMagnitude < 1e-6f)
             direction = Vector2.up;
 
-        _depth++;
+        _requests.Enqueue(new Request
+        {
+            origin = origin,
+            direction = direction,
+            spread = spread,
+            energy = energy,
+            count = count,
+            seed = seed,
+            mask = mask.value,
+            caliber = caliber,
+            generation = generation,
+        });
+
+        if (!_pumping)
+            Pump();
+    }
+
+    private static void Pump()
+    {
+        _pumping = true;
 
         try
         {
-            var rng = new DeterministicRng(seed);
-
-            float perFragment = energy / count;
-            float range = Mathf.Clamp(
-                perFragment * Ballistics.SpallRangePerEnergy,
-                Ballistics.SpallRangeMin,
-                Ballistics.SpallRangeMax);
-
-            // origin sits exactly on the face that was just hit. Nudge along the spray
-            // direction first, or every fragment re-hits that plate at distance 0 and the
-            // shell gets paid twice for one penetration.
-            Vector2 start = origin + direction.normalized * Ballistics.Epsilon;
-
-            for (int i = 0; i < count; i++)
+            while (_requests.Count > 0)
             {
-                Vector2 right = new Vector2(direction.y, -direction.x);
+                int generation = _requests.Peek().generation;
 
-                // -1 = 왼쪽 가장자리, 0 = 탄두 중심, +1 = 오른쪽 가장자리
-                float lateral = rng.Range(-1f, 1f);
+                // ---- 계산: 이 세대 전부, 읽기 전용. 여기가 나중에 잡으로 나가는 몸통이다.
+                _events.Clear();
+                _channelUsed = 0;
 
-                // caliber는 mm, 월드는 m. Armor 붕괴처럼 탄두 단면이 없는 호출은 0을 넘겨
-                // 한 점에서 뿌린다.
-                Vector2 fragmentOrigin =
-                    origin + right * lateral * (caliber * 0.0005f);
-
-                // 중심 0, 가장자리 1
-                float edgeFactor = Mathf.Abs(lateral);
-
-                // 중심에서는 좁게, 가장자리에서는 넓게
-                float localSpread = Mathf.Lerp(
-                    spread,
-                    Mathf.Min(180f, spread * 10f),
-                    edgeFactor
-                );
-
-                Vector2 d = Ballistics.Rotate(
-                    direction,
-                    rng.Range(-localSpread, localSpread)
-                );
-
-                Vector2 fragmentStart =
-                    fragmentOrigin + d * Ballistics.Epsilon;
-
-                int n = Physics2D.RaycastNonAlloc(
-                    fragmentStart,
-                    d,
-                    _hits,
-                    range,
-                    mask
-                );
-
-                // 전환기 대조: 자체 OBB 세계가 Physics2D와 같은 답을 내는지 센다.
-                // 판정은 안 바꾼다 - 권위는 아직 Physics2D다.
-                if (TraceWorld.VerifyMode)
+                using (_mBurst.Auto())
                 {
-                    RaycastHit2D pv = n > 0 ? Nearest(n) : default;
-                    TraceWorld.Verify(fragmentStart, d, range, mask.value,
-                        n > 0 ? pv.collider : null, n > 0 ? pv.distance : 0f);
-                }
-                // 파편이 지나간 선을 화면에 남긴다. 그림뿐이고, 판정에는 관여하지 않는다.
-                if (n <= 0)
-                {
-                    Vector2 far = fragmentStart + d.normalized * range;
-
-                    SpallTrails.Add(fragmentStart, far, SpallTrails.Kind.Miss);
-
-                    // 앞판을 하나도 못 맞고 날아갔다는 것은 **가로막은 실물이 없었다**는
-                    // 뜻이다. 그 끝에 반대편 벽이 있으면 거기 박힌다 - 후면은 콜라이더가
-                    // 없어서 위 레이캐스트에는 애초에 안 잡힌다.
-                    HullStructure.SpallRear(far, perFragment);
-
-                    continue;
+                    while (_requests.Count > 0 && _requests.Peek().generation == generation)
+                        Compute(_requests.Dequeue());
                 }
 
-                RaycastHit2D h = Nearest(n);
-
-                if (h.collider == null)
-                    continue;
-
-                if (h.collider.TryGetComponent(out Armor armor))
+                // ---- 커밋: 큐 순서 그대로(= 결정론). 연쇄 Burst는 다음 세대로 큐에 쌓인다.
+                using (_mCommit.Auto())
                 {
-                    SpallTrails.Add(fragmentStart, h.point, SpallTrails.Kind.Armor);
+                    _commitGeneration = generation;
 
-                    // 파편도 선이다. 맞은 면의 칸에만 넣으면 6x6 격자의 테두리만 갉히고
-                    // 안쪽은 영원히 멀쩡하다 - 파편은 언제나 표면에 닿으니까.
-                    float[] channel = _channel[_depth];
-
-                    armor.TraceChannel(
-                        h.point, d, Ballistics.SpallChannelDepth, channel, out _);
-
-                    armor.ApplyDamageAlong(channel, perFragment);
+                    try
+                    {
+                        for (int i = 0; i < _events.Count; i++)
+                            Commit(_events[i]);
+                    }
+                    finally
+                    {
+                        _commitGeneration = -1;
+                    }
                 }
-                else if (h.collider.TryGetComponent(out IDamageable target))
-                {
-                    SpallTrails.Add(fragmentStart, h.point, SpallTrails.Kind.Module);
 
-                    target.TakeDamage(perFragment);
-                    DamageLog.Hit(h.collider.transform, perFragment, target);
-                }
-                else
-                {
-                    // 맞긴 맞았는데 피해를 받는 물건이 아니었다. 선은 거기서 끊긴다.
-                    SpallTrails.Add(fragmentStart, h.point, SpallTrails.Kind.Miss);
-                }
+                // wave 사이 스냅샷 갱신은 여기서 안 한다. 죽음의 깔때기(Armor가 콜라이더를
+                // 끄는 자리, 시각 잔해가 끄는 자리)가 TraceWorld.Invalidate()를 직접 부르고,
+                // 죽음이 없던 wave 뒤에는 멀쩡한 스냅샷을 공짜로 재사용한다. 포즈는 틱 안에서
+                // Simulate 때만 변하고 그 자리는 이미 무효화한다.
             }
         }
         finally
         {
-            _depth--;
+            _pumping = false;
         }
+    }
+
+    /// <summary>파편 하나하나를 판정만 한다. 상태 변경 없음 - 트레일(그림)만 예외다.</summary>
+    private static void Compute(in Request request)
+    {
+        var rng = new DeterministicRng(request.seed);
+
+        float perFragment = request.energy / request.count;
+        float range = Mathf.Clamp(
+            perFragment * Ballistics.SpallRangePerEnergy,
+            Ballistics.SpallRangeMin,
+            Ballistics.SpallRangeMax);
+
+        Vector2 direction = request.direction;
+
+        // origin sits exactly on the face that was just hit. Nudge along the spray
+        // direction first, or every fragment re-hits that plate at distance 0 and the
+        // shell gets paid twice for one penetration.
+        for (int i = 0; i < request.count; i++)
+        {
+            Vector2 right = new Vector2(direction.y, -direction.x);
+
+            // -1 = 왼쪽 가장자리, 0 = 탄두 중심, +1 = 오른쪽 가장자리
+            float lateral = rng.Range(-1f, 1f);
+
+            // caliber는 mm, 월드는 m. Armor 붕괴처럼 탄두 단면이 없는 호출은 0을 넘겨
+            // 한 점에서 뿌린다.
+            Vector2 fragmentOrigin =
+                request.origin + right * lateral * (request.caliber * 0.0005f);
+
+            // 중심 0, 가장자리 1
+            float edgeFactor = Mathf.Abs(lateral);
+
+            // 중심에서는 좁게, 가장자리에서는 넓게
+            float localSpread = Mathf.Lerp(
+                request.spread,
+                Mathf.Min(180f, request.spread * 10f),
+                edgeFactor
+            );
+
+            Vector2 d = Ballistics.Rotate(
+                direction,
+                rng.Range(-localSpread, localSpread)
+            );
+
+            Vector2 fragmentStart =
+                fragmentOrigin + d * Ballistics.Epsilon;
+
+            // **판정의 권위.** Physics2D는 Verify 모드의 대조용으로만 돈다.
+            bool hitSomething = TraceWorld.Trace(
+                fragmentStart, d, range, request.mask, out TraceWorld.Hit hit);
+
+            if (TraceWorld.VerifyMode)
+            {
+                int n = Physics2D.RaycastNonAlloc(fragmentStart, d, _hits, range, request.mask);
+                RaycastHit2D pv = n > 0 ? Nearest(n) : default;
+                TraceWorld.Verify(fragmentStart, d, range, request.mask,
+                    n > 0 ? pv.collider : null, n > 0 ? pv.distance : 0f);
+            }
+
+            if (!hitSomething)
+            {
+                Vector2 far = fragmentStart + d.normalized * range;
+
+                // 파편이 지나간 선을 화면에 남긴다. 그림뿐이고, 판정에는 관여하지 않는다.
+                SpallTrails.Add(fragmentStart, far, SpallTrails.Kind.Miss);
+
+                // 앞판을 하나도 못 맞고 날아갔다는 것은 **가로막은 실물이 없었다**는
+                // 뜻이다. 그 끝에 반대편 벽이 있으면 거기 박힌다 - 후면은 콜라이더가
+                // 없어서 위 판정에는 애초에 안 잡힌다.
+                _events.Add(new Event { kind = Kind.Miss, at = far, energy = perFragment });
+                continue;
+            }
+
+            Collider2D col = TraceWorld.ColliderAt(hit.index);
+
+            if (col.TryGetComponent(out Armor armor))
+            {
+                SpallTrails.Add(fragmentStart, hit.point, SpallTrails.Kind.Armor);
+
+                // 파편도 선이다. 맞은 면의 칸에만 넣으면 6x6 격자의 테두리만 갉히고
+                // 안쪽은 영원히 멀쩡하다 - 파편은 언제나 표면에 닿으니까.
+                // 채널은 wave 시작 상태에서 계산해 복사해 둔다 - 커밋 순서와 무관하다.
+                float[] channel = RentChannel();
+
+                armor.TraceChannel(
+                    hit.point, d, Ballistics.SpallChannelDepth, channel, out _);
+
+                _events.Add(new Event
+                {
+                    kind = Kind.Armor,
+                    armor = armor,
+                    at = hit.point,
+                    energy = perFragment,
+                    channel = _channelUsed - 1,
+                });
+            }
+            else if (col.TryGetComponent(out IDamageable target))
+            {
+                SpallTrails.Add(fragmentStart, hit.point, SpallTrails.Kind.Module);
+
+                _events.Add(new Event
+                {
+                    kind = Kind.Module,
+                    target = target,
+                    targetBody = col,
+                    at = hit.point,
+                    energy = perFragment,
+                });
+            }
+            else
+            {
+                // 맞긴 맞았는데 피해를 받는 물건이 아니었다. 선은 거기서 끊긴다.
+                SpallTrails.Add(fragmentStart, hit.point, SpallTrails.Kind.Miss);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 피해 적용. 같은 wave의 앞선 커밋이 이미 죽인 대상은 조용히 넘어간다 -
+    /// 죽은 판의 ApplyDamageAlong은 _collapsed 가드가, 파괴된 모듈은 유니티 null이 거른다.
+    /// </summary>
+    private static void Commit(in Event e)
+    {
+        switch (e.kind)
+        {
+            case Kind.Miss:
+                HullStructure.SpallRear(e.at, e.energy);
+                break;
+
+            case Kind.Armor:
+                if (e.armor != null)
+                    e.armor.ApplyDamageAlong(_channelPool[e.channel], e.energy);
+                break;
+
+            case Kind.Module:
+                if (e.targetBody != null)
+                {
+                    e.target.TakeDamage(e.energy);
+                    DamageLog.Hit(e.targetBody.transform, e.energy, e.target);
+                }
+                break;
+        }
+    }
+
+    private static float[] RentChannel()
+    {
+        if (_channelUsed == _channelPool.Count)
+            _channelPool.Add(new float[Ballistics.SubCount]);
+
+        return _channelPool[_channelUsed++];
     }
 
     private static RaycastHit2D Nearest(int count)
