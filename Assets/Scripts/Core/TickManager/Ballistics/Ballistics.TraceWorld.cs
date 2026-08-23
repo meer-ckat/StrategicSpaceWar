@@ -40,6 +40,7 @@ public static class TraceWorld
         public float halfU;
         public float halfV;
         public int layer;
+        public bool isArmor;   // 동점 규칙용: 겹친 면에서는 판이 탄을 받는다
     }
 
     private static Entry[] _obb = new Entry[1024];
@@ -125,6 +126,7 @@ public static class TraceWorld
                     halfU = hu,
                     halfV = hv,
                     layer = c.gameObject.layer,
+                    isArmor = c.TryGetComponent(out Armor _),
                 };
                 _colliders[_count] = c;
                 _count++;
@@ -150,7 +152,9 @@ public static class TraceWorld
 
         float best = float.MaxValue;
         int bestIndex = -1;
+        bool bestIsArmor = false;
         Vector2 bestNormal = default;
+        const float TieEpsilon = 1e-3f;   // 모듈이 판 면에 딱 붙은 자리의 동점 창
 
         for (int i = 0; i < _count; i++)
         {
@@ -227,7 +231,15 @@ public static class TraceWorld
                 tMax = Mathf.Min(tMax, t2);
             }
 
-            if (tMin > tMax || tMin <= 0f || tMin >= best)
+            if (tMin > tMax || tMin <= 0f)
+                continue;
+
+            // **동점은 판이 탄을 받는다.** 모듈은 판 위에 볼트로 붙어 면이 겹치므로 같은
+            // 거리의 명중이 상시로 나온다 - Physics2D는 내부 순서로 아무거나 줬고, 여기서는
+            // 규칙이다: 판이 겉이다.
+            bool tie = Mathf.Abs(tMin - best) <= TieEpsilon;
+
+            if (tie ? (bestIsArmor || !e.isArmor) : tMin >= best)
                 continue;
 
             // 스냅샷 뜬 뒤 같은 페이즈 안에서 죽은 콜라이더(유폭 연쇄가 이 창을 상시로
@@ -240,6 +252,7 @@ public static class TraceWorld
 
             best = tMin;
             bestIndex = i;
+            bestIsArmor = e.isArmor;
             bestNormal = (minAxis == 0 ? _obb[i].axisU : _obb[i].axisV) * minSign;
         }
 
@@ -263,6 +276,7 @@ public static class TraceWorld
 
     private static int _agreed;
     private static int _disagreed;
+    private static int _ties;
     private static int _unsupported;
     private static int _logged;
     private const int MaxLogs = 20;
@@ -297,6 +311,14 @@ public static class TraceWorld
             return;
         }
 
+        // 거리는 같은데 콜라이더만 다르다 = 겹친 면의 동점. Physics2D의 답이 애초에
+        // 임의였던 자리라 불일치가 아니라 "규칙이 갈린 것"이다 - 우리 규칙은 판 우선.
+        if (physicsHit != null && mine && Mathf.Abs(hit.distance - physicsDistance) < 0.02f)
+        {
+            _ties++;
+            return;
+        }
+
         _disagreed++;
 
         if (_logged < MaxLogs)
@@ -310,13 +332,15 @@ public static class TraceWorld
     }
 
     public static string VerifyReport()
-        => $"[TraceWorld] 일치 {_agreed} / 불일치 {_disagreed} / 미지원(비박스) {_unsupported}"
+        => $"[TraceWorld] 일치 {_agreed} / 동점(겹친 면, 판 우선 규칙) {_ties} / 불일치 {_disagreed} "
+         + $"/ 미지원(비박스) {_unsupported}"
          + (_skippedNonBox > 0 ? $" (스냅샷 제외 비박스 콜라이더 {_skippedNonBox}개)" : "");
 
     public static void ResetVerify()
     {
         _agreed = 0;
         _disagreed = 0;
+        _ties = 0;
         _unsupported = 0;
         _logged = 0;
     }
