@@ -551,11 +551,63 @@ public static class RamImpact
     /// 실제로 캐스트되는 건 접촉면의 몇십 장이다. 결과는 거리순 - body.Cast가 주던
     /// 순서를 정렬로 복원한다.
     /// </summary>
+    /// <summary>
+    /// 콜라이더의 몸 로컬 피벗 + 자세 불변 도달 반경. 콜라이더는 몸 안에서 강체로 붙어
+    /// 있어서(포탑도 피벗은 고정, 회전만 한다) 한 번 재면 영원히 맞다 - 선별 루프가
+    /// 콜라이더마다 bounds(네이티브)를 읽던 것을 순수 산술로 바꾼다.
+    /// 반경은 CachedRadius와 같은 상한 공식: |AABB중심-피벗| + 반대각.
+    /// </summary>
+    private static readonly Dictionary<Collider2D, (Vector2 pivotLocal, float reach)> _colCache = new();
+    private static readonly List<Collider2D> _colPrune = new();
+    private static long _colPruneTick = -1;
+
+    private static (Vector2 pivotLocal, float reach) ColliderLocal(Transform bodyT, Collider2D c)
+    {
+        if (_colCache.TryGetValue(c, out (Vector2 pivotLocal, float reach) hit))
+            return hit;
+
+        if (_colCache.Count > 4096 && _colPruneTick != Core.TickManager.currentTick)
+        {
+            _colPruneTick = Core.TickManager.currentTick;
+            _colPrune.Clear();
+
+            foreach (KeyValuePair<Collider2D, (Vector2, float)> pair in _colCache)
+            {
+                if (pair.Key == null)
+                    _colPrune.Add(pair.Key);
+            }
+
+            for (int i = 0; i < _colPrune.Count; i++)
+                _colCache.Remove(_colPrune[i]);
+        }
+
+        Vector2 pivot = c.transform.position;
+        Bounds b = c.bounds;
+
+        var entry = (
+            (Vector2)bodyT.InverseTransformPoint(pivot),
+            ((Vector2)b.center - pivot).magnitude + ((Vector2)b.extents).magnitude);
+
+        _colCache[c] = entry;
+        return entry;
+    }
+
+    private static readonly List<Vector2> _nearLocal = new();
+
     private static int SweepNearColliders(Rigidbody2D body, Vector2 dir, float step)
     {
         using var _ = _mSweep.Auto();
         int attached = body.GetAttachedColliders(_attached);
         int n = 0;
+
+        // 남의 몸 중심을 내 몸 로컬로 한 번만 옮긴다(몸 몇 개 = 네이티브 몇 번).
+        // 그 뒤로 콜라이더 선별 루프는 캐시된 로컬 피벗과의 float 비교뿐이다 -
+        // 콜라이더 300개 x bounds 네이티브가 여기서 사라졌다.
+        Transform bodyT = body.transform;
+        _nearLocal.Clear();
+
+        for (int k = 0; k < _nearBodies.Count; k++)
+            _nearLocal.Add(bodyT.InverseTransformPoint(_nearBodies[k].centre));
 
         for (int i = 0; i < attached; i++)
         {
@@ -564,15 +616,15 @@ public static class RamImpact
             if (c == null || !c.enabled)
                 continue;
 
-            Bounds b = c.bounds;
-            float mine = ((Vector2)b.extents).magnitude + step;
+            (Vector2 pivotLocal, float reach) col = ColliderLocal(bodyT, c);
+            float mine = col.reach + step;
             bool near = false;
 
             for (int k = 0; k < _nearBodies.Count; k++)
             {
                 float r = _nearBodies[k].radius + mine;
 
-                if (((Vector2)b.center - _nearBodies[k].centre).sqrMagnitude <= r * r)
+                if ((col.pivotLocal - _nearLocal[k]).sqrMagnitude <= r * r)
                 {
                     near = true;
                     break;

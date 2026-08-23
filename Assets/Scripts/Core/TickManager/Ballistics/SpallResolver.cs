@@ -51,6 +51,8 @@ public static class SpallResolver
     /// 한 점에서 부채꼴로 파편을 뿌린다. 관통 뒤의 스폴도, 무너지는 판의 파편도 전부 이것 하나다.
     /// spread는 반각(도).
     /// </summary>
+    private static readonly Unity.Profiling.ProfilerMarker _mBurst = new("Spall.Burst");
+
     public static void Burst(
         Vector2 origin,
         Vector2 direction,
@@ -62,6 +64,8 @@ public static class SpallResolver
     {
         if (count <= 0 || energy <= 0f || _depth >= Ballistics.MaxSpallDepth)
             return;
+
+        using var _ = _mBurst.Auto();
 
         if (direction.sqrMagnitude < 1e-6f)
             direction = Vector2.up;
