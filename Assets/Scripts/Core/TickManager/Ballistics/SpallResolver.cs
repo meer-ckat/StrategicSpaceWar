@@ -40,6 +40,9 @@ public static class SpallResolver
         public int mask;
         public float caliber;
         public int generation;
+
+        /// <summary>큐에 들어온 틱. 빚을 개수가 아니라 시간으로 재기 위한 것.</summary>
+        public long tick;
     }
 
     private struct FragmentInput
@@ -242,6 +245,7 @@ public static class SpallResolver
             mask = mask.value,
             caliber = caliber,
             generation = generation,
+            tick = Core.TickManager.currentTick,
         });
 
         _pendingFragments += count;
@@ -258,11 +262,11 @@ public static class SpallResolver
         {
             while (_requests.Count > 0)
             {
-                // **예산은 틱당이다.** 넘친 요청은 큐에 남고 다음 틱이 이어 간다 - 총량은
-                // 그대로고 스파이크만 눕는다. 밀린 것이 너무 많으면 예산을 무시하고
-                // 따라잡는다(빚을 지는 것과 스파이크를 눕히는 것은 다른 일이다).
-                bool catchUp = _pendingFragments
-                    > Ballistics.MaxFragmentsPerPump * Ballistics.SpallBacklogCatchUp;
+                // **예산은 틱당이고, 빚은 시간으로 잰다.** 넘친 요청은 큐에 남고 다음 틱이
+                // 이어 간다 - 총량은 그대로고 스파이크만 눕는다. 개수로 재면(옛 방식) 큰
+                // 폭발 하나가 문턱을 즉시 넘겨서 정작 눕히려던 순간에 예산이 꺼진다.
+                bool catchUp = Core.TickManager.currentTick - _requests.Peek().tick
+                    > Ballistics.SpallMaxLagTicks;
 
                 if (!catchUp && TakeBudget() <= 0)
                     break;

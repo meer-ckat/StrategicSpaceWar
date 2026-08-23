@@ -80,9 +80,19 @@ public abstract partial class Projectile : Thing, ITickLate
             Launch(transform.up, muzzleSpeed >= 50 ? muzzleSpeed : 50); //50 이상으로 고정, Petard 공병 박격포탄이 최소인거임
     }
 
-    public virtual void Launch(Vector2 direction, float speed)
+    /// <summary>
+    /// 포구 속도에 **쏜 자리의 속도를 더한다.** 달리는 배에서 쏜 탄은 배의 속도를 안고
+    /// 나간다 - 그게 물리이기도 하고, 안 그러면 자기 배를 맞힌다: 탄이 우주 기준 직선으로
+    /// 나가는 동안 배는 옆으로 미끄러져서 그 직선 위로 자기 외판을 들이민다. 25 m/s로
+    /// 항행하며 현측 사격하면 선체를 빠져나가는 10 m 동안 배가 0.28 m 옆으로 가는데,
+    /// 포구가 외판에 붙어 있으니 그 정도면 옆 판을 긁는다.
+    ///
+    /// 반동은 이 값을 안 본다. 포가 만든 운동량은 포구 속도 몫뿐이고, 물려받은 속도는
+    /// 배가 이미 갖고 있던 것이라 배에서 빼야 할 이유가 없다.
+    /// </summary>
+    public virtual void Launch(Vector2 direction, float speed, Vector2 inherited = default)
     {
-        velocity = direction.normalized * speed;
+        velocity = direction.normalized * speed + inherited;
 
         if (velocity.sqrMagnitude > 0f) //속도가 유효하다면
             transform.up = velocity.normalized;

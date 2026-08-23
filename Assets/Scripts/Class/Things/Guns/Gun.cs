@@ -262,7 +262,21 @@ public class Gun : Thing, IDamageable
         if (shell == null)
             return;
 
-        shell.Launch(direction, muzzleSpeed);
+        // **포구가 실제로 움직이는 속도를 물려준다.** 중심 속도만 주면 도는 배의 현측
+        // 포탑이 틀리고(포구는 v + w x r로 움직인다 - 충각이 접점 속도를 재는 것과 같은
+        // 식이다), 아예 안 주면 탄이 자기 배를 긁는다: 탄은 우주 기준 직선으로 나가는데
+        // 배는 옆으로 미끄러져 그 선 위로 자기 외판을 들이민다.
+        Rigidbody2D platform = GetComponentInParent<Rigidbody2D>();
+        Vector2 inherited = Vector2.zero;
+
+        if (platform != null)
+        {
+            inherited = platform.linearVelocity
+                + Ballistics.Rotate(muzzle - platform.worldCenterOfMass, 90f)
+                    * (platform.angularVelocity * Mathf.Deg2Rad);
+        }
+
+        shell.Launch(direction, muzzleSpeed, inherited);
 
         // 탄이 가져간 만큼 배가 뒤로 간다. **회전을 만드는 코드가 없는 것이 요점이다** -
         // AddForceAtPosition이 무게중심에서 벗어난 힘을 알아서 토크로 바꾼다. 뱃머리
@@ -283,7 +297,8 @@ public class Gun : Thing, IDamageable
         //
         // angularDamping이 0이라 이 회전은 저절로 안 멎는다. 현측 사격이 배를 계속
         // 돌리고 조타 RCS가 그걸 붙잡는다. 그것도 여기 코드가 아니다.
-        Rigidbody2D body = GetComponentInParent<Rigidbody2D>();
+        // 반동은 포가 만든 운동량만 본다 - 물려준 속도는 배가 이미 갖고 있던 것이다.
+        Rigidbody2D body = platform;
 
         if (body != null)
         {
