@@ -736,25 +736,43 @@ public sealed class HullStructure : MonoBehaviour
 
         // SplitRear는 **누가 갖나**만 정한다(순수 함수, self-test 있음). **얼마나 상했나**는
         // 여기서 실어 나른다 - 지금 _rear에만 있는 값이고, 잔해가 태어난 뒤에는 물어볼 데가 없다.
-        var rearCells = new HashSet<Vector2Int>(_rear.Keys);
-
+        //
         // **씨앗을 설계도 좌표로 옮긴다.** chunks는 _map(살아 있는 격자) 칸이고 _rear는
         // 설계도 격자 칸이다. Stamp가 살아남은 판의 극값에서 원점을 잡으므로, 판이 죽으면
         // _map은 줄어드는데 _designMap은 안 변한다 - 두 좌표계를 그대로 섞으면 씨앗이
         // 엉뚱한 자리에 떨어져서 소유권이 아무렇게나 갈린다. 증상은 "후면이 분리되려다
         // 본체로 도로 돌아온다"다.
-        List<HashSet<Vector2Int>> owned = ShipGrid.SplitRear(ToDesignCells(chunks), rearCells);
+        ShipGrid.RearOwners owners = ShipGrid.SplitRearOwners(ToDesignCells(chunks), _rear.Keys);
 
-        List<Dictionary<Vector2Int, RearCell>> carried = WithHealth(owned);
+        // **붙어 있었나를 먼저 다 정한다.** 예전에는 떼어내는 루프 안에서 판단하며 남의
+        // 후면을 본체 집합에 합쳤는데, 주인 표가 평면이라 이제 접는 자리는 아래 한 곳이다.
+        EnsureSplitScratch(chunks.Count);
 
-        var byCell = new Dictionary<Vector2Int, Transform>();
+        for (int i = 0; i < chunks.Count; i++)
+            _chunkAttached[i] = i == 0 || WasAttached(chunks[i]);
+
+        // 장부를 한 번만 훑어 조각별로 나눈다. 집합도, 사전 복사도 없다 -
+        // 주인이 없으면 그 칸은 사라지고(판이 전멸한 토막), 안 붙어 있던 조각의 몫은
+        // 본체로 접힌다.
+        foreach (KeyValuePair<Vector2Int, RearCell> pair in _rear)
+        {
+            if (!owners.TryOwnerOf(pair.Key, out int chunk))
+                continue;
+
+            if (!_chunkAttached[chunk])
+                chunk = 0;
+
+            _carried[chunk][pair.Key] = pair.Value;
+        }
+
+        _byCell.Clear();
 
         foreach (Transform child in transform)
         {
             // 판만. 그림 오브젝트가 칸을 차지하면 진짜 판이 조각에서 빠지고, 그 그림이
             // 대신 잔해로 딸려간다.
             if (ShipBuilder.IsPlate(child))
-                byCell[_map.ToCell(child.localPosition)] = child;
+                _byCell[_map.ToCell(child.localPosition)] = child;
         }
 
         int alive = 0;
@@ -767,70 +785,80 @@ public sealed class HullStructure : MonoBehaviour
         // chunks[0]이 본체. 나머지 중 원래 이 덩어리에 붙어 있던 것만 떼어낸다.
         for (int i = 1; i < chunks.Count; i++)
         {
-            if (!WasAttached(chunks[i]))
-            {
-                owned[0].UnionWith(owned[i]);
-
-                foreach (KeyValuePair<Vector2Int, RearCell> pair in carried[i])
-                    carried[0][pair.Key] = pair.Value;
+            if (!_chunkAttached[i])
                 continue;
-            }
 
-            Breakaway(chunks[i], byCell, alive, carried[i]);
+            Breakaway(chunks[i], _byCell, alive, _carried[i]);
             broke = true;
         }
-        
+
         _rear.Clear();
 
-        foreach (KeyValuePair<Vector2Int, RearCell> pair in carried[0])
+        foreach (KeyValuePair<Vector2Int, RearCell> pair in _carried[0])
             _rear[pair.Key] = pair.Value;
+
         return broke;
+    }
+
+    // 파단 스크래치. 파단은 OnTick 앞에서만 돌고 그 안에서 다시 파단하지 않으므로
+    // 정적이어도 안전하다 - BFS 버퍼와 같은 근거다. 조각 수만큼만 비운다.
+    private static readonly List<Dictionary<Vector2Int, RearCell>> _carried = new();
+    private static bool[] _chunkAttached = System.Array.Empty<bool>();
+    private static readonly Dictionary<Vector2Int, Transform> _byCell = new();
+
+    private static void EnsureSplitScratch(int chunkCount)
+    {
+        if (_chunkAttached.Length < chunkCount)
+            _chunkAttached = new bool[chunkCount];
+
+        while (_carried.Count < chunkCount)
+            _carried.Add(new Dictionary<Vector2Int, RearCell>());
+
+        for (int i = 0; i < chunkCount; i++)
+            _carried[i].Clear();
     }
 
     /// <summary>
     /// 살아 있는 격자의 칸을 설계도 격자의 칸으로 옮긴다. 두 격자는 같은 배 로컬 공간을
     /// 재므로, 칸 -> 로컬 -> 칸으로 한 번 돌면 된다.
     /// </summary>
+    // 설계도 좌표로 옮긴 씨앗. 이것도 파단 스크래치라 정적이다 - 살아 있는 격자 칸을
+    // 통째로 한 벌 더 복사하는 자리라 파단마다 새로 만들면 그게 그대로 GC다.
+    private static readonly List<List<Vector2Int>> _designChunks = new();
+
     private List<List<Vector2Int>> ToDesignCells(List<List<Vector2Int>> chunks)
     {
-        var moved = new List<List<Vector2Int>>(chunks.Count);
+        while (_designChunks.Count < chunks.Count)
+            _designChunks.Add(new List<Vector2Int>());
 
-        foreach (List<Vector2Int> chunk in chunks)
+        for (int i = 0; i < chunks.Count; i++)
         {
-            var slice = new List<Vector2Int>(chunk.Count);
+            List<Vector2Int> slice = _designChunks[i];
+            slice.Clear();
 
-            if (_designMap != null)
-            {
-                foreach (Vector2Int cell in chunk)
-                    slice.Add(_designMap.ToCell(_map.ToLocal(cell.x, cell.y)));
-            }
+            if (_designMap == null)
+                continue;
 
-            moved.Add(slice);
+            foreach (Vector2Int cell in chunks[i])
+                slice.Add(_designMap.ToCell(_map.ToLocal(cell.x, cell.y)));
         }
 
-        return moved;
+        // 남는 칸은 이번 파단의 조각 수 밖이라 SplitRearOwners가 안 본다 - 그래도 옛
+        // 씨앗이 남아 있으면 헷갈리므로 비운다.
+        for (int i = chunks.Count; i < _designChunks.Count; i++)
+            _designChunks[i].Clear();
+
+        _designSlice.Clear();
+
+        for (int i = 0; i < chunks.Count; i++)
+            _designSlice.Add(_designChunks[i]);
+
+        return _designSlice;
     }
+
+    private static readonly List<List<Vector2Int>> _designSlice = new();
 
     /// <summary>조각별 칸 집합에 지금 체력을 실어 준다. 순서는 그대로다.</summary>
-    private List<Dictionary<Vector2Int, RearCell>> WithHealth(List<HashSet<Vector2Int>> owned)
-    {
-        var carried = new List<Dictionary<Vector2Int, RearCell>>(owned.Count);
-
-        for (int i = 0; i < owned.Count; i++)
-        {
-            var slice = new Dictionary<Vector2Int, RearCell>(owned[i].Count);
-
-            foreach (Vector2Int cell in owned[i])
-            {
-                if (_rear.TryGetValue(cell, out RearCell wall))
-                    slice[cell] = wall;
-            }
-
-            carried.Add(slice);
-        }
-
-        return carried;
-    }
 
     private bool WasAttached(List<Vector2Int> chunk)
     {

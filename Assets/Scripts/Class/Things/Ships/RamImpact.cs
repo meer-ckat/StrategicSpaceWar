@@ -44,7 +44,9 @@ public static class RamImpact
     /// </summary>
     private static readonly List<Rigidbody2D> _plateBodies = new();
 
-    private static readonly HashSet<Armor> _seen = new();
+    // 같은 판이 여러 번 들어오는 것을 거르는 도장. HashSet이면 스윕 결과(최대 512개)마다
+    // 해싱하는데, 충각은 몸마다 매 틱 돈다.
+    private static int _punchStamp;
 
     /// <summary>
     /// <see cref="FarthestReach"/>가 이 몸의 콜라이더를 받아 오는 자리. 함선 한 척이 판
@@ -60,6 +62,43 @@ public static class RamImpact
     // 도장이라 집합 자체가 없어졌다 - 간선마다 해싱하던 것이 int 비교 하나가 된다.
     private static Armor[] _wave = new Armor[1024];
     private static int _conductStamp;
+
+    // **재진입 버퍼는 깊이별로 살려 둔다.** 유폭 연쇄는 한 번 터질 때마다 안쪽으로
+    // 다시 들어오는데, 그때마다 새 배열을 만들면(파면 버퍼 + 질의 버퍼 1,152칸 = 9 KB)
+    // 폭발 하나가 수십 KB를 남긴다. 깊이는 MaxDetonationChain으로 막혀 있으니
+    // 깊이마다 한 벌씩만 있으면 된다.
+    private static readonly List<Armor[]> _nestedWave = new();
+    private static readonly List<HashSet<Armor>> _nestedReached = new();
+    private static readonly List<Collider2D[]> _nestedNearby = new();
+
+    private static Armor[] NestedWave(int depth, int minimum)
+    {
+        while (_nestedWave.Count <= depth)
+            _nestedWave.Add(new Armor[1024]);
+
+        if (_nestedWave[depth].Length < minimum)
+            _nestedWave[depth] = new Armor[Mathf.NextPowerOfTwo(minimum)];
+
+        return _nestedWave[depth];
+    }
+
+    private static HashSet<Armor> NestedReached(int depth)
+    {
+        while (_nestedReached.Count <= depth)
+            _nestedReached.Add(new HashSet<Armor>());
+
+        HashSet<Armor> set = _nestedReached[depth];
+        set.Clear();
+        return set;
+    }
+
+    private static Collider2D[] NestedNearby(int depth)
+    {
+        while (_nestedNearby.Count <= depth)
+            _nestedNearby.Add(new Collider2D[NearbyCapacity]);
+
+        return _nestedNearby[depth];
+    }
 
 
     // Ship.Ram self가 뭉쳐 보여서 가르는 마커. 릴리스에선 no-op.
@@ -200,7 +239,7 @@ public static class RamImpact
 
         _plates.Clear();
         _plateBodies.Clear();
-        _seen.Clear();
+        int stamp = ++_punchStamp;
 
         Vector2 where = body.worldCenterOfMass;
 
@@ -216,8 +255,10 @@ public static class RamImpact
             if (probe == null || !probe.TryGetComponent(out Armor plate) || plate == null)
                 continue;
 
-            if (!_seen.Add(plate))
+            if (plate.PunchStamp == stamp)
                 continue;
+
+            plate.PunchStamp = stamp;
 
             // **스윕 거리는 상한이지 이 점의 거리가 아니다.** step은 제일 빠른 점(회전이면
             // 제일 먼 점) 기준이라, 중심 근처의 판까지 그만큼 앞을 지운다. 예전에 반폭짜리
@@ -763,8 +804,8 @@ public static class RamImpact
         using var _ = _mConduct.Auto();
 
         bool nested = _conducting > 0;
-        Armor[] wave = nested ? new Armor[Mathf.Max(16, maxPlates + 8)] : _wave;
-        HashSet<Armor> reached = nested ? new HashSet<Armor>() : null;
+        Armor[] wave = nested ? NestedWave(_conducting, maxPlates + 8) : _wave;
+        HashSet<Armor> reached = nested ? NestedReached(_conducting) : null;
         int head = 0, tail = 0, reachedCount = 0;
 
         // 이번 파면의 도장 번호. 안 겹치면 지울 일이 없다.
@@ -921,7 +962,7 @@ public static class RamImpact
         // Conduct와 같은 재진입 방어. 아래 ApplyDamageEvenly가 다른 탄약고를 터뜨리면
         // 안쪽 Radiate가 같은 버퍼에 질의를 다시 써서, 바깥 루프가 읽던 목록이 통째로 바뀐다.
         bool nested = _radiating > 0;
-        Collider2D[] hits = nested ? new Collider2D[NearbyCapacity] : _nearby;
+        Collider2D[] hits = nested ? NestedNearby(_radiating) : _nearby;
 
         Vector2 pivot = origin.transform.position;
         float cutoff = damage * Ballistics.BlastCutoff;

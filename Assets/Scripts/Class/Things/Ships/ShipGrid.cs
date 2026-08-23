@@ -241,17 +241,76 @@ public static class ShipGrid
     /// <param name="design">설계도 격자. 판이 죽어도 안 변하는 쪽이다.</param>
     /// <param name="chunks">구조 조각. <see cref="BuildStructure"/>의 반환값.</param>
     /// <param name="rear">지금 이 몸이 들고 있는 후면 칸. 이미 갈라진 뒤라면 부분집합이다.</param>
+    /// <summary>
+    /// 후면 칸의 주인. **집합이 아니라 평면 표다** - 조각마다 HashSet을 만들면 파단 한 번에
+    /// 1,200칸이 해시 집합 여럿으로 흩어지고, 그 할당이 그대로 GC가 된다. 여기는 bbox
+    /// 평면 배열 하나뿐이고, 호출자가 자기 장부를 한 번 훑으며 주인을 물어본다.
+    ///
+    /// 배열은 정적 재사용이라 **다음 SplitRear 호출 전까지만 유효하다.**
+    /// </summary>
+    public readonly struct RearOwners
+    {
+        private readonly int[] _owner;
+        private readonly int _minX;
+        private readonly int _minY;
+        private readonly int _width;
+        private readonly int _height;
+
+        internal RearOwners(int[] owner, int minX, int minY, int width, int height)
+        {
+            _owner = owner;
+            _minX = minX;
+            _minY = minY;
+            _width = width;
+            _height = height;
+        }
+
+        /// <summary>
+        /// 이 칸을 어느 조각이 가져가나. false면 **어느 조각도 안 가져간다 = 삭제다** -
+        /// 판이 전멸한 토막의 후면이 그 경우고, 지우는 코드가 따로 없는 것이 요점이다.
+        /// </summary>
+        public bool TryOwnerOf(Vector2Int cell, out int chunk)
+        {
+            chunk = -1;
+
+            if (_owner == null)
+                return false;
+
+            int cx = cell.x - _minX;
+            int cy = cell.y - _minY;
+
+            if (cx < 0 || cy < 0 || cx >= _width || cy >= _height)
+                return false;
+
+            chunk = _owner[cy * _width + cx];
+            return chunk >= 0;
+        }
+    }
+
+    /// <summary>테스트 픽스처용. 실전은 <see cref="SplitRearOwners"/>가 평면 표를 그대로 쓴다.</summary>
     public static List<HashSet<Vector2Int>> SplitRear(
         List<List<Vector2Int>> chunks, HashSet<Vector2Int> rear)
     {
+        RearOwners owners = SplitRearOwners(chunks, rear);
         var results = new List<HashSet<Vector2Int>>(chunks.Count);
 
-        // 용량이 아니라 개수다. new List(n)은 자리를 잡아둘 뿐이라 results[i]가 아직 없다.
         for (int i = 0; i < chunks.Count; i++)
             results.Add(new HashSet<Vector2Int>());
 
+        foreach (Vector2Int cell in rear)
+        {
+            if (owners.TryOwnerOf(cell, out int chunk))
+                results[chunk].Add(cell);
+        }
+
+        return results;
+    }
+
+    public static RearOwners SplitRearOwners(
+        List<List<Vector2Int>> chunks, ICollection<Vector2Int> rear)
+    {
         if (rear.Count == 0)
-            return results;
+            return default;
 
         // 맵 크기를 안 받는 함수라 rear의 bbox로 평면 격자를 만든다. rear 밖은 애초에
         // 배열에 없으니 "이 집합이 경계다"가 인덱스 범위 그 자체가 된다.
@@ -316,7 +375,6 @@ public static class ShipGrid
                     continue;
 
                 owner[idx] = i;
-                results[i].Add(cell);
                 queue[tail++] = idx;
             }
         }
@@ -343,14 +401,13 @@ public static class ShipGrid
                     continue;
 
                 owner[ni] = owner[at];
-                results[owner[ni]].Add(new Vector2Int(minX + nc, minY + nr));
                 queue[tail++] = ni;
             }
         }
 
-        // 어느 씨앗에도 안 닿은 칸은 어느 집합에도 없다. 그것이 곧 삭제다 - 지우는 코드가
+        // 어느 씨앗에도 안 닿은 칸은 주인이 -1로 남는다. 그것이 곧 삭제다 - 지우는 코드가
         // 따로 없는 것이 요점이다.
-        return results;
+        return new RearOwners(owner, minX, minY, w, h);
     }
     /// <summary>Around[i]와 Around[j]가 서로 8이웃인가(체비쇼프 거리 1)를 비트로 깐 표.</summary>
     private static readonly int[] RingAdjacency = BuildRingAdjacency();
@@ -489,9 +546,29 @@ public static class ShipGrid
     /// 씨앗은 인덱스 순(행 우선)으로 돈다 - HashSet 순회 순서에 기대던 시절보다 오히려
     /// 예측 가능해졌고, 동률 크기 조각의 순서가 곧 발견 순서다.
     /// </summary>
+    // 조각 목록도 정적 재사용이다. BFS 스크래치와 같은 근거이고 여기 더해 하나 더:
+    // **반환값은 다음 BuildStructure 호출 전까지만 유효하다.** 소비자는 TrySplitIfBroken과
+    // Build 둘뿐이고 둘 다 받은 자리에서 다 쓴 뒤 놓는다(Breakaway -> Adopt는 칸을
+    // 자기 장부로 베껴 간다). 그 사이에 BuildStructure가 다시 불리는 길이 없다.
+    private static readonly List<List<Vector2Int>> _chunks = new();
+    private static readonly List<List<Vector2Int>> _chunkPool = new();
+    private static int _chunkPoolUsed;
+
+    private static List<Vector2Int> RentChunk()
+    {
+        if (_chunkPoolUsed == _chunkPool.Count)
+            _chunkPool.Add(new List<Vector2Int>());
+
+        List<Vector2Int> chunk = _chunkPool[_chunkPoolUsed++];
+        chunk.Clear();
+        return chunk;
+    }
+
     public static List<List<Vector2Int>> BuildStructure(Map map, bool[] alive)
     {
-        var chunks = new List<List<Vector2Int>>();
+        List<List<Vector2Int>> chunks = _chunks;
+        chunks.Clear();
+        _chunkPoolUsed = 0;
 
         int width = map.width;
         int size = width * map.height;
@@ -513,7 +590,7 @@ public static class ShipGrid
 
             _bfsVisited[si] = true;
 
-            var cells = new List<Vector2Int>();
+            List<Vector2Int> cells = RentChunk();
             int head = 0;
             int tail = 0;
             _bfsQueue[tail++] = si;

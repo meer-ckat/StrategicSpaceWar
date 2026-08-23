@@ -370,6 +370,14 @@ public abstract class Armor : Thing
     /// </summary>
     [System.NonSerialized] public int ConductStamp;
 
+    /// <summary>
+    /// 충각 스윕이 같은 판을 두 번 세지 않게 하는 도장. **전도와 따로 든다** - 충각이
+    /// 판을 때리면 그 자리에서 유폭이 나고 그 유폭이 전도 도장을 새 번호로 덮는다.
+    /// 한 필드를 나눠 쓰면 돌아온 스윕이 이미 센 판을 다시 세고, 접촉 판 수가 부풀어
+    /// 뾰족하게 댄 충각이 넓게 댄 것으로 계산된다.
+    /// </summary>
+    [System.NonSerialized] public int PunchStamp;
+
     /// <summary>배 로컬 위치 캐시. Awake에서 한 번. 재부모화가 보존하는 값이라 안 썩는다.</summary>
     [System.NonSerialized] public Vector2 CellLocal;
 
