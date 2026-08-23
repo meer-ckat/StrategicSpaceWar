@@ -267,16 +267,32 @@ public static class ShipGrid
         int w = maxX - minX + 1;
         int h = maxY - minY + 1;
 
-        var isRear = new bool[w * h];
-        var owner = new int[w * h];
+        // BFS 스크래치와 같은 이유로 정적 재사용이다: 파단은 OnTick 앞에서만 돌고 그 안에서
+        // 피해가 안 나가므로 재진입이 없다. 파단은 연쇄로 오는데 매번 bbox 크기 배열 셋을
+        // 새로 만들면 그 틱에 GC.Collect가 걸린다.
+        int size = w * h;
 
-        for (int i = 0; i < owner.Length; i++)
+        if (_rearIsRear.Length < size)
+        {
+            _rearIsRear = new bool[size];
+            _rearOwner = new int[size];
+            _rearQueue = new int[size];
+        }
+        else
+        {
+            System.Array.Clear(_rearIsRear, 0, size);
+        }
+
+        bool[] isRear = _rearIsRear;
+        int[] owner = _rearOwner;
+
+        for (int i = 0; i < size; i++)
             owner[i] = -1;
 
         foreach (Vector2Int c in rear)
             isRear[(c.y - minY) * w + (c.x - minX)] = true;
 
-        var queue = new int[w * h];
+        int[] queue = _rearQueue;
         int head = 0;
         int tail = 0;
 
@@ -446,6 +462,10 @@ public static class ShipGrid
     // 큐도 평면 배열 + head/tail이다. BFS는 칸당 최대 1회 입큐라 되감기(wrap)가 필요 없고,
     // Queue<T>의 버전 검사·용량 조정이 통째로 빠진다.
     private static int[] _bfsQueue = System.Array.Empty<int>();
+
+    private static bool[] _rearIsRear = System.Array.Empty<bool>();
+    private static int[] _rearOwner = System.Array.Empty<int>();
+    private static int[] _rearQueue = System.Array.Empty<int>();
 
     /// <summary>테스트 픽스처용. 실전은 마스크판이 쓴다 - 장부가 이미 마스크라 복사가 없다.</summary>
     public static List<List<Vector2Int>> BuildStructure(Map map, HashSet<Vector2Int> alive)
