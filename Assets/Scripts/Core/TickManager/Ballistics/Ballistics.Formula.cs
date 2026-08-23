@@ -36,6 +36,21 @@ public static partial class Ballistics
         return Mathf.Lerp(0f, 0.5f, f / 0.25f);
     }
 
+    /// <summary>
+    /// 탄이 잃은 운동량 = 맞은 몸이 받은 충격량(N·s). 관통 결과 이름이나 임의 배율은
+    /// 들어오지 않는다. 속도의 크기뿐 아니라 방향도 빼므로 도탄의 방향 전환도 보존된다.
+    /// </summary>
+    public static Vector2 ImpactImpulse(
+        float mass,
+        Vector2 incomingVelocity,
+        Vector2 outgoingVelocity)
+    {
+        if (mass <= 0f)
+            return Vector2.zero;
+
+        return mass * (incomingVelocity - outgoingVelocity);
+    }
+
     public static uint Hash(int projectileId, long tick, int hitIndex) //발사체의 정보를 Random value로 바꿔주는 함수. 필요 없음.
     {
         unchecked

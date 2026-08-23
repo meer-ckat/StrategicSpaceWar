@@ -243,6 +243,11 @@ public static class RamImpact
         if (contacts == 0)
             return;
 
+        // 같은 충각 틱이 낳는 붕괴 파편은 한 물리 사건이다. 판/서브셀마다 즉시 Pump하면
+        // 작은 Job 184개가 되고 더 느려진다. 이 스코프 끝에서 요청을 한 wave로 묶어
+        // 큰 IJobParallelFor 하나로 보낸다. 직접 충각 피해 순서는 아래 코드 그대로다.
+        using var spallBatch = SpallResolver.DeferPump();
+
         // **회전 운동에너지도 예산이다.** 여기서만 진짜 관성 모멘트를 쓴다 - Ship.Angle은
         // 각속도를 직접 대입하고 관성 모멘트를 angleAccel에 녹여 두었지만, 그건 조종 모델의
         // 사정이고 에너지는 리지드바디가 콜라이더에서 뽑아 둔 body.inertia가 진실이다.
@@ -844,6 +849,9 @@ public static class RamImpact
     /// </summary>
     public static void Detonate(Armor origin, float damage)
     {
+        // 한 폭발이 구조 전도와 자유 공간에 낳는 파편도 같은 순간의 한 wave다.
+        using var spallBatch = SpallResolver.DeferPump();
+
         origin.ApplyDamageEvenly(damage);
 
         Conduct(origin, Vector2.up, damage,

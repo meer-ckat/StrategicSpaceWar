@@ -876,9 +876,90 @@ public sealed class HullStructure : MonoBehaviour
         // 한 칸짜리 리스트 할당은 공짜고, 재진입 버그가 존재할 자리가 사라진다.
         var chunk = new List<Vector2Int> { cell };
         var byCell = new Dictionary<Vector2Int, Transform> { [cell] = plate };
+        Dictionary<Vector2Int, RearCell> owned = RearForShed(cell);
 
-        return MakeDebris(chunk, byCell, _aliveCount, new Dictionary<Vector2Int, RearCell>(), out _, out _);
+        bool moved = MakeDebris(chunk, byCell, _aliveCount, owned, out _, out _);
+
+        // MakeDebris가 실패하면 판도 제자리에 남는다. 후면도 같은 원자성으로 움직여야 한다.
+        // 성공한 뒤에만 본체 장부에서 빼면, 소형 시각 잔해에서는 함께 사라지고 정식 Hulk면
+        // Adopt가 이미 같은 RearCell을 넘겨받아 판과 함께 분리된다.
+        if (moved)
+            CommitRearTransfer(owned);
+
+        return moved;
     }
+
+    /// <summary>
+    /// 한 장짜리 이탈 판이 가져갈 후면. 살아 있는 격자와 설계도 격자는 원점이 다를 수
+    /// 있으므로 반드시 로컬 공간을 경유한다. 주변 실내 후면까지 끌고 가지 않고 같은 칸만
+    /// 가져가는 것이 판 한 장 붕괴와 선체 전체 파단의 차이다.
+    /// </summary>
+    private Dictionary<Vector2Int, RearCell> RearForShed(Vector2Int liveCell)
+    {
+        var owned = new Dictionary<Vector2Int, RearCell>(1);
+
+        if (_designMap == null)
+            return owned;
+
+        Vector2Int designCell = _designMap.ToCell(_map.ToLocal(liveCell.x, liveCell.y));
+
+        if (_designMap.Inside(designCell) && _rear.TryGetValue(designCell, out RearCell wall))
+            owned[designCell] = wall;
+
+        return owned;
+    }
+
+    private void CommitRearTransfer(Dictionary<Vector2Int, RearCell> owned)
+    {
+        bool changed = false;
+
+        foreach (Vector2Int cell in owned.Keys)
+            changed |= _rear.Remove(cell);
+
+        if (changed)
+            RearVersion++;
+    }
+
+#if UNITY_EDITOR
+    /// <summary>판 한 장 이탈은 같은 설계도 칸의 후면만 가져가고 주변 후면은 남긴다.</summary>
+    internal static bool ShedRearOwnershipSelfTest()
+    {
+        var go = new GameObject("shed rear selftest");
+        go.SetActive(false);
+        go.AddComponent<Rigidbody2D>();
+        HullStructure structure = go.AddComponent<HullStructure>();
+
+        try
+        {
+            structure._map = ShipGrid.Map.Centred(3, 1);
+            structure._designMap = ShipGrid.Map.Centred(5, 1);
+
+            Vector2Int liveCell = new(1, 0);
+            Vector2Int designCell = structure._designMap.ToCell(
+                structure._map.ToLocal(liveCell.x, liveCell.y));
+            Vector2Int neighbour = designCell + Vector2Int.right;
+
+            structure._rear[designCell] = new RearCell { hp = 10f, maxHp = 10f, rha = 5f };
+            structure._rear[neighbour] = new RearCell { hp = 20f, maxHp = 20f, rha = 6f };
+
+            Dictionary<Vector2Int, RearCell> owned = structure.RearForShed(liveCell);
+            bool collectedOnlyParent = owned.Count == 1
+                && owned.TryGetValue(designCell, out RearCell carried)
+                && Mathf.Approximately(carried.hp, 10f);
+
+            structure.CommitRearTransfer(owned);
+
+            return collectedOnlyParent
+                && !structure._rear.ContainsKey(designCell)
+                && structure._rear.ContainsKey(neighbour)
+                && structure.RearVersion == 1;
+        }
+        finally
+        {
+            DestroyImmediate(go);
+        }
+    }
+#endif
 
     private void Breakaway(
         List<Vector2Int> chunk,
@@ -912,6 +993,52 @@ public sealed class HullStructure : MonoBehaviour
 
         Debug.Log($"[{name}] 선체 {chunk.Count}칸이 떨어져 나갔다.", go);
     }
+
+    /// <summary>
+    /// 한 장짜리 시각 잔해는 구조 격자를 더 읽지 않는다. 그래서 판의 월드 위치를 보존한
+    /// 채 잔해 루트를 그 자리로 옮기고, 자식 좌표와 질량중심을 모두 0으로 접을 수 있다.
+    /// 루트를 함선 원점에 둔 채 COM만 옮기면 Transform 원점이 먼 곳에 남아 공전 버그를
+    /// 다시 만들 수 있다.
+    /// </summary>
+    private static void CentreSoloVisualDebris(
+        Transform debrisRoot, Transform plate, Rigidbody2D body)
+    {
+        Vector3 worldPosition = plate.position;
+        debrisRoot.position = worldPosition;
+        plate.localPosition = Vector3.zero;
+        body.centerOfMass = Vector2.zero;
+    }
+
+#if UNITY_EDITOR
+    internal static bool SoloDebrisOriginSelfTest()
+    {
+        var go = new GameObject("solo debris origin selftest");
+        go.SetActive(false);
+        Rigidbody2D body = go.AddComponent<Rigidbody2D>();
+        var plate = new GameObject("plate");
+        plate.transform.SetParent(go.transform, worldPositionStays: false);
+
+        try
+        {
+            go.transform.SetPositionAndRotation(new Vector3(8f, -3f, 0f),
+                Quaternion.Euler(0f, 0f, 31f));
+            go.transform.localScale = new Vector3(-1f, 1f, 1f);
+            plate.transform.localPosition = new Vector3(12f, 4f, 0f);
+            Vector3 before = plate.transform.position;
+
+            CentreSoloVisualDebris(go.transform, plate.transform, body);
+
+            return plate.transform.localPosition.sqrMagnitude < 1e-8f
+                && (plate.transform.position - before).sqrMagnitude < 1e-8f
+                && (go.transform.position - before).sqrMagnitude < 1e-8f
+                && body.centerOfMass.sqrMagnitude < 1e-8f;
+        }
+        finally
+        {
+            DestroyImmediate(go);
+        }
+    }
+#endif
 
     /// <summary>
     /// 잔해 몸통을 만들고 판들을 옮겨 담는다. 여기까지가 파단과 판 한 장 떨어짐의 공통분모고,
@@ -1052,9 +1179,9 @@ public sealed class HullStructure : MonoBehaviour
             foreach (Collider2D col in go.GetComponentsInChildren<Collider2D>())
                 col.enabled = false;
 
-            // 콜라이더가 없으면 질량중심이 몸 원점(= 본체가 있던 자리)에 남는다. 그러면
-            // 각속도가 판을 그 먼 점 주위로 공전시킨다 - 판 자리로 옮겨야 제자리에서 돈다.
-            body.centerOfMass = go.transform.InverseTransformPoint(centre);
+            // VisualDebrisMaxPlates가 1이고 bareOnly 판정까지 통과했으므로 자식은 맨판 하나다.
+            // 루트와 자식 원점을 같은 자리로 접어야 회전축이 특정 먼 지점에 남지 않는다.
+            CentreSoloVisualDebris(go.transform, go.transform.GetChild(0), body);
 
             Destroy(go, Ballistics.DebrisLifeTick * Core.TickManager.TickDeltaTime);
 

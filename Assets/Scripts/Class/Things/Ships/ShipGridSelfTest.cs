@@ -213,6 +213,18 @@ public static class ShipGridSelfTest
         HullSkinSizeTest();
         StampFromDefTest();
         RearSplitTest();
+        Check("shed rear: parent plate owns exactly its rear cell",
+            HullStructure.ShedRearOwnershipSelfTest());
+        Check("rear view: follows runtime mirror scale",
+            BackPlateView.MirroredFollowSelfTest());
+        Check("rear view: footprint crosses its anchor cell",
+            BackPlateView.FootprintOverflowSelfTest());
+        Check("rear view: quad uv maps back to the design rect",
+            BackPlateView.QuadUvSelfTest());
+        Check("rear view: plates enclose the rear silhouette",
+            BackPlateView.SilhouetteFloodSelfTest());
+        Check("solo debris: child origin and centre of mass are zero",
+            HullStructure.SoloDebrisOriginSelfTest());
 
         Debug.Log($"[ShipGrid] {_pass} passed, {_fail} failed.");
     }

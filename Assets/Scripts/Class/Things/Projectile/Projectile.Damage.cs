@@ -64,6 +64,13 @@ public abstract partial class Projectile
 
     private void Apply(in HitResult r, Vector2 dir)
     {
+        // 판은 아래 피해 적용 중 죽어서 잔해로 재부모화될 수 있다. 그 전에 이번 충돌이
+        // 실제로 맞힌 Rigidbody와 입사 운동량을 붙잡아 둔다.
+        Vector2 incomingVelocity = velocity;
+        Rigidbody2D targetBody = _surfaces.primaryCollider != null
+            ? _surfaces.primaryCollider.attachedRigidbody
+            : null;
+
         integrity = r.newIntegrity;
         state = r.newState;
         velocity = r.newVelocity;
@@ -71,6 +78,22 @@ public abstract partial class Projectile
 
         if (_surfaces.count <= 0)
             return;
+
+        // 결과별 1x/0.5x가 없다. 탄이 잃은 운동량을 명중점에 그대로 넣으면 관통탄은
+        // 남긴 속도만큼 덜 밀고, 정지탄과 도탄은 잃거나 꺾인 만큼 더 민다. 명중점이
+        // 무게중심에서 벗어났을 때의 회전은 Rigidbody2D가 같은 충격량에서 계산한다.
+        if (targetBody != null)
+        {
+            Vector2 impulse = Ballistics.ImpactImpulse(mass, incomingVelocity, r.newVelocity);
+
+            if (impulse.sqrMagnitude > 1e-12f)
+            {
+                targetBody.AddForceAtPosition(
+                    impulse,
+                    _surfaces.hitPoint,
+                    ForceMode2D.Impulse);
+            }
+        }
 
         SoundManager.AudioShot(
             r.outcome switch

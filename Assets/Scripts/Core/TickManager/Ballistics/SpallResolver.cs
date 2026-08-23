@@ -1,4 +1,8 @@
 using System.Collections.Generic;
+using Unity.Burst;
+using Unity.Collections;
+using Unity.Jobs;
+using Unity.Mathematics;
 using UnityEngine;
 
 /// <summary>
@@ -11,14 +15,18 @@ using UnityEngine;
 /// 파편(붕괴·유폭)은 다음 세대 큐로 간다. 같은 wave의 파편들은 서로를 못 본다 -
 /// 전부 wave 시작 스냅샷 기준으로 계산되고, 그것이 규칙이다(같은 순간 도착).
 ///
-/// 이 분리가 병렬의 전제다: 계산 단계는 상태를 안 바꾸므로 나중에 그대로
-/// IJobParallelFor로 나가고, 커밋만 메인 스레드에 남는다.
+/// 64개 이상 파편의 OBB 판정은 IJobParallelFor + Burst로 나가고, Unity 오브젝트를
+/// 만지는 채널 계산·트레일·피해 커밋만 메인 스레드에 남는다. 작은 wave는 스케줄 비용을
+/// 피하려고 순차 경로를 쓴다.
 ///
 /// **판정의 권위는 TraceWorld다.** Physics2D 레이는 Verify 모드에서 대조용으로만 나간다.
 /// MaxSpallDepth는 이제 호출 깊이가 아니라 세대 수 상한이다 - 허용되는 세대 수는 같다.
 /// </summary>
 public static class SpallResolver
 {
+    private const int ParallelFragmentThreshold = 64;
+    private const int ParallelBatchSize = 16;
+
     private static readonly RaycastHit2D[] _hits = new RaycastHit2D[8];
 
     private struct Request
@@ -32,6 +40,37 @@ public static class SpallResolver
         public int mask;
         public float caliber;
         public int generation;
+    }
+
+    private struct FragmentInput
+    {
+        public float2 start;
+        public float2 direction;
+        public float range;
+        public float energy;
+        public int mask;
+    }
+
+    /// <summary>
+    /// **Strict + 동기 컴파일이 결정론의 값이다.** 기본 FloatMode는 재결합·근사를 허용하고,
+    /// 동기 컴파일이 아니면 에디터에서 Burst가 준비되기 전 몇 프레임이 관리 IL로 돌아
+    /// **같은 세션 안에서** 답이 갈린다 - 순차 경로(64발 미만)와 워커 경로가 어긋나는
+    /// 자리도 같은 이유다. 판정이 튜닝의 근거라 여기서는 속도보다 재현이 먼저다.
+    /// </summary>
+    [BurstCompile(FloatMode = FloatMode.Strict, CompileSynchronously = true)]
+    private struct TraceFragmentsJob : IJobParallelFor
+    {
+        [ReadOnly] public NativeArray<FragmentInput> inputs;
+        [ReadOnly] public NativeArray<TraceWorld.JobEntry> world;
+        [ReadOnly] public NativeArray<byte> active;
+        [WriteOnly] public NativeArray<TraceWorld.JobHit> results;
+
+        public void Execute(int index)
+        {
+            FragmentInput input = inputs[index];
+            results[index] = TraceWorld.TraceJob(
+                world, active, input.start, input.direction, input.range, input.mask);
+        }
     }
 
     private enum Kind { Miss, Armor, Module }
@@ -55,6 +94,7 @@ public static class SpallResolver
     }
 
     private static readonly Queue<Request> _requests = new();
+    private static readonly List<Request> _waveRequests = new();
     private static readonly List<Event> _events = new();
 
     // 채널 가중치는 이벤트별 배열이 아니라 **평면 버퍼 + offset**이다. 할당이 없고,
@@ -68,6 +108,38 @@ public static class SpallResolver
         (a, b) => a.orderKey.CompareTo(b.orderKey);
 
     private static bool _pumping;
+    private static int _deferPumpDepth;
+
+    internal struct PumpScope : System.IDisposable
+    {
+        private bool _active;
+
+        internal PumpScope(bool active) => _active = active;
+
+        public void Dispose()
+        {
+            if (!_active)
+                return;
+
+            _active = false;
+            EndDeferredPump();
+        }
+    }
+
+    internal static PumpScope DeferPump()
+    {
+        _deferPumpDepth++;
+        return new PumpScope(true);
+    }
+
+    private static void EndDeferredPump()
+    {
+        Debug.Assert(_deferPumpDepth > 0, "SpallResolver PumpScope가 중복 해제됐다.");
+        _deferPumpDepth--;
+
+        if (_deferPumpDepth == 0 && !_pumping && _requests.Count > 0)
+            Pump();
+    }
 
     /// <summary>지금 커밋 중인 세대. 커밋이 낳는 파편은 이 다음 세대로 간다. 평시 -1.</summary>
     private static int _commitGeneration = -1;
@@ -90,6 +162,8 @@ public static class SpallResolver
 
     private static readonly Unity.Profiling.ProfilerMarker _mBurst = new("Spall.Burst");
     private static readonly Unity.Profiling.ProfilerMarker _mCommit = new("Spall.Commit");
+    private static readonly Unity.Profiling.ProfilerMarker _mJobSchedule = new("Spall.TraceJob.Schedule");
+    private static readonly Unity.Profiling.ProfilerMarker _mJobComplete = new("Spall.TraceJob.Complete");
 
     /// <summary>
     /// 한 점에서 부채꼴로 파편을 뿌린다. 관통 뒤의 스폴도, 무너지는 판의 파편도 전부 이것
@@ -126,7 +200,7 @@ public static class SpallResolver
             generation = generation,
         });
 
-        if (!_pumping)
+        if (!_pumping && _deferPumpDepth == 0)
             Pump();
     }
 
@@ -145,11 +219,24 @@ public static class SpallResolver
                 // 구조가 큐라 남은 요청은 다음 기회로 자연스럽게 밀린다.
                 _events.Clear();
                 _channelFloats = 0;
+                _waveRequests.Clear();
+
+                int fragmentCount = 0;
+
+                while (_requests.Count > 0 && _requests.Peek().generation == generation)
+                {
+                    Request request = _requests.Dequeue();
+                    _waveRequests.Add(request);
+                    fragmentCount += request.count;
+                }
 
                 using (_mBurst.Auto())
                 {
-                    while (_requests.Count > 0 && _requests.Peek().generation == generation)
-                        Compute(_requests.Dequeue());
+                    if (fragmentCount >= ParallelFragmentThreshold)
+                        ComputeParallel(fragmentCount);
+                    else
+                        for (int i = 0; i < _waveRequests.Count; i++)
+                            Compute(_waveRequests[i]);
                 }
 
                 // ---- 커밋: orderKey 정렬(= 결정론). 지금은 발급 순서라 항등이지만, 계산이
@@ -305,6 +392,254 @@ public static class SpallResolver
                 // 맞긴 맞았는데 피해를 받는 물건이 아니었다. 선은 거기서 끊긴다.
                 SpallTrails.Add(fragmentStart, hit.point, SpallTrails.Kind.Miss);
             }
+        }
+    }
+
+    /// <summary>
+    /// 큰 wave만 실제 워커로 보낸다. 입력 생성과 Unity 오브젝트 커밋은 메인 스레드,
+    /// 파편 x OBB 교차의 곱만 IJobParallelFor + Burst가 담당한다.
+    /// </summary>
+    private static void ComputeParallel(int fragmentCount)
+    {
+        var inputs = new NativeArray<FragmentInput>(
+            fragmentCount, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+        var results = new NativeArray<TraceWorld.JobHit>(
+            fragmentCount, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+
+        TraceWorld.CreateJobSnapshot(
+            out NativeArray<TraceWorld.JobEntry> world,
+            out NativeArray<byte> active);
+
+        try
+        {
+            int at = 0;
+
+            for (int r = 0; r < _waveRequests.Count; r++)
+            {
+                Request request = _waveRequests[r];
+                var rng = new DeterministicRng(request.seed);
+                float perFragment = request.energy / request.count;
+                float range = Mathf.Clamp(
+                    perFragment * Ballistics.SpallRangePerEnergy,
+                    Ballistics.SpallRangeMin,
+                    Ballistics.SpallRangeMax);
+                Vector2 direction = request.direction;
+
+                for (int i = 0; i < request.count; i++)
+                {
+                    Vector2 right = new Vector2(direction.y, -direction.x);
+                    float lateral = rng.Range(-1f, 1f);
+                    Vector2 fragmentOrigin =
+                        request.origin + right * lateral * (request.caliber * 0.0005f);
+                    float edgeFactor = Mathf.Abs(lateral);
+                    float localSpread = Mathf.Lerp(
+                        request.spread,
+                        Mathf.Min(180f, request.spread * 10f),
+                        edgeFactor);
+                    Vector2 d = Ballistics.Rotate(
+                        direction,
+                        rng.Range(-localSpread, localSpread));
+                    Vector2 start = fragmentOrigin + d * Ballistics.Epsilon;
+
+                    inputs[at++] = new FragmentInput
+                    {
+                        start = new float2(start.x, start.y),
+                        direction = new float2(d.x, d.y),
+                        range = range,
+                        energy = perFragment,
+                        mask = request.mask,
+                    };
+                }
+            }
+
+            var job = new TraceFragmentsJob
+            {
+                inputs = inputs,
+                world = world,
+                active = active,
+                results = results,
+            };
+
+            JobHandle handle;
+
+            using (_mJobSchedule.Auto())
+                handle = job.Schedule(fragmentCount, ParallelBatchSize);
+
+            using (_mJobComplete.Auto())
+                handle.Complete();
+
+            // 워커 완료 순서와 무관하게 입력 0..N 순서로만 이벤트를 발급한다.
+            for (int i = 0; i < fragmentCount; i++)
+            {
+                FragmentInput input = inputs[i];
+                TraceWorld.JobHit result = results[i];
+                TraceWorld.Hit hit = new TraceWorld.Hit
+                {
+                    index = result.index,
+                    distance = result.distance,
+                    point = new Vector2(result.point.x, result.point.y),
+                    normal = new Vector2(result.normal.x, result.normal.y),
+                };
+
+                ProcessParallelResult(in input, result.found != 0, in hit);
+            }
+        }
+        finally
+        {
+            active.Dispose();
+            world.Dispose();
+            results.Dispose();
+            inputs.Dispose();
+        }
+    }
+
+#if UNITY_EDITOR
+    /// <summary>메뉴 셀프테스트가 실제 Job 스케줄과 결과 슬롯 순서를 검증한다.</summary>
+    internal static bool TraceJobSelfTest()
+    {
+        var world = new NativeArray<TraceWorld.JobEntry>(2, Allocator.TempJob);
+        var active = new NativeArray<byte>(2, Allocator.TempJob);
+        var inputs = new NativeArray<FragmentInput>(3, Allocator.TempJob);
+        var results = new NativeArray<TraceWorld.JobHit>(3, Allocator.TempJob);
+
+        try
+        {
+            world[0] = new TraceWorld.JobEntry
+            {
+                centre = new float2(5f, 0f),
+                axisU = new float2(1f, 0f),
+                axisV = new float2(0f, 1f),
+                halfU = 0.5f,
+                halfV = 0.5f,
+                radius = 0.7072f,
+                layer = 0,
+                isArmor = 1,
+            };
+            world[1] = new TraceWorld.JobEntry
+            {
+                centre = new float2(8f, 0f),
+                axisU = new float2(1f, 0f),
+                axisV = new float2(0f, 1f),
+                halfU = 0.5f,
+                halfV = 0.5f,
+                radius = 0.7072f,
+                layer = 1,
+            };
+            active[0] = 1;
+            active[1] = 1;
+
+            inputs[0] = new FragmentInput
+            {
+                start = float2.zero,
+                direction = new float2(1f, 0f),
+                range = 10f,
+                mask = 3,
+            };
+            inputs[1] = new FragmentInput
+            {
+                start = float2.zero,
+                direction = new float2(1f, 0f),
+                range = 10f,
+                mask = 2,
+            };
+            inputs[2] = new FragmentInput
+            {
+                start = float2.zero,
+                direction = new float2(0f, 1f),
+                range = 10f,
+                mask = 3,
+            };
+
+            new TraceFragmentsJob
+            {
+                inputs = inputs,
+                world = world,
+                active = active,
+                results = results,
+            }.Schedule(3, 1).Complete();
+
+            return results[0].found != 0 && results[0].index == 0
+                && math.abs(results[0].distance - 4.5f) < 1e-4f
+                && results[1].found != 0 && results[1].index == 1
+                && math.abs(results[1].distance - 7.5f) < 1e-4f
+                && results[2].found == 0;
+        }
+        finally
+        {
+            results.Dispose();
+            inputs.Dispose();
+            active.Dispose();
+            world.Dispose();
+        }
+    }
+#endif
+
+    private static void ProcessParallelResult(
+        in FragmentInput input,
+        bool hitSomething,
+        in TraceWorld.Hit hit)
+    {
+        Vector2 fragmentStart = new Vector2(input.start.x, input.start.y);
+        Vector2 d = new Vector2(input.direction.x, input.direction.y);
+
+        if (TraceWorld.VerifyMode)
+        {
+            int n = Physics2D.RaycastNonAlloc(fragmentStart, d, _hits, input.range, input.mask);
+            RaycastHit2D pv = n > 0 ? Nearest(n) : default;
+            TraceWorld.Verify(fragmentStart, d, input.range, input.mask,
+                n > 0 ? pv.collider : null, n > 0 ? pv.distance : 0f, hitSomething, in hit);
+        }
+
+        if (!hitSomething)
+        {
+            Vector2 far = fragmentStart + d.normalized * input.range;
+            SpallTrails.Add(fragmentStart, far, SpallTrails.Kind.Miss);
+            _events.Add(new Event
+            {
+                orderKey = _sequence++,
+                kind = Kind.Miss,
+                at = far,
+                energy = input.energy,
+            });
+            return;
+        }
+
+        Collider2D col = TraceWorld.ColliderAt(hit.index);
+
+        if (col.TryGetComponent(out Armor armor))
+        {
+            SpallTrails.Add(fragmentStart, hit.point, SpallTrails.Kind.Armor);
+            armor.TraceChannel(
+                hit.point, d, Ballistics.SpallChannelDepth, _channelScratch, out _);
+
+            int offset = ReserveChannel();
+            System.Array.Copy(_channelScratch, 0, _channels, offset, Ballistics.SubCount);
+            _events.Add(new Event
+            {
+                orderKey = _sequence++,
+                kind = Kind.Armor,
+                armor = armor,
+                at = hit.point,
+                energy = input.energy,
+                channelOffset = offset,
+            });
+        }
+        else if (col.TryGetComponent(out IDamageable target))
+        {
+            SpallTrails.Add(fragmentStart, hit.point, SpallTrails.Kind.Module);
+            _events.Add(new Event
+            {
+                orderKey = _sequence++,
+                kind = Kind.Module,
+                target = target,
+                targetBody = col,
+                at = hit.point,
+                energy = input.energy,
+            });
+        }
+        else
+        {
+            SpallTrails.Add(fragmentStart, hit.point, SpallTrails.Kind.Miss);
         }
     }
 

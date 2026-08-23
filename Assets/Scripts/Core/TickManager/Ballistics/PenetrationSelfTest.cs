@@ -20,6 +20,26 @@ public static class PenetrationSelfTest
         _fail = 0;
 
         PolygonTests();
+        Check("spall trace IJobParallelFor", SpallResolver.TraceJobSelfTest());
+        Check("trace world cached source follows transform", TraceWorld.CachedSourceSelfTest());
+
+        {
+            const float shellMass = 5f;
+            Vector2 incoming = Vector2.right * 900f;
+            Vector2 fastExit = Ballistics.ImpactImpulse(
+                shellMass, incoming, Vector2.right * 800f);
+            Vector2 slowExit = Ballistics.ImpactImpulse(
+                shellMass, incoming, Vector2.right * 400f);
+            Vector2 blocked = Ballistics.ImpactImpulse(
+                shellMass, incoming, Vector2.zero);
+
+            Check("impact impulse is projectile momentum loss",
+                Mathf.Approximately(fastExit.x, 500f)
+                && Mathf.Approximately(slowExit.x, 2500f)
+                && Mathf.Approximately(blocked.x, 4500f)
+                && blocked.x > slowExit.x && slowExit.x > fastExit.x,
+                default);
+        }
 
         Vector2 head = Vector2.down;   // straight into an upward-facing plate
 
