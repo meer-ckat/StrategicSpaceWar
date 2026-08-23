@@ -158,8 +158,13 @@ public abstract class Armor : Thing
     {
         base.Awake();
 
-// def 규칙대로 부모가 다 잡힌 뒤에 켜지므로 여기서 읽는 parent가 곧 몸이다.
+        // def 규칙대로 부모가 다 잡힌 뒤에 켜지므로 여기서 읽는 parent가 곧 몸이다.
         CachedBody = transform.parent;
+
+        // 배 로컬 위치 캐시. 판은 선체 직속 자식이고 잔해 재부모화가 localPosition을
+        // 보존하므로(같은 scale + worldPositionStays 불변식) 한 번 읽으면 영원히 맞다.
+        // 충격 전도 BFS가 간선마다 transform.position(네이티브)을 읽던 것을 이걸로 바꾼다.
+        CellLocal = transform.localPosition;
 
         // 콜라이더를 먼저 읽는다. 체력이 넓이에서 나오므로 순서가 뒤집히면
         // 모든 판이 넓이 0의 체력, 즉 0을 들고 시작한다.
@@ -354,6 +359,9 @@ public abstract class Armor : Thing
     /// <see cref="HullStructure"/>의 MakeDebris 하나뿐이라 거기서만 갱신하면 안 썩는다.
     /// </summary>
     [System.NonSerialized] public Transform CachedBody;
+
+    /// <summary>배 로컬 위치 캐시. Awake에서 한 번. 재부모화가 보존하는 값이라 안 썩는다.</summary>
+    [System.NonSerialized] public Vector2 CellLocal;
 
     /// <summary>
     /// 아직 같은 덩어리인가. 잔해로 떨어져 나가도 이웃 참조는 살아 있어서, 그냥 두면 충격이
@@ -615,8 +623,12 @@ AddHeat(amount / Mathf.Max(1e-3f, SubCellFullHp) * Ballistics.HeatFromDamage);
     /// 죽이는 방법은 ApplyDamage 그대로다. 파편도 나가고 붕괴 판정도 그대로 탄다 -
     /// 여기만 특별한 길로 빠지면 "재료는 어디론가 간다"는 규칙에 예외가 생긴다.
     /// </summary>
+    private static readonly Unity.Profiling.ProfilerMarker _mKillOrphans = new("Armor.KillOrphans");
+
     private void KillOrphans()
     {
+        using var _ = _mKillOrphans.Auto();
+
         // ApplyDamage -> KillOrphans -> ApplyDamage 로 다시 들어온다. 한 번만 쓸면 된다:
         // 성분을 통째로 걷어냈으므로 새로 고립되는 칸은 생기지 않는다.
         if (_sweeping || _collapsed)
