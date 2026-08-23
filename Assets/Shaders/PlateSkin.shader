@@ -1,18 +1,17 @@
 // 장갑판 스킨 - GPU판. CPU가 판마다 텍스처를 굽던 것을, 배 그림(공유 텍스처) +
-// 6x6 손상 마스크 + 절차 노이즈의 조합으로 프래그먼트에서 그린다.
+// 6x6 손상 마스크 + 실루엣 마스크 + 절차 노이즈의 조합으로 프래그먼트에서 그린다.
 //
-// 규칙의 원본은 C#(ArmorSkin)이다. 서브셀 격자·판 사각형·배 그림 대응은 전부 C#이
-// 계산해 상수(_Cell, _Rect, _HullA/B)로 넘기고, 여기는 그 숫자를 조합만 한다 -
-// 수식이 두 벌이 되지 않게 하는 선이 그것이다.
+// 규칙의 원본은 C#(ArmorSkin)이다. 서브셀 격자·판 사각형·실물 모양·배 그림 대응은 전부
+// C#이 계산해 상수와 구운 마스크로 넘기고, 여기는 그 숫자를 조합만 한다.
 //
-// URP 2D 라이팅(Universal2D 패스)을 쓴다 - 절단면 Light2D가 판을 비추는 경로 유지.
-// 노말맵 패스와 포워드 폴백 패스는 뺐다: 판은 노말맵을 쓴 적이 없고, 렌더러는 2D뿐이다.
+// 골격은 URP 17의 Sprite-Lit-Default(Universal2D 패스)를 그대로 따른다 - Core2D/
+// Lit2DCommon 매크로 구조가 버전마다 바뀌므로, 다르게 쓰면 내부 재정의와 충돌한다.
+// 노말맵 패스는 뺐다: 판은 노말맵을 쓴 적이 없다.
 Shader "SUPERRADIANCE/PlateSkin"
 {
     Properties
     {
         _MainTex("Sprite", 2D) = "white" {}               // 공유 흰 텍스처. 지오메트리용
-        [HideInInspector] _Color("Tint", Color) = (1,1,1,1)
         _MaskTex("Mask", 2D) = "white" {}                 // URP 2D 라이팅 마스크 규약
         _HullTex("Hull Art", 2D) = "white" {}
         _DamageMask("Damage Mask", 2D) = "white" {}       // 6x6 R8, 서브셀 HP
@@ -30,13 +29,19 @@ Shader "SUPERRADIANCE/PlateSkin"
         _HasHull("Has Hull", Float) = 0
         _GrainSeed("Grain Seed", Vector) = (0,0,0,0)
         _GrainPpu("Grain PPU", Float) = 48
+
+        // Sprite-Lit-Default과 같은 레거시 호환 속성
+        [HideInInspector] _Color("Tint", Color) = (1,1,1,1)
+        [HideInInspector] _RendererColor("RendererColor", Color) = (1,1,1,1)
+        [HideInInspector] _AlphaTex("External Alpha", 2D) = "white" {}
+        [HideInInspector] _EnableExternalAlpha("Enable External Alpha", Float) = 0
     }
 
     SubShader
     {
-        Tags { "Queue"="Transparent" "RenderType"="Transparent" "RenderPipeline"="UniversalPipeline" }
+        Tags {"Queue" = "Transparent" "RenderType" = "Transparent" "RenderPipeline" = "UniversalPipeline" }
 
-        Blend SrcAlpha OneMinusSrcAlpha
+        Blend SrcAlpha OneMinusSrcAlpha, One OneMinusSrcAlpha
         Cull Off
         ZWrite Off
 
@@ -45,43 +50,32 @@ Shader "SUPERRADIANCE/PlateSkin"
             Tags { "LightMode" = "Universal2D" }
 
             HLSLPROGRAM
-            #pragma vertex CombinedShapeLightVertex
-            #pragma fragment CombinedShapeLightFragment
+            #include "Packages/com.unity.render-pipelines.universal/Shaders/2D/Include/Core2D.hlsl"
 
-            #pragma multi_compile USE_SHAPE_LIGHT_TYPE_0 __
-            #pragma multi_compile USE_SHAPE_LIGHT_TYPE_1 __
-            #pragma multi_compile USE_SHAPE_LIGHT_TYPE_2 __
-            #pragma multi_compile USE_SHAPE_LIGHT_TYPE_3 __
+            #pragma vertex LitVertex
+            #pragma fragment LitFragment
+
+            #include_with_pragmas "Packages/com.unity.render-pipelines.universal/Shaders/2D/Include/ShapeLightShared.hlsl"
+
+            #pragma multi_compile_instancing
             #pragma multi_compile _ DEBUG_DISPLAY
-
-            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
             struct Attributes
             {
-                float3 positionOS : POSITION;
-                float4 color : COLOR;
-                float2 uv : TEXCOORD0;
-                UNITY_VERTEX_INPUT_INSTANCE_ID
+                COMMON_2D_INPUTS
+                half4 color        : COLOR;
+                UNITY_SKINNED_VERTEX_INPUTS
             };
 
             struct Varyings
             {
-                float4 positionCS : SV_POSITION;
-                half4 color : COLOR;
-                float2 uv : TEXCOORD0;
-                half2 lightingUV : TEXCOORD1;
-                #if defined(DEBUG_DISPLAY)
-                float3 positionWS : TEXCOORD2;
-                #endif
-                UNITY_VERTEX_OUTPUT_STEREO
+                COMMON_2D_LIT_OUTPUTS
+                half4 color        : COLOR;
             };
 
-            #include "Packages/com.unity.render-pipelines.universal/Shaders/2D/Include/LightingUtility.hlsl"
+            // _MainTex/_MaskTex/_NormalMap 선언과 CombinedShapeLightShared 일습이 여기서 온다
+            #include "Packages/com.unity.render-pipelines.universal/Shaders/2D/Include/Lit2DCommon.hlsl"
 
-            TEXTURE2D(_MainTex);
-            SAMPLER(sampler_MainTex);
-            TEXTURE2D(_MaskTex);
-            SAMPLER(sampler_MaskTex);
             TEXTURE2D(_HullTex);
             SAMPLER(sampler_HullTex);
             TEXTURE2D(_DamageMask);
@@ -89,53 +83,38 @@ Shader "SUPERRADIANCE/PlateSkin"
             TEXTURE2D(_ShapeMask);
             SAMPLER(sampler_ShapeMask);
 
-            half4 _Color;
-            half4 _Damaged;
-            half4 _Healthy;
-            float4 _LocalMin;
-            float4 _Rect;
-            float4 _Cell;
-            float4 _HullA;
-            float4 _HullB;
-            float4 _GrainSeed;
-            float4 _ShapeScale;
-            float _ErodeBelow;
-            float _HasHull;
-            float _HasShape;
-            float _GrainPpu;
+            // NOTE: SRP 배처는 어차피 MaterialPropertyBlock 때문에 판에는 안 붙는다.
+            CBUFFER_START(UnityPerMaterial)
+                half4 _Color;
+                half4 _Damaged;
+                half4 _Healthy;
+                float4 _LocalMin;
+                float4 _Rect;
+                float4 _Cell;
+                float4 _HullA;
+                float4 _HullB;
+                float4 _GrainSeed;
+                float4 _ShapeScale;
+                float _ErodeBelow;
+                float _HasHull;
+                float _HasShape;
+                float _GrainPpu;
+            CBUFFER_END
 
-            #if USE_SHAPE_LIGHT_TYPE_0
-            SHAPE_LIGHT(0)
-            #endif
-            #if USE_SHAPE_LIGHT_TYPE_1
-            SHAPE_LIGHT(1)
-            #endif
-            #if USE_SHAPE_LIGHT_TYPE_2
-            SHAPE_LIGHT(2)
-            #endif
-            #if USE_SHAPE_LIGHT_TYPE_3
-            SHAPE_LIGHT(3)
-            #endif
-
-            Varyings CombinedShapeLightVertex(Attributes v)
+            Varyings LitVertex(Attributes input)
             {
-                Varyings o = (Varyings)0;
-                UNITY_SETUP_INSTANCE_ID(v);
-                UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
+                UNITY_SKINNED_VERTEX_COMPUTE(input);
+                SetUpSpriteInstanceProperties();
+                input.positionOS = UnityFlipSprite(input.positionOS, unity_SpriteProps.xy);
 
-                o.positionCS = TransformObjectToHClip(v.positionOS);
-                #if defined(DEBUG_DISPLAY)
-                o.positionWS = TransformObjectToWorld(v.positionOS);
-                #endif
-                o.uv = v.uv;
-                o.lightingUV = half2(ComputeScreenPos(o.positionCS / o.positionCS.w).xy);
-                o.color = v.color * _Color * unity_SpriteColor;
+                Varyings o = CommonLitVertex(input);
+                o.color = input.color * _Color * unity_SpriteColor;
+
                 return o;
             }
 
-            #include "Packages/com.unity.render-pipelines.universal/Shaders/2D/Include/CombinedShapeLightShared.hlsl"
-
-            // CPU판 Repaint의 픽셀 규칙 그대로: 사각형 밖 버림, 서브셀 HP로 erode, 배 그림 색.
+            // CPU판 Repaint의 픽셀 규칙 그대로: 사각형·실루엣 밖 버림, 서브셀 HP로 erode,
+            // 배 그림 색.
             half4 PlateColor(Varyings i)
             {
                 float2 local = _LocalMin.xy + i.uv * _LocalMin.zw;
@@ -153,8 +132,11 @@ Shader "SUPERRADIANCE/PlateSkin"
                         discard;
                 }
 
-                // 서브셀. Ballistics.SubIndex와 같은 수식(경계 clamp 포함)
-                float2 subUV = saturate((local - _Cell.xy) / _Cell.zw + 0.5);
+                // 서브셀. Ballistics.SubIndex와 같은 수식(floor + 경계 clamp) - 6은 SubGrid.
+                // texel 중심을 명시해서 샘플한다. 쿼드 픽셀 격자와 서브셀 경계가 겹칠 수
+                // 있어서, 경계 위 샘플을 하드웨어 반올림에 맡기면 CPU 수식과 한 칸 어긋난다.
+                float2 subCell = min(floor(saturate((local - _Cell.xy) / _Cell.zw + 0.5) * 6.0), 5.0);
+                float2 subUV = (subCell + 0.5) / 6.0;
                 float f = SAMPLE_TEXTURE2D(_DamageMask, sampler_DamageMask, subUV).r;
 
                 // 죽은 칸은 통째로, 깎인 칸은 가장자리부터. 노이즈는 로컬 좌표를 픽셀
@@ -173,16 +155,21 @@ Shader "SUPERRADIANCE/PlateSkin"
                 return lerp(flat, art, _HasHull);
             }
 
-            half4 CombinedShapeLightFragment(Varyings i) : SV_Target
+            half4 LitFragment(Varyings input) : SV_Target
             {
-                const half4 main = i.color * PlateColor(i);
-                const half4 mask = SAMPLE_TEXTURE2D(_MaskTex, sampler_MaskTex, i.uv);
+                const half4 main = input.color * PlateColor(input);
+                const half4 mask = SAMPLE_TEXTURE2D(_MaskTex, sampler_MaskTex, input.uv);
+                const half3 normalTS = half3(0, 0, 1);
 
                 SurfaceData2D surfaceData;
                 InputData2D inputData;
 
-                InitializeSurfaceData(main.rgb, main.a, mask, surfaceData);
-                InitializeInputData(i.uv, i.lightingUV, inputData);
+                InitializeSurfaceData(main.rgb, main.a, mask, normalTS, surfaceData);
+                InitializeInputData(input.uv, input.lightingUV, inputData);
+
+                #if defined(DEBUG_DISPLAY)
+                SETUP_DEBUG_TEXTURE_DATA_2D_NO_TS(inputData, input.positionWS, input.positionCS, _MainTex);
+                #endif
 
                 return CombinedShapeLightShared(surfaceData, inputData);
             }
