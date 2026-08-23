@@ -58,6 +58,11 @@ public static class RamImpact
     private static readonly Queue<Armor> _wave = new();
     private static readonly HashSet<Armor> _reached = new();
 
+    // Ship.Ram self가 뭉쳐 보여서 가르는 마커. 릴리스에선 no-op.
+    private static readonly Unity.Profiling.ProfilerMarker _mGather = new("Ram.Gather");
+    private static readonly Unity.Profiling.ProfilerMarker _mSweep = new("Ram.Sweep");
+    private static readonly Unity.Profiling.ProfilerMarker _mConduct = new("Ram.Conduct");
+
     /// <summary>
     /// 지금 <see cref="Conduct"/> 안인가. 0보다 크면 재진입이고, 그때만 지역 버퍼를 만든다.
     /// </summary>
@@ -510,6 +515,8 @@ public static class RamImpact
 
     private static bool GatherNearBodies(Rigidbody2D self, Vector2 centre, float range)
     {
+        using var _ = _mGather.Auto();
+
         RefreshBodySnapshot();
 
         _nearBodies.Clear();
@@ -546,6 +553,7 @@ public static class RamImpact
     /// </summary>
     private static int SweepNearColliders(Rigidbody2D body, Vector2 dir, float step)
     {
+        using var _ = _mSweep.Auto();
         int attached = body.GetAttachedColliders(_attached);
         int n = 0;
 
@@ -691,6 +699,8 @@ public static class RamImpact
         //
         // MaxDetonationChain은 깊이만 막지 이 공유 상태는 못 막는다. 흔한 길이 아니므로
         // 재진입일 때만 할당한다 - 평시 경로는 예전 그대로 무할당이다.
+        using var _ = _mConduct.Auto();
+
         bool nested = _conducting > 0;
         Queue<Armor> wave = nested ? new Queue<Armor>() : _wave;
         HashSet<Armor> reached = nested ? new HashSet<Armor>() : _reached;
@@ -704,9 +714,28 @@ public static class RamImpact
         wave.Enqueue(origin);
         reached.Add(origin);
 
-        Vector2 pivot = origin.transform.position;
-        Vector2 acrossAxis = new(-axis.y, axis.x);
+        // **간선 계산을 전부 배 로컬로.** 판의 CellLocal은 캐시(재부모화에도 불변)라
+        // 간선마다 나가던 transform.position 네이티브 호출이 0이 된다. 축만 한 번
+        // 로컬로 돌린다 - InverseTransformDirection은 scale을 무시하므로 반전 함선
+        // (localScale.x = -1)의 부호를 손으로 마저 적용해야 한다. 안 하면 거울상 배에서
+        // 감쇠 띠가 거울상이 아니라 엉뚱한 축으로 돈다.
+        Transform bodyT = origin.CachedBody;
+        Vector2 axisL = axis;
+
+        if (bodyT != null)
+        {
+            axisL = bodyT.InverseTransformDirection(axis);
+            Vector3 ls = bodyT.lossyScale;
+            axisL = new Vector2(axisL.x * Mathf.Sign(ls.x), axisL.y * Mathf.Sign(ls.y));
+        }
+
+        Vector2 acrossAxis = new(-axisL.y, axisL.x);
+        Vector2 pivot = origin.CellLocal;
         float cutoff = damage * cutoff01;
+
+        // Pow 두 번을 Exp 한 번으로: a^x * b^y = exp(x ln a + y ln b). 감쇠 공식 결과는 동일.
+        float lnAlong = Mathf.Log(Mathf.Max(1e-6f, along));
+        float lnAcross = Mathf.Log(Mathf.Max(1e-6f, across));
 
         _conducting++;
 
@@ -726,13 +755,13 @@ public static class RamImpact
                     if (neighbour == null || !at.SameBodyAs(neighbour) || reached.Contains(neighbour))
                         continue;
 
-                    Vector2 offset = (Vector2)neighbour.transform.position - pivot;
+                    Vector2 offset = neighbour.CellLocal - pivot;
 
                     // 칸이 1 m라 거리가 그대로 미터다. Abs인 이유: Unity의 접촉면 법선 부호는
                     // 콜백을 받는 쪽에 따라 뒤집힌다. 어차피 축의 양쪽으로 똑같이 번지면 된다.
-                    float share = damage
-                        * Mathf.Pow(along, Mathf.Abs(Vector2.Dot(offset, axis)))
-                        * Mathf.Pow(across, Mathf.Abs(Vector2.Dot(offset, acrossAxis)));
+                    float share = damage * Mathf.Exp(
+                        Mathf.Abs(Vector2.Dot(offset, axisL)) * lnAlong
+                        + Mathf.Abs(Vector2.Dot(offset, acrossAxis)) * lnAcross);
 
                     // 더 멀리는 더 작다. 여기서 끊어도 놓치는 판이 없다.
                     if (share < cutoff)
