@@ -124,6 +124,15 @@ public static class SpallResolver
                     range,
                     mask
                 );
+
+                // 전환기 대조: 자체 OBB 세계가 Physics2D와 같은 답을 내는지 센다.
+                // 판정은 안 바꾼다 - 권위는 아직 Physics2D다.
+                if (TraceWorld.VerifyMode)
+                {
+                    RaycastHit2D pv = n > 0 ? Nearest(n) : default;
+                    TraceWorld.Verify(fragmentStart, d, range, mask.value,
+                        n > 0 ? pv.collider : null, n > 0 ? pv.distance : 0f);
+                }
                 // 파편이 지나간 선을 화면에 남긴다. 그림뿐이고, 판정에는 관여하지 않는다.
                 if (n <= 0)
                 {
