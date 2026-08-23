@@ -594,6 +594,9 @@ AddHeat(amount / Mathf.Max(1e-3f, SubCellFullHp) * Ballistics.HeatFromDamage);
         foreach (Collider2D col in GetComponentsInChildren<Collider2D>())
              col.enabled = false;
 
+        // 탄도 스냅샷에 이 판이 유령으로 남지 않게. 죽음의 깔때기가 여기라서 여기서 알린다.
+        TraceWorld.Invalidate();
+
         Destroy(gameObject);
     }
 

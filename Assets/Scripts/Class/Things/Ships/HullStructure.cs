@@ -1052,6 +1052,9 @@ public sealed class HullStructure : MonoBehaviour
             foreach (Collider2D col in go.GetComponentsInChildren<Collider2D>())
                 col.enabled = false;
 
+            // 탄도 스냅샷에서도 빠진다 - 유령 판은 Physics2D에도 TraceWorld에도 없어야 한다.
+            TraceWorld.Invalidate();
+
             // 콜라이더가 없으면 질량중심이 몸 원점(= 본체가 있던 자리)에 남는다. 그러면
             // 각속도가 판을 그 먼 점 주위로 공전시킨다 - 판 자리로 옮겨야 제자리에서 돈다.
             body.centerOfMass = go.transform.InverseTransformPoint(centre);
