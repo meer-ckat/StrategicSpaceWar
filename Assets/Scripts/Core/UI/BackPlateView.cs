@@ -1,79 +1,78 @@
 using System.Collections.Generic;
 using UnityEngine;
 /// <summary>
-/// 후면(외피) 그림. 시뮬레이션의 후면 장부(<see cref="HullStructure"/>)를 화면에 옮긴다.
+/// 후면(외피) 그림 - GPU판. 시뮬레이션의 후면 장부(<see cref="HullStructure"/>)를 마스크로
+/// 바꿔 RearSkin 셰이더에 넘긴다. 마모·뜯김·발자국을 CPU가 칸당 256픽셀씩 굽던 것이,
+/// 이제 후면이 변한 이벤트마다 **칸 해상도 마스크 한 장(칸당 1바이트) 다시 채우기**다.
+/// 전체 굽기 폴백도, 칸 단위 더티 추적도 필요 없어졌다 - 마스크 전체 갱신이 그만큼 싸다.
 ///
 /// **비대칭 화면: 소속이 곧 렌더 모드다.** 내 배(IsPlayerControlled) = 외피가 어둡게 뒤에
 /// 깔린 내부 단면. 적함·중립·잔해 = 외피가 위로 올라와 얼굴이 되고, 상태를 구멍으로 읽는다.
 ///
-/// **굽기는 칸 단위 더티다.** 총알 한 발이 후면 칸 하나를 깎을 때 맵 전체(칸 수 x 256픽셀)를
-/// 다시 굽던 것이 40만 픽셀짜리 프레임 스파이크였다 - HullStructure.RearDirty가 변한 칸을
-/// 적어 주고, 여기는 그 칸의 16x16 블록만 다시 굽는다. 전체 굽기는 생성·파단·대폭발 폴백뿐이다.
+/// 설계도당 정적 마스크 두 장(worthy/경계, 발자국 실루엣)은 첫 오버레이 때 한 번 굽고
+/// 조각들이 공유한다 - 발자국은 설계 시점 판 모양이라 불변이다.
 ///
-/// SpallTrails와 같은 방식으로 자기를 심는다. 씬에 손으로 붙일 것이 없어야 런타임에
-/// 소환되는 함선에도 그대로 붙는다.
+/// SpallTrails와 같은 방식으로 자기를 심는다.
 /// </summary>
 public sealed class BackPlateView : MonoBehaviour
 {
-    /// <summary>배 그림이 없을 때의 폴백 색.</summary>
-    private static readonly Color Structure = new(1f, 1f, 1f, 1f);
-
     // hull png가 이미 어두운 회색조라 0.5를 곱하면 우주 배경에 묻힌다.
-    // 0.35에서 시작 - 더 밝거나 어둡게는 이 숫자 하나다.
     private const float MineDarken = 0.35f;
     private const int MineOrder = -10;
 
     private const float SkinDarken = 0f;
     private const int SkinOrder = 100;
 
-    /// <summary>
-    /// 후면 텍스처의 칸당 픽셀. **1이면 마스킹 단위가 통째로 1 m 칸이다** - 선체 그림을
-    /// 칸 중심에서 한 번만 찍으니 경사 실루엣 밖으로 사각 블록이 삐져나온다. 16이면
-    /// 그림의 알파를 픽셀마다 읽어서 후면이 실루엣을 따라 잘린다.
-    /// </summary>
+    /// <summary>발자국 실루엣 마스크의 칸당 픽셀. 셰이더의 grain 양자화(16)와 같은 눈금.</summary>
     private const int RearPPU = 16;
+
+    private const int SharedTexSize = 256;
 
     private sealed class Overlay
     {
-        /// <summary>이 오버레이가 내 배 것인가. Rebuild가 정하고 Paint가 읽는다.</summary>
         public bool mine;
-
         public SpriteRenderer renderer;
-        public Texture2D texture;
-        public Color32[] pixels;        // bbox 크기(픽셀). 텍스처와 같은 배열
-        public Color32[] art;           // 설계도 전체 크기의 원본 색. _artCache 공유
+        public Sprite sprite;
+
+        /// <summary>칸 해상도 동적 마스크. r = 0이면 후면 없음, 아니면 수명 1..255.</summary>
+        public Texture2D cellMask;
+        public byte[] cellBytes;
+
         public ShipGrid.Map _designMap; //immutable;
-        public Vector2 localOffset;     // 텍스처 한가운데의 선체 기준 자리
+        public Vector2 localOffset;
         public int currentRearCount;
         public int currentRearVersion;
 
-        /// <summary>더티 링에서 어디까지 봤나. 생산자는 기록만 하고 소비자가 커서를 든다.</summary>
-        public long dirtyCursor;
-
-        // 텍스처는 설계도 전체가 아니라 이 조각의 후면 bbox만 하다(칸 단위). 후면은 줄기만
-        // 하니 생성 때 bbox면 영원히 충분하고, 잔해가 설계도 전체 크기 텍스처를 받는 일이
-        // 없어진다.
+        // 후면 bbox(칸). 쿼드가 이 크기다.
         public int minCol;
         public int minRow;
-        public int texW;    // 칸 수
+        public int texW;
         public int texH;
+    }
+
+    /// <summary>설계도당 정적 마스크. 조각들이 공유하고, 안 쓰는 설계도는 청소 때 파괴한다.</summary>
+    private sealed class DesignMasks
+    {
+        public Texture2D staticMask;   // RG: r = RearWorthy, g = 우주와 닿은 경계 칸
+        public Texture2D footMask;     // R8, 칸당 16px: 판 발자국 실루엣
     }
 
     private readonly Dictionary<HullStructure, Overlay> _overlays = new();
     const bool _visible = true;
 
-    /// <summary>
-    /// 설계도별 원본 색(칸당 16x16 픽셀로 미리 샘플한 배 그림). **조각들이 공유한다** -
-    /// 본체와 잔해가 같은 DesignMap 참조를 들고 다니므로, 파단으로 조각 수십 개가 생겨도
-    /// 배 그림 샘플링(GetPixelBilinear x 40만)은 설계도당 한 번이다. 어둡기(mine/skin)는
-    /// 칠할 때 곱한다 - 캐시는 원본이다.
-    ///
-    /// 청소는 "안 쓰는 설계도 제거"다. "오버레이가 전멸하면 비운다"로 하면 안 된다 -
-    /// 플레이어 함선이 구역 사이에도 살아남아 오버레이가 0이 되는 순간이 런 도중에 안 온다.
-    /// </summary>
-    private static readonly Dictionary<ShipGrid.Map, Color32[]> _artCache = new();
+    private static readonly Dictionary<ShipGrid.Map, DesignMasks> _designCache = new();
     private static readonly HashSet<ShipGrid.Map> _mapsInUse = new();
     private static readonly List<ShipGrid.Map> _staleMaps = new();
+
+    private static Texture2D _sharedWhite;
+    private static Material _sharedMaterial;
+
+    private static readonly int HullTexId = Shader.PropertyToID("_HullTex");
+    private static readonly int CellMaskId = Shader.PropertyToID("_CellMask");
+    private static readonly int StaticMaskId = Shader.PropertyToID("_StaticMask");
+    private static readonly int FootMaskId = Shader.PropertyToID("_FootMask");
+    private static readonly int GridId = Shader.PropertyToID("_Grid");
+    private static readonly int MapId = Shader.PropertyToID("_Map");
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Install()
@@ -111,8 +110,8 @@ public sealed class BackPlateView : MonoBehaviour
             _overlays.Remove(gone);
         }
 
-        // 오버레이가 하나라도 걷힌 프레임에만 돈다. 지금 쓰이는 설계도만 남긴다.
-        if (_stale.Count > 0 && _artCache.Count > 0)
+        // 오버레이가 하나라도 걷힌 프레임에만 돈다. 지금 쓰이는 설계도의 마스크만 남긴다.
+        if (_stale.Count > 0 && _designCache.Count > 0)
         {
             _mapsInUse.Clear();
 
@@ -124,14 +123,24 @@ public sealed class BackPlateView : MonoBehaviour
 
             _staleMaps.Clear();
 
-            foreach (ShipGrid.Map key in _artCache.Keys)
+            foreach (ShipGrid.Map key in _designCache.Keys)
             {
                 if (!_mapsInUse.Contains(key))
                     _staleMaps.Add(key);
             }
 
             foreach (ShipGrid.Map map in _staleMaps)
-                _artCache.Remove(map);
+            {
+                DesignMasks masks = _designCache[map];
+
+                if (masks.staticMask != null)
+                    Destroy(masks.staticMask);
+
+                if (masks.footMask != null)
+                    Destroy(masks.footMask);
+
+                _designCache.Remove(map);
+            }
         }
     }
 
@@ -139,9 +148,8 @@ public sealed class BackPlateView : MonoBehaviour
     private readonly HashSet<HullStructure> _drawn = new();
 
     /// <summary>
-    /// 오버레이 하나를 통째로 버린다. **텍스처와 스프라이트는 GameObject의 소유가 아니다** -
-    /// `new Texture2D`와 `Sprite.Create`로 만든 것이라 렌더러를 지워도 같이 안 죽는다.
-    /// 파단마다 오버레이를 다시 굽는 구조라, 안 지우면 한 판을 치를 때마다 조금씩 샌다.
+    /// 오버레이 하나를 통째로 버린다. 스프라이트·마스크는 GameObject의 소유가 아니라
+    /// 직접 지운다. 정적 마스크는 설계도 캐시의 소유라 여기서 안 건드린다.
     /// </summary>
     private static void Discard(Overlay o)
     {
@@ -149,20 +157,18 @@ public sealed class BackPlateView : MonoBehaviour
             return;
 
         if (o.renderer != null)
-        {
-            if (o.renderer.sprite != null)
-                Destroy(o.renderer.sprite);
-
             Destroy(o.renderer.gameObject);
-        }
 
-        if (o.texture != null)
-            Destroy(o.texture);
+        if (o.sprite != null)
+            Destroy(o.sprite);
+
+        if (o.cellMask != null)
+            Destroy(o.cellMask);
 
         o.renderer = null;
-        o.texture = null;
-        o.pixels = null;
-        o.art = null;   // 공유 캐시 참조만 놓는다 - 배열은 _artCache가 주인
+        o.sprite = null;
+        o.cellMask = null;
+        o.cellBytes = null;
     }
 
     private const int MinRearForOverlay = 6;
@@ -185,18 +191,13 @@ public sealed class BackPlateView : MonoBehaviour
         return ship;
     }
 
-    /// <summary>
-    /// 그렸으면 true. 이 반환값이 곧 오버레이의 수명이다 - false를 돌려주면 호출자가
-    /// 그 배의 오버레이를 파괴한다.
-    /// </summary>
+    /// <summary>그렸으면 true. false를 돌려주면 호출자가 그 배의 오버레이를 파괴한다.</summary>
     private bool Draw(HullStructure structure)
     {
         if (structure.DesignMap == null || structure.Rear.Count == 0)
             return false;
 
-        // LOD: 조각 잔해의 오버레이는 화면에서 어두운 픽셀 몇 개인데, 값은 오브젝트 생성에
-        // 매 프레임 추적이다. 방이 없는 작은 조각은 아예 안 만든다 - 본체(Ship)는 아무리
-        // 쪼그라들어도 남긴다.
+        // LOD: 방이 없는 작은 조각은 오버레이를 아예 안 만든다. 본체(Ship)는 항상 남긴다.
         if (structure.Rear.Count < MinRearForOverlay && !IsShip(structure))
             return false;
 
@@ -205,10 +206,8 @@ public sealed class BackPlateView : MonoBehaviour
 
         if (overlay._designMap != structure.DesignMap)
         {
-            // 맵이 바뀌었다 = 파단으로 새 덩어리다. 텍스처 크기부터 다르니 통째로.
             overlay.currentRearCount = structure.Rear.Count;
             overlay.currentRearVersion = structure.RearVersion;
-            overlay.dirtyCursor = structure.RearDirtyTotal;
             Rebuild(structure, overlay);
         }
         else if (structure.Rear.Count != overlay.currentRearCount
@@ -216,22 +215,12 @@ public sealed class BackPlateView : MonoBehaviour
         {
             overlay.currentRearCount = structure.Rear.Count;
             overlay.currentRearVersion = structure.RearVersion;
-
-            long total = structure.RearDirtyTotal;
-            long from = overlay.dirtyCursor;
-            overlay.dirtyCursor = total;
-
-            // 커서가 링 용량보다 밀렸거나(대폭발·긴 공백) 기록 없이 변했으면 전체 폴백.
-            if (total > from && total - from <= HullStructure.RearDirtyRingSize)
-                PaintCells(overlay, structure, from, total);
-            else
-                Paint(overlay, structure);
+            FillCellMask(overlay, structure);
         }
 
         overlay.renderer.enabled = _visible;
 
-        // scale은 여기 없다 - 몸의 scale은 태어날 때 정해지고 안 변해서(잔해는 MakeDebris가
-        // 본체 lossyScale로 고정, 함선은 소환 시점의 반전뿐) Rebuild에서 한 번만 쓴다.
+        // scale은 여기 없다 - 몸의 scale은 태어날 때 정해지고 안 변해서 Rebuild에서 한 번만 쓴다.
         overlay.renderer.transform.SetPositionAndRotation(
             structure.transform.TransformPoint(overlay.localOffset),
             structure.transform.rotation);
@@ -243,18 +232,18 @@ public sealed class BackPlateView : MonoBehaviour
     {
         ShipGrid.Map DM = structure.DesignMap; //다이렉트 메시지 아님
 
-        // 텍스처·스프라이트까지 같이 버린다. 여기가 파단마다 도는 자리라, 렌더러만 지우면
-        // 배가 갈라질 때마다 텍스처 한 장씩 쌓인다.
         Discard(overlay);
-        // **함선의 자식이 아니다.** 선체 직속 자식은 판만이어야 한다 - 격자를 읽는 코드가
-        // 직속 자식을 훑기 때문에, 그림 하나가 끼어들면 칸을 차지해서 진짜 판을 밀어낸다.
-        // 대신 매 프레임 함선을 따라간다.
+        EnsureShared();
+
+        if (_sharedMaterial == null)
+            return;
+
+        // **함선의 자식이 아니다.** 선체 직속 자식은 판만이어야 한다. 대신 매 프레임 따라간다.
         var go = new GameObject("rooms");
         go.transform.SetParent(transform, worldPositionStays: false);
         go.transform.localScale = structure.transform.lossyScale;
 
-        // 이 조각이 실제로 든 후면 칸의 bbox. 본체는 사실상 설계도 전체고, 작은 잔해는
-        // 칸 몇 개다. Draw의 가드 덕에 여기서 Rear는 비어 있지 않다.
+        // 후면 bbox(칸). Draw의 가드 덕에 Rear는 비어 있지 않다.
         int minCol = int.MaxValue, minRow = int.MaxValue;
         int maxCol = int.MinValue, maxRow = int.MinValue;
 
@@ -271,231 +260,208 @@ public sealed class BackPlateView : MonoBehaviour
         overlay.texW = maxCol - minCol + 1;
         overlay.texH = maxRow - minRow + 1;
 
-        overlay.texture = new Texture2D(
-            overlay.texW * RearPPU, overlay.texH * RearPPU, TextureFormat.RGBA32, false)
-        {
-            wrapMode = TextureWrapMode.Clamp,
-        };
+        // 쿼드는 공유 흰 텍스처의 사각형이다. 픽셀 눈금은 bbox가 256px 안에 들어가는
+        // 최대 배율 - 지오메트리용일 뿐 그림 해상도와 무관하다.
+        int scale = Mathf.Clamp(SharedTexSize / Mathf.Max(overlay.texW, overlay.texH), 1, 16);
 
-        overlay.pixels = new Color32[overlay.texW * RearPPU * overlay.texH * RearPPU];
-
-        // 피벗은 한가운데. 모서리에 두면 부호나 축을 하나 틀려도 "조금 어긋난 그림"이라
-        // 눈에 안 띄는데, 중심이면 대칭으로 틀어져서 바로 보인다.
-        var sprite = Sprite.Create(
-            overlay.texture,
-            new Rect(0f, 0f, overlay.texW * RearPPU, overlay.texH * RearPPU),
+        overlay.sprite = Sprite.Create(
+            _sharedWhite,
+            new Rect(0f, 0f, overlay.texW * scale, overlay.texH * scale),
             new Vector2(0.5f, 0.5f),
-            pixelsPerUnit: RearPPU,
+            pixelsPerUnit: scale,
             extrude: 0,
             meshType: SpriteMeshType.FullRect);
 
-        // 소속 판정. Ship은 HullStructure와 같은 GameObject다(RequireComponent).
-        // 잔해·Hulk는 Ship이 없으니 저절로 외피 쪽으로 떨어진다 - 내 배에서 떨어진
-        // 조각이 그 순간 외피를 입는 것은 받아들인 결정이다.
+        // 소속 판정. 잔해·Hulk는 Ship이 없으니 저절로 외피 쪽으로 떨어진다.
         overlay.mine = structure.TryGetComponent(out Ship ship) && ship.IsPlayerControlled;
 
         overlay.renderer = go.AddComponent<SpriteRenderer>();
-        overlay.renderer.sprite = sprite;
+        overlay.renderer.sprite = overlay.sprite;
+        overlay.renderer.sharedMaterial = _sharedMaterial;
         overlay.renderer.sortingOrder = overlay.mine ? MineOrder : SkinOrder;
 
         overlay._designMap = DM;
 
-        // bbox 한가운데의 선체 기준 좌표. 칸 (minCol,minRow)와 (maxCol,maxRow)의 중점.
         overlay.localOffset = DM.ToLocal(minCol, minRow)
             + new Vector2((overlay.texW - 1) * 0.5f, -(overlay.texH - 1) * 0.5f);
 
-        overlay.art = ArtFor(DM, structure.ShipHullPng);
-        Paint(overlay, structure);
+        overlay.cellMask = new Texture2D(DM.width, DM.height, TextureFormat.R8, false)
+        {
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp,
+        };
+        overlay.cellBytes = new byte[DM.width * DM.height];
+
+        DesignMasks masks = MasksFor(DM, structure);
+
+        var props = new MaterialPropertyBlock();
+        props.SetTexture(HullTexId, structure.ShipHullPng != null ? structure.ShipHullPng : _sharedWhite);
+        props.SetTexture(CellMaskId, overlay.cellMask);
+        props.SetTexture(StaticMaskId, masks.staticMask);
+        props.SetTexture(FootMaskId, masks.footMask);
+
+        // uv -> 칸 좌표: cx = minCol + uv.x * (256/scale), rowDown = (minRow+texH) - uv.y * (256/scale)
+        props.SetVector(GridId, new Vector4(minCol, minRow, (float)SharedTexSize / scale, overlay.texH));
+        props.SetVector(MapId, new Vector4(
+            DM.width, DM.height,
+            1f - (overlay.mine ? MineDarken : SkinDarken),
+            structure.ShipHullPng != null ? 1f : 0f));
+
+        overlay.renderer.SetPropertyBlock(props);
+
+        FillCellMask(overlay, structure);
     }
 
     /// <summary>
-    /// 배 그림을 칸당 16x16 픽셀로 미리 샘플한 원본 색. 설계도당 한 번 굽고 조각들이
-    /// 공유한다 - GetPixelBilinear 40만 회가 재굽기마다에서 설계도당 1회로 준다.
+    /// 후면 장부 -> 칸 마스크. 후면이 변한 이벤트마다 통째로 다시 채운다 - 칸당 1바이트라
+    /// 어느 칸이 변했는지 추적하는 것보다 전부 다시 쓰는 쪽이 싸고 단순하다.
     /// </summary>
-    private static Color32[] ArtFor(ShipGrid.Map map, Texture2D structureTexture)
+    private static void FillCellMask(Overlay overlay, HullStructure structure)
     {
-        if (_artCache.TryGetValue(map, out Color32[] art))
-            return art;
+        ShipGrid.Map map = overlay._designMap;
+        System.Array.Clear(overlay.cellBytes, 0, overlay.cellBytes.Length);
 
-        int widthPx = map.width * RearPPU;
-        int heightPx = map.height * RearPPU;
-        art = new Color32[widthPx * heightPx];
+        foreach (KeyValuePair<Vector2Int, HullStructure.RearCell> pair in structure.RearEntries)
+        {
+            Vector2Int cell = pair.Key;
+
+            if (cell.x < 0 || cell.y < 0 || cell.x >= map.width || cell.y >= map.height)
+                continue;
+
+            float life = pair.Value.maxHp > 0f
+                ? Mathf.Clamp01(pair.Value.hp / pair.Value.maxHp)
+                : 1f;
+
+            // 0은 "없음" 전용. 있는 칸은 1..255.
+            overlay.cellBytes[(map.height - 1 - cell.y) * map.width + cell.x] =
+                (byte)(1 + Mathf.RoundToInt(life * 254f));
+        }
+
+        overlay.cellMask.SetPixelData(overlay.cellBytes, 0);
+        overlay.cellMask.Apply(false);
+    }
+
+    /// <summary>설계도당 정적 마스크. worthy/경계는 칸 해상도, 발자국은 칸당 16px - 전부 불변.</summary>
+    private static DesignMasks MasksFor(ShipGrid.Map map, HullStructure structure)
+    {
+        if (_designCache.TryGetValue(map, out DesignMasks masks))
+            return masks;
+
+        masks = new DesignMasks();
+
+        // r = RearWorthy(뜯김 판정의 "설계엔 있었다"), g = 우주와 닿은 경계 칸(발자국 마스킹 대상)
+        masks.staticMask = new Texture2D(map.width, map.height, TextureFormat.RG16, false)
+        {
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp,
+        };
+
+        var rg = new byte[map.width * map.height * 2];
 
         for (int row = 0; row < map.height; row++)
         for (int col = 0; col < map.width; col++)
-        for (int py = 0; py < RearPPU; py++)
-        for (int px = 0; px < RearPPU; px++)
         {
-            Color color = structureTexture != null
-                ? structureTexture.GetPixelBilinear(
-                    (col + (px + 0.5f) / RearPPU) / map.width,
-                    1f - (row + (py + 0.5f) / RearPPU) / map.height)
-                : Structure;
+            bool boundary = false;
 
-            int texY = heightPx - 1 - (row * RearPPU + py);
-            art[texY * widthPx + (col * RearPPU + px)] = color;
+            for (int dy = -1; dy <= 1 && !boundary; dy++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int nc = col + dx, nr = row + dy;
+
+                if (nc < 0 || nc >= map.width || nr < 0 || nr >= map.height
+                    || map.cells[nc, nr] == ShipGrid.Cell.Exterior)
+                {
+                    boundary = true;
+                    break;
+                }
+            }
+
+            int i = ((map.height - 1 - row) * map.width + col) * 2;
+            rg[i] = HullStructure.RearWorthyAt(map, col, row) ? (byte)255 : (byte)0;
+            rg[i + 1] = boundary ? (byte)255 : (byte)0;
         }
 
-        _artCache[map] = art;
-        return art;
-    }
+        masks.staticMask.SetPixelData(rg, 0);
+        masks.staticMask.Apply(false);
 
-    /// <summary>전체 굽기. 생성·파단, 그리고 더티 목록이 넘친 폴백에서만 돈다.</summary>
-    private static void Paint(Overlay overlay, HullStructure structure)
-    {
-        System.Array.Clear(overlay.pixels, 0, overlay.pixels.Length);
-
-        for (int row = overlay.minRow; row < overlay.minRow + overlay.texH; row++)
-        for (int col = overlay.minCol; col < overlay.minCol + overlay.texW; col++)
-            PaintCellInto(overlay, structure, col, row);
-
-        overlay.texture.SetPixels32(overlay.pixels);
-        overlay.texture.Apply(false);
-    }
-
-    private static readonly Color32[] _block = new Color32[RearPPU * RearPPU];
-    private static readonly HashSet<Vector2Int> _dirtySeen = new();
-
-    /// <summary>변한 칸만. 칸의 16x16 블록을 다시 굽고 그 블록만 올린다.</summary>
-    private static void PaintCells(Overlay overlay, HullStructure structure, long from, long to)
-    {
-        int strideX = overlay.texW * RearPPU;
-        int heightPx = overlay.texH * RearPPU;
-        _dirtySeen.Clear();
-
-        for (long i = from; i < to; i++)
+        // 발자국 실루엣. 설계 시점 판 모양이라 불변 - 첫 오버레이(본체, 후면 완전)에서 한 번 굽고
+        // 그 설계의 모든 조각이 공유한다. 발자국 없는 칸은 불투명(255) = 칸 전체.
+        int widthPx = map.width * RearPPU;
+        int heightPx = map.height * RearPPU;
+        masks.footMask = new Texture2D(widthPx, heightPx, TextureFormat.R8, false)
         {
-            Vector2Int cell = structure.RearDirtyAt(i);
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+        };
 
-            if (!_dirtySeen.Add(cell))
+        var foot = new byte[widthPx * heightPx];
+
+        for (int i = 0; i < foot.Length; i++)
+            foot[i] = 255;
+
+        foreach (KeyValuePair<Vector2Int, HullStructure.RearCell> pair in structure.RearEntries)
+        {
+            Vector2[] footprint = pair.Value.footprint;
+
+            if (footprint == null)
                 continue;
 
-            int localCol = cell.x - overlay.minCol;
-            int localRow = cell.y - overlay.minRow;
-
-            if (localCol < 0 || localRow < 0 || localCol >= overlay.texW || localRow >= overlay.texH)
-                continue;
-
-            // 블록을 지우고 다시 굽는다. 칸이 빠졌으면 지운 채로 남는 것이 곧 구멍이다.
-            int blockYTop = heightPx - 1 - localRow * RearPPU;
+            Vector2Int cell = pair.Key;
 
             for (int py = 0; py < RearPPU; py++)
+            for (int px = 0; px < RearPPU; px++)
             {
-                int texY = blockYTop - py;
-
-                System.Array.Clear(overlay.pixels, texY * strideX + localCol * RearPPU, RearPPU);
-            }
-
-            PaintCellInto(overlay, structure, cell.x, cell.y);
-
-            // 텍스처에는 블록만 올린다. SetPixels32 블록은 아랫줄부터라 y를 뒤집어 담는다.
-            int blockYBottom = heightPx - (localRow + 1) * RearPPU;
-
-            for (int sy = 0; sy < RearPPU; sy++)
-            for (int sx = 0; sx < RearPPU; sx++)
-                _block[sy * RearPPU + sx] =
-                    overlay.pixels[(blockYBottom + sy) * strideX + localCol * RearPPU + sx];
-
-            overlay.texture.SetPixels32(
-                localCol * RearPPU, blockYBottom, RearPPU, RearPPU, _block);
-        }
-
-        overlay.texture.Apply(false);
-    }
-
-    /// <summary>
-    /// 칸 하나(16x16)를 overlay.pixels에 굽는다. 마모(hp/maxHp)·뜯긴 가장자리(RearTorn)·
-    /// 경계 칸의 판 발자국 마스킹 - 시뮬레이션은 칸 단위고, 여기는 그림뿐이다.
-    /// </summary>
-    private static void PaintCellInto(Overlay overlay, HullStructure structure, int col, int row)
-    {
-        ShipGrid.Map map = overlay._designMap;
-
-        if (!structure.TryGetRear(new Vector2Int(col, row), out HullStructure.RearCell wall))
-            return;
-
-        // **발자국 마스킹은 실루엣용이다 - 우주와 닿은 경계 칸에만 건다.** 안쪽 벽까지
-        // 판 모양으로 깎으면 얇은 패널 뒤가 투명해져 외피 한가운데에 구멍이 뚫린다.
-        bool boundary = false;
-
-        for (int dy = -1; dy <= 1 && !boundary; dy++)
-        for (int dx = -1; dx <= 1; dx++)
-        {
-            int nc = col + dx, nr = row + dy;
-
-            if (nc < 0 || nc >= map.width || nr < 0 || nr >= map.height
-                || map.cells[nc, nr] == ShipGrid.Cell.Exterior)
-            {
-                boundary = true;
-                break;
-            }
-        }
-
-        // 세월. hp/maxHp가 곧 시간이다 - 상한 만큼 어두워지고, 반 넘게 상하면
-        // 판과 같은 문법으로 가장자리부터 픽셀이 갉아먹힌다.
-        float life = wall.maxHp > 0f ? Mathf.Clamp01(wall.hp / wall.maxHp) : 1f;
-        float wear = Mathf.Lerp(0.30f, 1f, life);
-        float k = 1 - (overlay.mine ? MineDarken : SkinDarken);
-        float shade = k * wear;
-
-        // 칸마다 고정된 씨앗. 프레임마다 다르면 갉힌 자리가 지글거린다.
-        var grainRng = new DeterministicRng(Ballistics.Hash(col, row, 77));
-
-        // 구멍 옆이면 그 방향 가장자리를 물어뜯는다.
-        bool tornL = structure.RearTorn(new Vector2Int(col - 1, row));
-        bool tornR = structure.RearTorn(new Vector2Int(col + 1, row));
-        bool tornU = structure.RearTorn(new Vector2Int(col, row - 1));
-        bool tornD = structure.RearTorn(new Vector2Int(col, row + 1));
-
-        int strideX = overlay.texW * RearPPU;
-        int heightPx = overlay.texH * RearPPU;
-        int mapWidthPx = map.width * RearPPU;
-        int mapHeightPx = map.height * RearPPU;
-        int localCol = col - overlay.minCol;
-        int localRow = row - overlay.minRow;
-
-        for (int py = 0; py < RearPPU; py++)
-        for (int px = 0; px < RearPPU; px++)
-        {
-            // grain은 마스킹 여부와 무관하게 픽셀마다 하나씩 뽑아야 한다 - 조건
-            // 안에서 뽑으면 발자국이 있는 칸과 없는 칸의 무늬가 달라진다.
-            float grain = grainRng.Next01();
-
-            if (life < 0.5f && grain > life * 2f)
-                continue;
-
-            // 찢긴 이웃 쪽 가장자리일수록 살아남기 어렵다.
-            const float Bite = 0.35f;
-            float open = 1f;
-
-            if (tornL) open = Mathf.Min(open, (px + 0.5f) / RearPPU / Bite);
-            if (tornR) open = Mathf.Min(open, (RearPPU - px - 0.5f) / RearPPU / Bite);
-            if (tornU) open = Mathf.Min(open, (py + 0.5f) / RearPPU / Bite);
-            if (tornD) open = Mathf.Min(open, (RearPPU - py - 0.5f) / RearPPU / Bite);
-
-            if (open < 1f && grain > open)
-                continue;
-
-            if (boundary && wall.footprint != null)
-            {
-                // 발자국은 칸 중심 기준 배 좌표계(y 위)다. 텍스처 py는 아래로
-                // 가므로 y를 뒤집어 넣는다.
+                // 발자국은 칸 중심 기준 배 좌표계(y 위)다. 텍스처 py는 아래로 간다.
                 var local = new Vector2(
                     (px + 0.5f) / RearPPU - 0.5f,
                     0.5f - (py + 0.5f) / RearPPU);
 
-                if (!Ballistics.PolygonContains(wall.footprint, local))
+                if (Ballistics.PolygonContains(footprint, local))
                     continue;
+
+                int texY = heightPx - 1 - (cell.y * RearPPU + py);
+                foot[texY * widthPx + (cell.x * RearPPU + px)] = 0;
+            }
+        }
+
+        masks.footMask.SetPixelData(foot, 0);
+        masks.footMask.Apply(false);
+
+        _designCache[map] = masks;
+        return masks;
+    }
+
+    private static void EnsureShared()
+    {
+        if (_sharedWhite == null)
+        {
+            _sharedWhite = new Texture2D(SharedTexSize, SharedTexSize, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp,
+            };
+
+            var pixels = new Color32[SharedTexSize * SharedTexSize];
+
+            for (int i = 0; i < pixels.Length; i++)
+                pixels[i] = new Color32(255, 255, 255, 255);
+
+            _sharedWhite.SetPixels32(pixels);
+            _sharedWhite.Apply(false);
+        }
+
+        if (_sharedMaterial == null)
+        {
+            Shader shader = Shader.Find("SUPERRADIANCE/RearSkin");
+
+            if (shader == null)
+            {
+                Debug.LogError("[BackPlateView] RearSkin 셰이더를 못 찾았다. 빌드라면 " +
+                    "Always Included Shaders에 넣었는지 확인할 것.");
+                return;
             }
 
-            // 원본 색은 설계도 좌표의 공유 캐시에서, 어둡기·마모는 여기서 곱한다.
-            int artY = mapHeightPx - 1 - (row * RearPPU + py);
-            Color32 raw = overlay.art[artY * mapWidthPx + (col * RearPPU + px)];
-
-            int texY = heightPx - 1 - (localRow * RearPPU + py);
-
-            overlay.pixels[texY * strideX + (localCol * RearPPU + px)] = new Color32(
-                (byte)(raw.r * shade), (byte)(raw.g * shade), (byte)(raw.b * shade), raw.a);
+            _sharedMaterial = new Material(shader);
         }
     }
 }
