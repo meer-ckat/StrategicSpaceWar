@@ -602,10 +602,14 @@ AddHeat(amount / Mathf.Max(1e-3f, SubCellFullHp) * Ballistics.HeatFromDamage);
     /// amount는 판 전체가 받는 총량이고, 여기서 칸 수로 나눈다 - 칸마다 amount를 넣으면
     /// 균일한 게 아니라 SubCount배 센 것이다.
     /// </summary>
+    private static readonly Unity.Profiling.ProfilerMarker _mDamageEvenly = new("Armor.DamageEvenly");
+
     public void ApplyDamageEvenly(float amount)
     {
         if (amount <= 0f)
             return;
+
+        using var _ = _mDamageEvenly.Auto();
 
         float share = amount / SubCount;
 
