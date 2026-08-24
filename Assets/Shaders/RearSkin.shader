@@ -15,6 +15,7 @@ Shader "SUPERRADIANCE/RearSkin"
         _MaskTex("Mask", 2D) = "white" {}                 // URP 2D 라이팅 마스크 규약
         _HullTex("Hull Art", 2D) = "white" {}
         _CellMask("Cell Mask", 2D) = "black" {}
+        _HeatMask("Heat Mask", 2D) = "black" {}
         _StaticMask("Static Mask", 2D) = "white" {}
         _FootMask("Footprint Mask", 2D) = "white" {}
         _Grid("Quad MinX/MinRow/UVToCell/Height", Vector) = (0,0,1,1)
@@ -69,6 +70,8 @@ Shader "SUPERRADIANCE/RearSkin"
             SAMPLER(sampler_HullTex);
             TEXTURE2D(_CellMask);
             SAMPLER(sampler_CellMask);
+            TEXTURE2D(_HeatMask);
+            SAMPLER(sampler_HeatMask);
             TEXTURE2D(_StaticMask);
             SAMPLER(sampler_StaticMask);
             TEXTURE2D(_FootMask);
@@ -112,8 +115,30 @@ Shader "SUPERRADIANCE/RearSkin"
                 return worthy > 0.5 && present * 255.0 < 0.5;
             }
 
-            half4 RearColor(Varyings i)
+            // PlateSkin.HeatTint와 같은 값이어야 앞뒤가 같은 열로 보인다. **1을 넘는 색을
+            // 셰이더에서 만드는 것이 요점이다** - SpriteRenderer.color로 보내면 HDR이
+            // 잘려서 Bloom이 물 것이 안 남는다. C#은 0~1 값 하나만 넘긴다.
+            half3 HeatTint(float t)
             {
+                const half3 c0 = half3(1.00, 1.00, 1.00);
+                const half3 c1 = half3(1.30, 0.34, 0.16);
+                const half3 c2 = half3(2.40, 0.85, 0.22);
+                const half3 c3 = half3(3.20, 1.60, 0.60);
+                const half3 c4 = half3(4.20, 3.20, 2.40);
+
+                float tt = saturate(t) * 4.0;
+                float lo = floor(min(tt, 3.0));
+                float f = tt - lo;
+
+                half3 a = lo < 0.5 ? c0 : (lo < 1.5 ? c1 : (lo < 2.5 ? c2 : c3));
+                half3 b = lo < 0.5 ? c1 : (lo < 1.5 ? c2 : (lo < 2.5 ? c3 : c4));
+                return lerp(a, b, f);
+            }
+
+            half4 RearColor(Varyings i, out float heatOut)
+            {
+                heatOut = 0.0;
+
                 // uv -> 설계도 칸 좌표. **uv는 0~1이 아니다** - 스프라이트가 공유 텍스처의
                 // 한 조각이라 uv는 rect/256이고, 칸으로 되돌리는 배율(_Grid.z)이 그 몫을
                 // 이미 담고 있다. row는 아래로 증가하고 쿼드 y는 위로 증가하므로 뒤집는다.
@@ -191,12 +216,33 @@ Shader "SUPERRADIANCE/RearSkin"
 
                 float wear = lerp(0.30, 1.0, life);
 
-                return half4(art.rgb * (_Map.z * wear), art.a);
+                // 열은 죽은 판이 물려준 스냅샷의 감쇠값이고, CPU가 이미 값을 정해서
+                // 픽셀당 판정은 없다 - 색만 그 위에 얹는다.
+                //
+                // **shade(_Map.z*wear)를 곱하는 순서는 상관없다 - 곱셈은 결합·교환된다.**
+                // 진짜 문제는 이 배경 어둡기 자체가 HeatTint의 HDR 값(최대 4.2)을 도로
+                // 짓눌러 Bloom 문턱 아래로 떨어뜨리는 것이다. 내 배 실내 감쇠(MineDarken)와
+                // 마모(wear)가 겹치면 0.2배까지도 내려가는데, 그 위에 아무리 밝은 열을
+                // 얹어도 최종값이 1을 못 넘는다. 뜨거울수록 그 감쇠를 걷어낸다 - 갓 뜯긴
+                // 단면이 실내 어둠이나 마모한 그을음에 안 묻히는 것이 실제로 맞다.
+                // **곱셈 틴트는 어두운 텍스처에서 근본적으로 한계가 있다** - art.rgb가
+                // 0.05면 HeatTint 최대치(4.2)를 곱해도 0.21이다, 밝기가 art에 갇힌다.
+                // 그래서 뜨거울수록 art를 곱하는 대신 HeatTint 자체(순수 HDR 색)로
+                // 바꿔치기한다 - 실제로 달아오른 금속은 밑에 뭐가 있었는지와 무관하게
+                // 자기 빛을 낸다.
+                float heat = SAMPLE_TEXTURE2D(_HeatMask, sampler_HeatMask, cuv).r;
+                float shade = lerp(_Map.z * wear, 1.0, saturate(heat));
+                half3 shaded = art.rgb * shade;
+                half3 hot = HeatTint(heat) * shade;
+
+                heatOut = heat;
+                return half4(lerp(shaded, hot, saturate(heat)), art.a);
             }
 
             half4 LitFragment(Varyings input) : SV_Target
             {
-                const half4 main = input.color * RearColor(input);
+                float heat;
+                const half4 main = input.color * RearColor(input, heat);
                 const half4 mask = SAMPLE_TEXTURE2D(_MaskTex, sampler_MaskTex, input.uv);
                 const half3 normalTS = half3(0, 0, 1);
 
@@ -210,7 +256,19 @@ Shader "SUPERRADIANCE/RearSkin"
                 SETUP_DEBUG_TEXTURE_DATA_2D_NO_TS(inputData, input.positionWS, input.positionCS, _MainTex);
                 #endif
 
-                return CombinedShapeLightShared(surfaceData, inputData);
+                half4 lit = CombinedShapeLightShared(surfaceData, inputData);
+
+                // **2D 라이트 합성을 믿지 않는다.** CombinedShapeLightShared는 씬의 2D 라이트
+                // 색·세기로 albedo를 곱한다 - 라이트가 어둡거나(밤 조명, 실내) 마스크가 낮으면
+                // 아무리 큰 HDR albedo를 넣어도 그 자리에서 다시 눌린다. 뜨거운 픽셀은 그
+                // 결과 위에 순수 HDR 값을 **그대로 더한다** - 조명 파이프라인이 뭘 하든
+                // 이 빛만은 반드시 남는다. 과하면 이 배율만 낮춘다.
+                // 배율은 PlateSkin과 같은 값이어야 한다 - 앞판과 후면이 같은 열에서
+                // 다른 밝기로 빛나면 뜯긴 단면의 앞뒤가 어긋나 보인다.
+                if (heat > 0.001)
+                    lit.rgb += HeatTint(heat) * heat * 1.0;
+
+                return lit;
             }
             ENDHLSL
         }

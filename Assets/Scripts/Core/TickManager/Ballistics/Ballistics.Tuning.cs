@@ -329,6 +329,17 @@ public static partial class Ballistics
     public const float RearMassShare = 0.2f;
 
     /// <summary>
+    /// 선체에서 뜯겨 나간 조각의 판이 들고 가는 구조 비율. **뜯긴 판은 온전할 수 없다** -
+    /// 이 값이 1이면 조각이 본체와 똑같이 단단해서, 판 세 장짜리 파편이 선체에 붙어
+    /// 매 틱 갉는 동안 자기는 하나도 안 상한다. 충각은 매 틱 도는 규칙이라 10 m/s짜리
+    /// 접촉도 붙어만 있으면 결국 뚫는다 - 한 방이 세서가 아니라 갉는 쪽이 안 죽어서다.
+    ///
+    /// 낮출수록 잔해가 빨리 부서져 접촉이 스스로 끝난다. 0에 가까우면 뜯기는 순간
+    /// 조각이 증발하고, 1이면 지금의 그 증상으로 돌아온다.
+    /// </summary>
+    public const float DebrisHpFraction = 0.35f;
+
+    /// <summary>
     /// 후면의 유효 RHA = 그 자리 판 RHA x 이 값.
     ///
     /// 체력을 그 자리 판에서 뽑는 것(<c>HullStructure.RearHealthAt</c>)과 같은 규칙이다.

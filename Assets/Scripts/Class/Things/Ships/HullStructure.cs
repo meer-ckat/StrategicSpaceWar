@@ -75,6 +75,18 @@ public sealed class HullStructure : MonoBehaviour
         /// 죽는 순간까지 새것이고, 판만 삭아서 그림에 시간이 안 흐른다.
         /// </summary>
         public float maxHp;
+
+        /// <summary>
+        /// 죽는 순간 물려받은 앞판의 Heat(0~1). **그림 전용, 정지 값이다** - 매 틱
+        /// 갱신하지 않고 <see cref="heatSetTick"/>로부터 흐른 시간만큼 읽을 때마다
+        /// 계산으로 감쇠시킨다(<see cref="RearHeatNow"/>). Armor.Heat와 같은 반감기를
+        /// 쓰지만 매 틱 도는 상태가 없다 - 안 뜨거운 칸이 압도적으로 많은데 그걸 전부
+        /// 매 틱 돌리면 그라인딩 중 판 죽는 속도만큼 비용이 붙는다.
+        /// </summary>
+        public float heat0;
+
+        /// <summary>heat0을 적은 틱. 감쇠 계산의 기준점.</summary>
+        public long heatSetTick;
     }
 
     /// <summary>이 덩어리가 생길 때 붙어 있던 칸. 처음부터 떠 있던 칸은 떼어내지 않는다.</summary>
@@ -125,7 +137,7 @@ public sealed class HullStructure : MonoBehaviour
     /// 그리고 <see cref="_alive"/> 장부에서도 이 칸을 뺀다. **여기가 장부를 유지하는
     /// 유일한 자리다** - 파단 BFS가 살아 있는 칸을 다시 세지 않는 이유가 이것이다.
     /// </summary>
-    public void ReportPlateLost(Transform plate)
+    public void ReportPlateLost(Transform plate, float heat = 0f)
     {
         // 선체 직속 자식만. Stamp가 도장을 찍는 규칙과 정확히 같아야 한다 - 판에 볼트로
         // 붙은 모듈의 localPosition은 판 기준이라 엉뚱한 칸을 지운다.
@@ -162,7 +174,64 @@ public sealed class HullStructure : MonoBehaviour
             _dirty = true;
 
         RearDiesWithLastPlate();
+
+        // 판이 뜯긴 그 자리의 후면이 판이 들고 있던 열을 물려받는다. 마지막 판이었으면
+        // 위에서 이미 _rear가 비었을 것이고, 그때는 아래가 조용히 아무 일도 안 한다.
+        HeatRearAt(cell, heat);
     }
+
+    private readonly List<Vector2Int> _hotRear = new();
+
+    /// <summary>
+    /// 후면 칸 하나를 달군다. 새 열원이 아니라 죽은 판의 Heat 스냅샷이다 - 뜯기는
+    /// 순간에만 부른다.
+    /// </summary>
+    private void HeatRearAt(Vector2Int cell, float amount)
+    {
+        if (amount <= 0f || !_rear.TryGetValue(cell, out RearCell wall))
+            return;
+
+        wall.heat0 = Mathf.Min(1f, RearHeatNow(wall) + amount);
+        wall.heatSetTick = Core.TickManager.currentTick;
+        _rear[cell] = wall;
+
+        if (!_hotRear.Contains(cell))
+            _hotRear.Add(cell);
+    }
+
+    /// <summary>
+    /// 후면 칸의 지금 열. heat0을 적은 틱에서 흐른 시간만큼 지수 감쇠 - Armor.OnTick과
+    /// 같은 반감기를 쓰지만 매 틱 갱신할 상태가 없다. 안 뜨거운 칸은 이 계산 자체를
+    /// 안 돈다 - 호출자가 <see cref="_hotRear"/>로 먼저 거른다.
+    /// </summary>
+    public static float RearHeatNow(in RearCell cell)
+    {
+        if (cell.heat0 <= 0f)
+            return 0f;
+
+        float dt = (Core.TickManager.currentTick - cell.heatSetTick) * Core.TickManager.TickDeltaTime;
+        float v = cell.heat0 * Mathf.Pow(0.5f, dt / Ballistics.HeatHalfLife);
+
+        return v < 0.004f ? 0f : v;
+    }
+
+    /// <summary>
+    /// 식어서 0이 된 칸을 목록에서 뺀다. 그림(BackPlateView)이 프레임마다 한 번 부른다 -
+    /// 안 뜨거운 배는 이 목록이 비어 있어 사실상 공짜다.
+    /// </summary>
+    public void PruneHotRear()
+    {
+        for (int i = _hotRear.Count - 1; i >= 0; i--)
+        {
+            Vector2Int cell = _hotRear[i];
+
+            if (!_rear.TryGetValue(cell, out RearCell wall) || RearHeatNow(wall) <= 0f)
+                _hotRear.RemoveAt(i);
+        }
+    }
+
+    /// <summary>지금 달아오른 후면 칸들. <see cref="PruneHotRear"/> 호출 뒤에만 최신이다.</summary>
+    public List<Vector2Int> HotRear => _hotRear;
 
     /// <summary>
     /// 판이 한 장도 안 남은 몸의 후면은 지탱할 것이 없다. 안 지우면 판이 전멸한 자리에
@@ -1132,7 +1201,16 @@ public sealed class HullStructure : MonoBehaviour
             // 여기가 재부모화의 유일한 자리다 - Armor.CachedBody(SameBodyAs가 읽는 몸 캐시)를
             // 같이 갱신해야 충격 전도가 잔해로 건너뛰지 않는다.
             if (child.TryGetComponent(out Armor reparented))
+            {
                 reparented.CachedBody = go.transform;
+
+                // **뜯긴 판은 온전할 수 없다.** 이 한 줄이 없으면 조각이 본체와 똑같이
+                // 단단해서, 파편 몇 장이 선체에 붙어 매 틱 갉는 동안 자기는 하나도 안
+                // 상한다 - 충각이 매 틱 도는 규칙이라 느린 접촉도 붙어만 있으면 결국
+                // 뚫린다. 값을 놓기만 하므로(ScaleHealth) 파단 BFS 한가운데서 붕괴
+                // 연쇄가 시작될 일이 없다.
+                reparented.ScaleHealth(Ballistics.DebrisHpFraction);
+            }
 
             // 장부에서도 넘긴다. 판이 죽은 게 아니라 남의 몸으로 간 것이라 ReportPlateLost가
             // 안 불린다 - 여기서 안 빼면 본체는 떠나간 칸을 영영 살아 있다고 센다.

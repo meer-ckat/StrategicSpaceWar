@@ -221,27 +221,6 @@ public static class ShipGrid
     };
 
     /// <summary>
-    /// 후면 칸을 조각들에게 나눠 준다. 반환의 i번째가 <paramref name="chunks"/>의 i번째가
-    /// 가져가는 후면 칸이다.
-    ///
-    /// **다중 소스 BFS.** 소스는 각 조각의 살아 있는 판 칸이고, 퍼지는 그래프는 설계도
-    /// 격자에서 <see cref="Cell.Exterior"/>가 아닌 칸을 **4방향**으로 이은 것이다.
-    /// 8방향으로 하면 계단식 절단면의 대각선을 타고 남의 조각으로 건너뛴다 - 방 BFS가
-    /// 4방향인 것과 같은 이유다.
-    ///
-    /// **어느 소스에도 안 닿은 칸은 어느 집합에도 안 들어간다 = 삭제된다.** 판이 한 장도
-    /// 없는 영역이 생길 수 있기 때문이다: 조각은 살아 있는 판에서 나오는데 후면은 설계도
-    /// (불변)에서 나오므로, 판이 전멸한 토막의 후면 칸은 주인이 없다. Armor에는 이 상황이
-    /// 존재할 수 없다 - 판이 0장이면 조각 자체가 안 생긴다.
-    ///
-    /// **동점은 조각 순서로 깬다.** 두 조각에서 같은 거리인 칸은 chunks에서 먼저 오는 쪽이
-    /// 가져간다. BuildStructure의 조각 순서가 결정론적이므로 여기 결과도 결정론적이고,
-    /// 그게 깨지면 리플레이가 어긋난다.
-    /// </summary>
-    /// <param name="design">설계도 격자. 판이 죽어도 안 변하는 쪽이다.</param>
-    /// <param name="chunks">구조 조각. <see cref="BuildStructure"/>의 반환값.</param>
-    /// <param name="rear">지금 이 몸이 들고 있는 후면 칸. 이미 갈라진 뒤라면 부분집합이다.</param>
-    /// <summary>
     /// 후면 칸의 주인. **집합이 아니라 평면 표다** - 조각마다 HashSet을 만들면 파단 한 번에
     /// 1,200칸이 해시 집합 여럿으로 흩어지고, 그 할당이 그대로 GC가 된다. 여기는 bbox
     /// 평면 배열 하나뿐이고, 호출자가 자기 장부를 한 번 훑으며 주인을 물어본다.
@@ -306,6 +285,26 @@ public static class ShipGrid
         return results;
     }
 
+    /// <summary>
+    /// 후면 칸을 조각들에게 나눠 준다. 반환의 i번째가 <paramref name="chunks"/>의 i번째가
+    /// 가져가는 후면 칸이다.
+    ///
+    /// **다중 소스 BFS.** 소스는 각 조각의 살아 있는 판 칸이고, 퍼지는 그래프는 설계도
+    /// 격자에서 <see cref="Cell.Exterior"/>가 아닌 칸을 **4방향**으로 이은 것이다.
+    /// 8방향으로 하면 계단식 절단면의 대각선을 타고 남의 조각으로 건너뛴다 - 방 BFS가
+    /// 4방향인 것과 같은 이유다.
+    ///
+    /// **어느 소스에도 안 닿은 칸은 어느 집합에도 안 들어간다 = 삭제된다.** 판이 한 장도
+    /// 없는 영역이 생길 수 있기 때문이다: 조각은 살아 있는 판에서 나오는데 후면은 설계도
+    /// (불변)에서 나오므로, 판이 전멸한 토막의 후면 칸은 주인이 없다. Armor에는 이 상황이
+    /// 존재할 수 없다 - 판이 0장이면 조각 자체가 안 생긴다.
+    ///
+    /// **동점은 조각 순서로 깬다.** 두 조각에서 같은 거리인 칸은 chunks에서 먼저 오는 쪽이
+    /// 가져간다. BuildStructure의 조각 순서가 결정론적이므로 여기 결과도 결정론적이고,
+    /// 그게 깨지면 리플레이가 어긋난다.
+    /// </summary>
+    /// <param name="chunks">구조 조각. <see cref="BuildStructure"/>의 반환값.</param>
+    /// <param name="rear">지금 이 몸이 들고 있는 후면 칸. 이미 갈라진 뒤라면 부분집합이다.</param>
     public static RearOwners SplitRearOwners(
         List<List<Vector2Int>> chunks, ICollection<Vector2Int> rear)
     {
@@ -692,7 +691,6 @@ public static class ShipGrid
         int tail = 0;
         var border = new HashSet<Vector2Int>();
 
-        //BFS, 원래 map의 총 셀 수와 visited가 같아질 때까지 반복하는게 기본이긴 한데, 여기선 전체 map의 행과 열의 크기를 앎으로 이런식으로 한듯?
         for (int row = 0; row < h; row++)
         for (int col = 0; col < w; col++)
         {
@@ -781,6 +779,6 @@ public static class ShipGrid
             rooms.Add(room);
         }
 
-        return rooms; //모든 청크를 Return
+        return rooms;
     }
 }

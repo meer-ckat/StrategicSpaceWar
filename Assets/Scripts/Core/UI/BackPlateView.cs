@@ -40,6 +40,15 @@ public sealed class BackPlateView : MonoBehaviour
         public Texture2D cellMask;
         public byte[] cellBytes;
 
+        /// <summary>
+        /// 칸 해상도 열 마스크. 뜯긴 칸이 물려받은 Armor.Heat를 0..255로. 안 뜨거운
+        /// 칸이 대부분이라 <see cref="HullStructure.HotRear"/>가 가리키는 칸만 매 프레임
+        /// 갱신한다 - cellMask처럼 구조 변화마다 전부 다시 굽지 않는다.
+        /// </summary>
+        public Texture2D heatMask;
+        public byte[] heatBytes;
+        public readonly HashSet<Vector2Int> hotWritten = new();
+
         public ShipGrid.Map _designMap; //immutable;
         public Vector2 localOffset;
         public int currentRearCount;
@@ -77,6 +86,7 @@ public sealed class BackPlateView : MonoBehaviour
 
     private static readonly int HullTexId = Shader.PropertyToID("_HullTex");
     private static readonly int CellMaskId = Shader.PropertyToID("_CellMask");
+    private static readonly int HeatMaskId = Shader.PropertyToID("_HeatMask");
     private static readonly int StaticMaskId = Shader.PropertyToID("_StaticMask");
     private static readonly int FootMaskId = Shader.PropertyToID("_FootMask");
     private static readonly int GridId = Shader.PropertyToID("_Grid");
@@ -174,10 +184,16 @@ public sealed class BackPlateView : MonoBehaviour
         if (o.cellMask != null)
             Destroy(o.cellMask);
 
+        if (o.heatMask != null)
+            Destroy(o.heatMask);
+
         o.renderer = null;
         o.sprite = null;
         o.cellMask = null;
         o.cellBytes = null;
+        o.heatMask = null;
+        o.heatBytes = null;
+        o.hotWritten.Clear();
     }
 
     private const int MinRearForOverlay = 6;
@@ -227,11 +243,69 @@ public sealed class BackPlateView : MonoBehaviour
             FillCellMask(overlay, structure);
         }
 
+        UpdateHeat(overlay, structure);
+
         overlay.renderer.enabled = _visible;
 
         Follow(overlay.renderer.transform, structure.transform, overlay.localOffset);
 
         return true;
+    }
+
+    private static readonly HashSet<Vector2Int> _stillHot = new();
+
+    /// <summary>
+    /// 열 마스크를 매 프레임 갱신한다. cellMask와 달리 구조 변화가 아니라 시간에 따라
+    /// 변하므로(감쇠) 매 프레임 봐야 하지만, <see cref="HullStructure.HotRear"/>가
+    /// 이미 "뜨거운 칸만" 걸러 주므로 안 뜨거운 배는 아래가 사실상 공짜다.
+    /// </summary>
+    private static void UpdateHeat(Overlay overlay, HullStructure structure)
+    {
+        structure.PruneHotRear();
+        List<Vector2Int> hot = structure.HotRear;
+
+        if (hot.Count == 0 && overlay.hotWritten.Count == 0)
+            return;
+
+        ShipGrid.Map map = overlay._designMap;
+        _stillHot.Clear();
+        bool changed = false;
+
+        for (int i = 0; i < hot.Count; i++)
+        {
+            Vector2Int cell = hot[i];
+
+            if (!structure.TryGetRear(cell, out HullStructure.RearCell wall))
+                continue;
+
+            byte b = (byte)Mathf.Clamp(
+                Mathf.RoundToInt(HullStructure.RearHeatNow(wall) * 255f), 0, 255);
+
+            overlay.heatBytes[(map.height - 1 - cell.y) * map.width + cell.x] = b;
+            _stillHot.Add(cell);
+            changed = true;
+        }
+
+        // 지난 프레임엔 뜨거웠는데 이번엔 식어서 빠진 칸. 안 지우면 텍스처에 옛 값이 남는다.
+        foreach (Vector2Int cell in overlay.hotWritten)
+        {
+            if (_stillHot.Contains(cell))
+                continue;
+
+            overlay.heatBytes[(map.height - 1 - cell.y) * map.width + cell.x] = 0;
+            changed = true;
+        }
+
+        overlay.hotWritten.Clear();
+
+        foreach (Vector2Int cell in _stillHot)
+            overlay.hotWritten.Add(cell);
+
+        if (changed)
+        {
+            overlay.heatMask.SetPixelData(overlay.heatBytes, 0);
+            overlay.heatMask.Apply(false);
+        }
     }
 
     /// <summary>
@@ -359,9 +433,23 @@ public sealed class BackPlateView : MonoBehaviour
         };
         overlay.cellBytes = new byte[DM.width * DM.height];
 
+        overlay.heatMask = new Texture2D(DM.width, DM.height, TextureFormat.R8, false)
+        {
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp,
+        };
+        overlay.heatBytes = new byte[DM.width * DM.height];
+        overlay.hotWritten.Clear();
+
+        // 새로 만든 텍스처는 갱신 전까지 GPU에서 미정의 값이다 - 첫 열이 생기기 전에도
+        // 조용히 안 뜨거워야 하므로 0으로 한 번 올려 둔다.
+        overlay.heatMask.SetPixelData(overlay.heatBytes, 0);
+        overlay.heatMask.Apply(false);
+
         var props = new MaterialPropertyBlock();
         props.SetTexture(HullTexId, structure.ShipHullPng != null ? structure.ShipHullPng : _sharedWhite);
         props.SetTexture(CellMaskId, overlay.cellMask);
+        props.SetTexture(HeatMaskId, overlay.heatMask);
         props.SetTexture(StaticMaskId, masks.staticMask);
         props.SetTexture(FootMaskId, masks.footMask);
 

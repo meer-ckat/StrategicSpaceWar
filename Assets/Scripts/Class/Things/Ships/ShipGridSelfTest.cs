@@ -225,6 +225,7 @@ public static class ShipGridSelfTest
             BackPlateView.SilhouetteFloodSelfTest());
         Check("solo debris: child origin and centre of mass are zero",
             HullStructure.SoloDebrisOriginSelfTest());
+        DebrisHpTest();
 
         Debug.Log($"[ShipGrid] {_pass} passed, {_fail} failed.");
     }
@@ -832,6 +833,52 @@ public static class ShipGridSelfTest
             onlyLeft &= c.x <= 4;
 
         Check("rear split: 우주 건너편은 안 가져간다", onlyLeft);
+    }
+
+    /// <summary>
+    /// 뜯긴 판은 상한 채로 간다. **깎기만 하고 아무도 안 죽여야 한다** - 이 호출은 파단
+    /// BFS 한가운데서 일어나므로, 서브셀을 실제로 죽이면 그 자리에서 붕괴 연쇄가 시작된다.
+    /// 그래서 "비율이 맞나"와 "아무도 안 뚫렸나"를 같이 본다.
+    /// </summary>
+    private static void DebrisHpTest()
+    {
+        var go = new GameObject("debris hp self test");
+
+        try
+        {
+            var box = go.AddComponent<BoxCollider2D>();
+            box.size = Vector2.one;
+
+            // AddComponent가 곧 Awake다(오브젝트가 활성이라). 콜라이더를 먼저 붙였으므로
+            // Armor.Awake가 넓이를 읽고 HP를 만땅으로 채운 상태로 나온다.
+            Armor plate = go.AddComponent<BallisticArmor>();
+
+            Check($"debris hp: 태어날 때 만땅 (got {plate.HealthFraction:F3})",
+                Mathf.Abs(plate.HealthFraction - 1f) < 1e-3f);
+
+            plate.ScaleHealth(0.35f);
+
+            Check($"debris hp: 비율만큼 깎인다 (got {plate.HealthFraction:F3}, 기대 0.350)",
+                Mathf.Abs(plate.HealthFraction - 0.35f) < 1e-3f);
+
+            bool anyBreached = false;
+
+            for (int i = 0; i < Armor.SubCount; i++)
+                anyBreached |= plate.IsBreached(i);
+
+            Check("debris hp: 깎아도 뚫린 칸은 안 생긴다", !anyBreached);
+
+            // 0을 주면 판이 통째로 죽는 게 아니라 값만 0이 된다 - 죽이는 것은 여전히
+            // ApplyDamage의 몫이라, 여기서 붕괴가 시작되면 안 된다.
+            plate.ScaleHealth(0f);
+
+            Check($"debris hp: 0이어도 값만 놓는다 (got {plate.HealthFraction:F3})",
+                plate.HealthFraction < 1e-3f && plate != null);
+        }
+        finally
+        {
+            Object.DestroyImmediate(go);
+        }
     }
 
     private static string Lines(params string[] rows) => string.Join("\n", rows);

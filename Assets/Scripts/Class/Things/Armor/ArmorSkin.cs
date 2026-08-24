@@ -53,6 +53,7 @@ public sealed class ArmorSkin : MonoBehaviour
     private static readonly int HasHullId = Shader.PropertyToID("_HasHull");
     private static readonly int GrainSeedId = Shader.PropertyToID("_GrainSeed");
     private static readonly int GrainPpuId = Shader.PropertyToID("_GrainPpu");
+    private static readonly int HeatId = Shader.PropertyToID("_Heat");
 
     private Armor _armor;
     private Collider2D _collider;
@@ -70,20 +71,10 @@ public sealed class ArmorSkin : MonoBehaviour
     private bool _built;
 
     /// <summary>
-    /// 적열 색 계단. **1을 넘는 값이 있다** - SpriteRenderer.color는 HDR을 통과시키므로
-    /// Bloom이 물어서 뜨거운 단면 주변으로 빛이 번진다. 판마다 Light2D를 다는 미친 짓 없이
-    /// 발광을 얻는 유일한 길이다.
+    /// 마지막으로 셰이더에 넘긴 열. 이 값이 안 변하면 SetPropertyBlock을 안 부른다 -
+    /// 안 뜨거운 판이 절대 다수라 그 판들은 float 비교 하나로 끝난다.
     /// </summary>
-    private static readonly Color[] HeatRamp =
-    {
-        new(1.00f, 1.00f, 1.00f, 1f),   // 0.00  원래 색
-        new(1.30f, 0.34f, 0.16f, 1f),   // 0.25  암적. 식어가는 끝자락
-        new(2.40f, 0.85f, 0.22f, 1f),   // 0.50  주황
-        new(3.20f, 1.60f, 0.60f, 1f),   // 0.75  노랑
-        new(4.20f, 3.20f, 2.40f, 1f),   // 1.00  갓 찢어진 단면. 거의 흰색
-    };
-
-    private bool _wasHot;
+    private float _sentHeat = -1f;
 
     private void Start()
     {
@@ -118,26 +109,18 @@ public sealed class ArmorSkin : MonoBehaviour
         if (_armor.DamageVersion != _paintedVersion)
             UpdateMask();
 
-        float heat = _armor.Heat;
+        // **열은 SpriteRenderer.color로 안 보낸다.** 그 경로는 HDR을 못 통과시켜서 1을
+        // 넘는 성분이 잘리고, 잘리면 Bloom 문턱을 못 넘어 발광이 통째로 사라진다. 예전
+        // CPU 굽기가 됐던 것은 텍스처 픽셀에 HDR을 직접 썼기 때문이다. 지금은 값 하나만
+        // 넘기고 1을 넘는 색은 PlateSkin이 만든다 - 후면(RearSkin)도 같은 방식이다.
+        float heat = Mathf.Clamp01(_armor.Heat);
 
-        // 식은 판은 한 프레임에 한 번 비교만 한다. 마지막으로 한 번은 원래 색으로 되돌린다.
-        if (heat <= 0f)
-        {
-            if (_wasHot)
-            {
-                _renderer.color = HeatRamp[0];
-                _wasHot = false;
-            }
-
+        if (Mathf.Abs(heat - _sentHeat) < 0.004f)
             return;
-        }
 
-        _wasHot = true;
-
-        float t = Mathf.Clamp01(heat) * (HeatRamp.Length - 1);
-        int lo = Mathf.Min((int)t, HeatRamp.Length - 2);
-
-        _renderer.color = Color.Lerp(HeatRamp[lo], HeatRamp[lo + 1], t - lo);
+        _sentHeat = heat;
+        _props.SetFloat(HeatId, heat);
+        _renderer.SetPropertyBlock(_props);
     }
 
     /// <summary>

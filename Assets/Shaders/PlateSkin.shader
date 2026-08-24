@@ -29,6 +29,7 @@ Shader "SUPERRADIANCE/PlateSkin"
         _HasHull("Has Hull", Float) = 0
         _GrainSeed("Grain Seed", Vector) = (0,0,0,0)
         _GrainPpu("Grain PPU", Float) = 48
+        _Heat("Heat", Float) = 0
 
         // Sprite-Lit-Default과 같은 레거시 호환 속성
         [HideInInspector] _Color("Tint", Color) = (1,1,1,1)
@@ -99,7 +100,29 @@ Shader "SUPERRADIANCE/PlateSkin"
                 float _HasHull;
                 float _HasShape;
                 float _GrainPpu;
+                float _Heat;
             CBUFFER_END
+
+            // 적열 램프. **SpriteRenderer.color로는 이 값을 못 보낸다** - 그 경로는 HDR을
+            // 못 통과시켜서 1을 넘는 성분이 잘린다(예전 CPU 굽기는 텍스처 픽셀에 직접
+            // 써서 됐던 것이다). 그래서 C#은 heat를 float 하나로만 넘기고, 1을 넘는 색은
+            // 여기서 만든다. RearSkin의 HeatTint와 같은 값이어야 앞뒤가 같은 열로 보인다.
+            half3 HeatTint(float t)
+            {
+                const half3 c0 = half3(1.00, 1.00, 1.00);
+                const half3 c1 = half3(1.30, 0.34, 0.16);
+                const half3 c2 = half3(2.40, 0.85, 0.22);
+                const half3 c3 = half3(3.20, 1.60, 0.60);
+                const half3 c4 = half3(4.20, 3.20, 2.40);
+
+                float tt = saturate(t) * 4.0;
+                float lo = floor(min(tt, 3.0));
+                float f = tt - lo;
+
+                half3 a = lo < 0.5 ? c0 : (lo < 1.5 ? c1 : (lo < 2.5 ? c2 : c3));
+                half3 b = lo < 0.5 ? c1 : (lo < 1.5 ? c2 : (lo < 2.5 ? c3 : c4));
+                return lerp(a, b, f);
+            }
 
             Varyings LitVertex(Attributes input)
             {
@@ -171,7 +194,18 @@ Shader "SUPERRADIANCE/PlateSkin"
                 SETUP_DEBUG_TEXTURE_DATA_2D_NO_TS(inputData, input.positionWS, input.positionCS, _MainTex);
                 #endif
 
-                return CombinedShapeLightShared(surfaceData, inputData);
+                half4 lit = CombinedShapeLightShared(surfaceData, inputData);
+
+                // **조명 합성 뒤에 더한다.** CombinedShapeLightShared는 2D 라이트 세기로
+                // albedo를 곱하므로, 라이트가 어두운 자리에서는 albedo에 아무리 큰 값을
+                // 넣어도 도로 눌린다. 적열은 스스로 내는 빛이라 그 곱셈 밖에 있어야 하고,
+                // 그래야 Bloom 문턱을 실제로 넘는다.
+                // 배율은 Bloom 문턱을 겨우 넘는 선. 올리면 갓 뜯긴 단면이 화면을 태운다.
+                // RearSkin과 같은 값이어야 앞뒤가 같은 열로 보인다.
+                if (_Heat > 0.001)
+                    lit.rgb += HeatTint(_Heat) * _Heat * 1.0;
+
+                return lit;
             }
             ENDHLSL
         }

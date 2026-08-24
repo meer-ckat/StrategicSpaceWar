@@ -155,6 +155,26 @@ public abstract class Armor : Thing
         DirtySubs = ulong.MaxValue;
     }
 
+    /// <summary>
+    /// 남은 구조를 비율만큼 깎는다. **피해가 아니라 값을 놓는 것이다** - 선체에서 뜯겨
+    /// 나가는 순간의 판이 온전할 수 없다는 사실을 반영할 뿐이라, 파편도 안 나가고 붕괴
+    /// 판정도 안 탄다. <see cref="ApplyDamageEvenly"/>로 대신하면 안 되는 이유가 그것이다:
+    /// 그쪽은 서브셀을 실제로 죽여서 파단 BFS 한가운데서 붕괴 연쇄를 시작한다.
+    ///
+    /// 곱하기라 이미 죽은 칸은 0으로 남고 산 칸은 절대 0이 안 된다(fraction &gt; 0이면).
+    /// <see cref="_dead"/>가 안 변하는 것이 곧 "이 호출은 아무도 안 죽인다"는 보장이다.
+    /// </summary>
+    public void ScaleHealth(float fraction)
+    {
+        float f = Mathf.Clamp01(fraction);
+
+        for (int i = 0; i < SubCount; i++)
+            _hp[i] *= f;
+
+        DamageVersion++;
+        DirtySubs = ulong.MaxValue;
+    }
+
     protected override void Awake()
     {
         base.Awake();
@@ -402,13 +422,6 @@ public abstract class Armor : Thing
     public Vector2 CellOffset => _cellOffset;
 
     /// <summary>
-    /// 이 점이 판의 실물 모양 안인가. <see cref="SubIndexAtLocal"/>과 **같은 공간**을
-    /// 받는다 - 콜라이더 offset을 빼는 자리가 둘이면 언젠가 한쪽만 고쳐진다.
-    ///
-    /// 폴리곤이 없으면 언제나 true다. 그림 쪽에서 콜라이더 판정과 AND로 묶이므로
-    /// 지금 있는 배들은 이 함수가 생겨도 아무것도 안 바뀐다.
-    /// </summary>
-    /// <summary>
     /// 배치가 준 모양을 꽂는다. **활성화 전에만 부른다** - 굽는 일은 Awake의 BakeShape가
     /// 하므로, 켜진 뒤에 바꾸면 체력과 잠김 비율이 옛 모양으로 남는다.
     /// </summary>
@@ -450,6 +463,13 @@ public abstract class Armor : Thing
         };
     }
 
+    /// <summary>
+    /// 이 점이 판의 실물 모양 안인가. <see cref="SubIndexAtLocal"/>과 **같은 공간**을
+    /// 받는다 - 콜라이더 offset을 빼는 자리가 둘이면 언젠가 한쪽만 고쳐진다.
+    ///
+    /// 폴리곤이 없으면 언제나 true다. 그림 쪽에서 콜라이더 판정과 AND로 묶이므로
+    /// 지금 있는 배들은 이 함수가 생겨도 아무것도 안 바뀐다.
+    /// </summary>
     public bool InsideShape(Vector2 localPoint)
         => Ballistics.PolygonContains(shape, localPoint - _cellOffset);
 
@@ -623,7 +643,7 @@ AddHeat(amount / Mathf.Max(1e-3f, SubCellFullHp) * Ballistics.HeatFromDamage);
         //
         // Ship이 아니라 HullStructure를 찾는다. 잔해 안의 판은 Ship을 못 찾아서 아무에게도
         // 보고하지 못했고, 그래서 잔해는 한 번 떨어진 뒤로 영영 안 쪼개졌다.
-        GetComponentInParent<HullStructure>()?.ReportPlateLost(transform);
+        GetComponentInParent<HullStructure>()?.ReportPlateLost(transform, Heat);
 
         GetComponentsInChildren(_dyingColliders);
 

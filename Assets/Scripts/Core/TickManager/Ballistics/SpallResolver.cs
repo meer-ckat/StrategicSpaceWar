@@ -350,11 +350,13 @@ public static class SpallResolver
         }
     }
 
-    /// <summary>파편 하나하나를 판정만 한다. 상태 변경 없음 - 트레일(그림)만 예외다.</summary>
-    private static void Compute(in Request request)
+    /// <summary>
+    /// 요청에서 파편 하나의 시작점·방향·사거리·몫을 뽑는다. 순차 경로(<see cref="Compute"/>)와
+    /// 워커 입력 생성(<see cref="ComputeParallel"/>)이 이 하나를 같이 쓴다 - 스프레드 산식이
+    /// 두 곳에 따로 있으면 언젠가 한쪽만 고쳐진다.
+    /// </summary>
+    private static FragmentInput MakeFragment(in Request request, ref DeterministicRng rng)
     {
-        var rng = new DeterministicRng(request.seed);
-
         float perFragment = request.energy / request.count;
         float range = Mathf.Clamp(
             perFragment * Ballistics.SpallRangePerEnergy,
@@ -362,116 +364,62 @@ public static class SpallResolver
             Ballistics.SpallRangeMax);
 
         Vector2 direction = request.direction;
+        Vector2 right = new Vector2(direction.y, -direction.x);
+
+        // -1 = 왼쪽 가장자리, 0 = 탄두 중심, +1 = 오른쪽 가장자리
+        float lateral = rng.Range(-1f, 1f);
+
+        // caliber는 mm, 월드는 m. Armor 붕괴처럼 탄두 단면이 없는 호출은 0을 넘겨
+        // 한 점에서 뿌린다.
+        Vector2 fragmentOrigin =
+            request.origin + right * lateral * (request.caliber * 0.0005f);
+
+        // 중심 0, 가장자리 1
+        float edgeFactor = Mathf.Abs(lateral);
+
+        // 중심에서는 좁게, 가장자리에서는 넓게
+        float localSpread = Mathf.Lerp(
+            request.spread,
+            Mathf.Min(180f, request.spread * 10f),
+            edgeFactor
+        );
+
+        Vector2 d = Ballistics.Rotate(
+            direction,
+            rng.Range(-localSpread, localSpread)
+        );
 
         // origin sits exactly on the face that was just hit. Nudge along the spray
         // direction first, or every fragment re-hits that plate at distance 0 and the
         // shell gets paid twice for one penetration.
+        Vector2 start = fragmentOrigin + d * Ballistics.Epsilon;
+
+        return new FragmentInput
+        {
+            start = new float2(start.x, start.y),
+            direction = new float2(d.x, d.y),
+            range = range,
+            energy = perFragment,
+            mask = request.mask,
+        };
+    }
+
+    /// <summary>파편 하나하나를 판정만 한다. 상태 변경 없음 - 트레일(그림)만 예외다.</summary>
+    private static void Compute(in Request request)
+    {
+        var rng = new DeterministicRng(request.seed);
+
         for (int i = 0; i < request.count; i++)
         {
-            Vector2 right = new Vector2(direction.y, -direction.x);
-
-            // -1 = 왼쪽 가장자리, 0 = 탄두 중심, +1 = 오른쪽 가장자리
-            float lateral = rng.Range(-1f, 1f);
-
-            // caliber는 mm, 월드는 m. Armor 붕괴처럼 탄두 단면이 없는 호출은 0을 넘겨
-            // 한 점에서 뿌린다.
-            Vector2 fragmentOrigin =
-                request.origin + right * lateral * (request.caliber * 0.0005f);
-
-            // 중심 0, 가장자리 1
-            float edgeFactor = Mathf.Abs(lateral);
-
-            // 중심에서는 좁게, 가장자리에서는 넓게
-            float localSpread = Mathf.Lerp(
-                request.spread,
-                Mathf.Min(180f, request.spread * 10f),
-                edgeFactor
-            );
-
-            Vector2 d = Ballistics.Rotate(
-                direction,
-                rng.Range(-localSpread, localSpread)
-            );
-
-            Vector2 fragmentStart =
-                fragmentOrigin + d * Ballistics.Epsilon;
+            FragmentInput input = MakeFragment(request, ref rng);
+            Vector2 start = new Vector2(input.start.x, input.start.y);
+            Vector2 d = new Vector2(input.direction.x, input.direction.y);
 
             // **판정의 권위.** Physics2D는 Verify 모드의 대조용으로만 돈다.
             bool hitSomething = TraceWorld.Trace(
-                fragmentStart, d, range, request.mask, out TraceWorld.Hit hit);
+                start, d, input.range, input.mask, out TraceWorld.Hit hit);
 
-            if (TraceWorld.VerifyMode)
-            {
-                int n = Physics2D.RaycastNonAlloc(fragmentStart, d, _hits, range, request.mask);
-                RaycastHit2D pv = n > 0 ? Nearest(n) : default;
-                TraceWorld.Verify(fragmentStart, d, range, request.mask,
-                    n > 0 ? pv.collider : null, n > 0 ? pv.distance : 0f, hitSomething, in hit);
-            }
-
-            if (!hitSomething)
-            {
-                Vector2 far = fragmentStart + d.normalized * range;
-
-                // 파편이 지나간 선을 화면에 남긴다. 그림뿐이고, 판정에는 관여하지 않는다.
-                SpallTrails.Add(fragmentStart, far, SpallTrails.Kind.Miss);
-
-                // 앞판을 하나도 못 맞고 날아갔다는 것은 **가로막은 실물이 없었다**는
-                // 뜻이다. 그 끝에 반대편 벽이 있으면 거기 박힌다 - 후면은 콜라이더가
-                // 없어서 위 판정에는 애초에 안 잡힌다.
-                AddEvent(new Event
-                {
-                    orderKey = _sequence++,
-                    kind = Kind.Miss,
-                    at = far,
-                    energy = perFragment,
-                });
-                continue;
-            }
-
-            Collider2D col = TraceWorld.ColliderAt(hit.index);
-
-            if (col.TryGetComponent(out Armor armor))
-            {
-                SpallTrails.Add(fragmentStart, hit.point, SpallTrails.Kind.Armor);
-
-                // 파편도 선이다. 맞은 면의 칸에만 넣으면 6x6 격자의 테두리만 갉히고
-                // 안쪽은 영원히 멀쩡하다 - 파편은 언제나 표면에 닿으니까.
-                // 채널은 wave 시작 상태에서 계산해 평면 버퍼에 복사한다 - 커밋 순서와 무관하다.
-                armor.TraceChannel(
-                    hit.point, d, Ballistics.SpallChannelDepth, _channelScratch, out _);
-
-                int offset = ReserveChannel();
-                System.Array.Copy(_channelScratch, 0, _channels, offset, Ballistics.SubCount);
-
-                AddEvent(new Event
-                {
-                    orderKey = _sequence++,
-                    kind = Kind.Armor,
-                    armor = armor,
-                    at = hit.point,
-                    energy = perFragment,
-                    channelOffset = offset,
-                });
-            }
-            else if (col.TryGetComponent(out IDamageable target))
-            {
-                SpallTrails.Add(fragmentStart, hit.point, SpallTrails.Kind.Module);
-
-                AddEvent(new Event
-                {
-                    orderKey = _sequence++,
-                    kind = Kind.Module,
-                    target = target,
-                    targetBody = col,
-                    at = hit.point,
-                    energy = perFragment,
-                });
-            }
-            else
-            {
-                // 맞긴 맞았는데 피해를 받는 물건이 아니었다. 선은 거기서 끊긴다.
-                SpallTrails.Add(fragmentStart, hit.point, SpallTrails.Kind.Miss);
-            }
+            EmitFragmentEvent(in input, hitSomething, in hit);
         }
     }
 
@@ -500,38 +448,9 @@ public static class SpallResolver
             {
                 Request request = _waveRequests[r];
                 var rng = new DeterministicRng(request.seed);
-                float perFragment = request.energy / request.count;
-                float range = Mathf.Clamp(
-                    perFragment * Ballistics.SpallRangePerEnergy,
-                    Ballistics.SpallRangeMin,
-                    Ballistics.SpallRangeMax);
-                Vector2 direction = request.direction;
 
                 for (int i = 0; i < request.count; i++)
-                {
-                    Vector2 right = new Vector2(direction.y, -direction.x);
-                    float lateral = rng.Range(-1f, 1f);
-                    Vector2 fragmentOrigin =
-                        request.origin + right * lateral * (request.caliber * 0.0005f);
-                    float edgeFactor = Mathf.Abs(lateral);
-                    float localSpread = Mathf.Lerp(
-                        request.spread,
-                        Mathf.Min(180f, request.spread * 10f),
-                        edgeFactor);
-                    Vector2 d = Ballistics.Rotate(
-                        direction,
-                        rng.Range(-localSpread, localSpread));
-                    Vector2 start = fragmentOrigin + d * Ballistics.Epsilon;
-
-                    inputs[at++] = new FragmentInput
-                    {
-                        start = new float2(start.x, start.y),
-                        direction = new float2(d.x, d.y),
-                        range = range,
-                        energy = perFragment,
-                        mask = request.mask,
-                    };
-                }
+                    inputs[at++] = MakeFragment(request, ref rng);
             }
 
             var job = new TraceFragmentsJob
@@ -564,7 +483,7 @@ public static class SpallResolver
                     normal = new Vector2(result.normal.x, result.normal.y),
                 };
 
-                ProcessParallelResult(in input, result.found != 0, in hit);
+                EmitFragmentEvent(in input, result.found != 0, in hit);
             }
         }
         finally
@@ -701,7 +620,11 @@ public static class SpallResolver
     }
 #endif
 
-    private static void ProcessParallelResult(
+    /// <summary>
+    /// 트레이스 결과 하나를 이벤트로 바꾼다. 순차 경로(<see cref="Compute"/>)와 워커 결과
+    /// 처리(<see cref="ComputeParallel"/>)가 이 하나를 같이 쓴다.
+    /// </summary>
+    private static void EmitFragmentEvent(
         in FragmentInput input,
         bool hitSomething,
         in TraceWorld.Hit hit)

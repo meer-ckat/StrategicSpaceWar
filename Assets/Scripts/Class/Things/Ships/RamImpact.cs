@@ -434,13 +434,6 @@ public static class RamImpact
     }
 
     /// <summary>
-    /// 중심에서 이 몸의 제일 먼 점까지의 거리. 회전이 한 틱에 닿을 수 있는 범위를 정한다.
-    ///
-    /// 콜라이더 bounds의 네 모서리를 본다. AABB라 회전한 판에서는 살짝 크게 나오는데,
-    /// 크게 나오는 쪽이 안전하다 - 이 값은 스윕 **상한**일 뿐이고, 실제로 어느 판이 닿는지는
-    /// 점마다 v + ω x r로 다시 거른다.
-    /// </summary>
-    /// <summary>
     /// 몸의 도달 반경 캐시. 값은 콜라이더마다 "피벗까지 거리 + 피벗에서 AABB 중심까지 +
     /// AABB 반대각"의 최대 - 진짜 도달거리의 **자세 불변 상한**이다. 세 항 모두 어느
     /// 자세에서 재도 상한이 유지된다: 피벗(콜라이더 transform)은 몸에 강체로 붙어 있어
@@ -455,6 +448,30 @@ public static class RamImpact
     private static readonly Dictionary<Rigidbody2D, (int count, float radius)> _reachCache = new();
     private static readonly List<Rigidbody2D> _pruneScratch = new();
     private static long _pruneTick = -1;
+
+    /// <summary>
+    /// 죽은(Destroy된) Object 키만 걷어낸다. <see cref="_reachCache"/>와 <see cref="_colCache"/>
+    /// 둘 다 같은 모양(넘칠 때만, 틱당 1회, 죽은 키만)이라 여기 하나로 합친다.
+    /// </summary>
+    private static void PruneDeadKeys<TKey, TValue>(
+        Dictionary<TKey, TValue> cache, List<TKey> scratch, int threshold, ref long lastPruneTick)
+        where TKey : UnityEngine.Object
+    {
+        if (cache.Count <= threshold || lastPruneTick == Core.TickManager.currentTick)
+            return;
+
+        lastPruneTick = Core.TickManager.currentTick;
+        scratch.Clear();
+
+        foreach (KeyValuePair<TKey, TValue> pair in cache)
+        {
+            if (pair.Key == null)
+                scratch.Add(pair.Key);
+        }
+
+        for (int i = 0; i < scratch.Count; i++)
+            cache.Remove(scratch[i]);
+    }
 
     private static float CachedRadius(Rigidbody2D body)
     {
@@ -479,20 +496,7 @@ public static class RamImpact
         // 죽은 몸의 항목은 넘칠 때만, 죽은 키만 걷어낸다. 통째로 Clear하면 잔해가 512개를
         // 넘는 구름(정확히 이 캐시가 겨냥한 장면)에서 미스마다 전원 재측정하는 스래싱이 된다.
         // 걷어내기는 틱당 1회 - 산 몸이 진짜로 상한을 넘으면 사전이 자라게 두는 쪽이 싸다.
-        if (_reachCache.Count > 1024 && _pruneTick != Core.TickManager.currentTick)
-        {
-            _pruneTick = Core.TickManager.currentTick;
-            _pruneScratch.Clear();
-
-            foreach (KeyValuePair<Rigidbody2D, (int count, float radius)> pair in _reachCache)
-            {
-                if (pair.Key == null)
-                    _pruneScratch.Add(pair.Key);
-            }
-
-            for (int i = 0; i < _pruneScratch.Count; i++)
-                _reachCache.Remove(_pruneScratch[i]);
-        }
+        PruneDeadKeys(_reachCache, _pruneScratch, 1024, ref _pruneTick);
 
         Vector2 centre = body.worldCenterOfMass;
         int n = body.GetAttachedColliders(_attached);
@@ -597,11 +601,6 @@ public static class RamImpact
     private static readonly HitDistance _byDistance = new();
 
     /// <summary>
-    /// 남의 몸 근처에 있는 콜라이더만 골라 스윕한다. 판 300장짜리 배가 갈고 있어도
-    /// 실제로 캐스트되는 건 접촉면의 몇십 장이다. 결과는 거리순 - body.Cast가 주던
-    /// 순서를 정렬로 복원한다.
-    /// </summary>
-    /// <summary>
     /// 콜라이더의 몸 로컬 피벗 + 자세 불변 도달 반경. 콜라이더는 몸 안에서 강체로 붙어
     /// 있어서(포탑도 피벗은 고정, 회전만 한다) 한 번 재면 영원히 맞다 - 선별 루프가
     /// 콜라이더마다 bounds(네이티브)를 읽던 것을 순수 산술로 바꾼다.
@@ -616,20 +615,7 @@ public static class RamImpact
         if (_colCache.TryGetValue(c, out (Vector2 pivotLocal, float reach) hit))
             return hit;
 
-        if (_colCache.Count > 4096 && _colPruneTick != Core.TickManager.currentTick)
-        {
-            _colPruneTick = Core.TickManager.currentTick;
-            _colPrune.Clear();
-
-            foreach (KeyValuePair<Collider2D, (Vector2, float)> pair in _colCache)
-            {
-                if (pair.Key == null)
-                    _colPrune.Add(pair.Key);
-            }
-
-            for (int i = 0; i < _colPrune.Count; i++)
-                _colCache.Remove(_colPrune[i]);
-        }
+        PruneDeadKeys(_colCache, _colPrune, 4096, ref _colPruneTick);
 
         Vector2 pivot = c.transform.position;
         Bounds b = c.bounds;
@@ -644,6 +630,11 @@ public static class RamImpact
 
     private static readonly List<Vector2> _nearLocal = new();
 
+    /// <summary>
+    /// 남의 몸 근처에 있는 콜라이더만 골라 스윕한다. 판 300장짜리 배가 갈고 있어도
+    /// 실제로 캐스트되는 건 접촉면의 몇십 장이다. 결과는 거리순 - body.Cast가 주던
+    /// 순서를 정렬로 복원한다.
+    /// </summary>
     private static int SweepNearColliders(Rigidbody2D body, Vector2 dir, float step)
     {
         using var _ = _mSweep.Auto();
@@ -696,6 +687,13 @@ public static class RamImpact
         return n;
     }
 
+    /// <summary>
+    /// 중심에서 이 몸의 제일 먼 점까지의 거리. 회전이 한 틱에 닿을 수 있는 범위를 정한다.
+    ///
+    /// 콜라이더 bounds의 네 모서리를 본다. AABB라 회전한 판에서는 살짝 크게 나오는데,
+    /// 크게 나오는 쪽이 안전하다 - 이 값은 스윕 **상한**일 뿐이고, 실제로 어느 판이 닿는지는
+    /// 점마다 v + ω x r로 다시 거른다.
+    /// </summary>
     private static float FarthestReach(Rigidbody2D body, Vector2 centre, out Vector2 farPoint)
     {
         farPoint = centre;
