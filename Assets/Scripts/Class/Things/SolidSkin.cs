@@ -36,6 +36,16 @@ public sealed class SolidSkin : MonoBehaviour
     /// </summary>
     [SerializeField] private Vector2 skinSize = new(0.3f, 0.3f);
 
+    /// <summary>
+    /// 그리기 순서. **판(0)과 모듈이 같은 값이면 순서가 정의되지 않는다** - Unity는 동률을
+    /// 카메라 거리와 인스턴스 ID로 가르므로 실행마다 달라질 수 있고, 증상은 "가끔 포탑이
+    /// 판 밑으로 들어간다"라 재현이 안 된다. GUIManager의 불안정 정렬과 같은 병이다.
+    ///
+    /// 쓰는 값: 후면 -10 / 판 0 / 포대 10 / 터렛 20 / 적함 외피 100. 간격이 10인 것은
+    /// 나중에 사이에 뭘 끼울 자리를 남긴 것이다.
+    /// </summary>
+    [SerializeField] private int sortingOrder = 10;
+
     private static Sprite _box;
     private static readonly Dictionary<string, Texture2D> _pngs = new();
     private static readonly Dictionary<string, Sprite> _sprites = new();
@@ -45,10 +55,27 @@ public sealed class SolidSkin : MonoBehaviour
     private Color _base = Color.white;
     private float _painted = -1f;
 
+    /// <summary>
+    /// 런타임에 만든 자식(포탑의 터렛 같은 것)을 def 없이 설정한다. **켜기 전에 부른다** -
+    /// Start가 이 값들을 읽으므로, 활성 상태에서 붙이면 빈 값으로 한 번 그려진다.
+    /// ThingDef.Spawn이 "붙이는 순서가 아니라 켜는 순서"를 지키는 것과 같은 이유다.
+    /// </summary>
+    public void Configure(string texture, Vector2 size, Color colour, int order)
+    {
+        skinTexture = texture;
+        skinSize = size;
+        tint = colour;
+        sortingOrder = order;
+    }
+
     private void Start()
     {
         _renderer = GetComponent<SpriteRenderer>();
-        _damageable = GetComponent<IDamageable>();
+        _renderer.sortingOrder = sortingOrder;
+
+        // 자기에게 없으면 부모에게 묻는다. 터렛은 체력을 따로 안 들지만(피해는 포대가
+        // 받는다) 포대가 상하면 같이 어두워져야 한 덩어리로 읽힌다.
+        _damageable = GetComponent<IDamageable>() ?? GetComponentInParent<IDamageable>();
 
         // 콜라이더의 bounds가 아니라 size다. bounds는 월드 기준이라 회전한 판이 1.41배로
         // 부풀어 그려진다. ThingDef가 붙이는 것은 박스뿐이므로 다른 종류는 볼 일이 없다.

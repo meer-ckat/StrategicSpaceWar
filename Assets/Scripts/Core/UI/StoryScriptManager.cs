@@ -157,6 +157,92 @@ public class DialogueLine
 
     /// <summary>다음 줄까지 기다릴 초. 0이면 이 줄의 실제 duration만큼 기다린다.</summary>
     public float wait;
+
+    /// <summary>
+    /// 이 줄이 화면에 뜨는 순간 같이 도는 연출. 없으면 아무 일도 안 일어난다.
+    ///
+    /// **대사와 같은 파일에 적는 것이 요점이다.** "적함 포문 개방"이라고 말하는 줄과 실제로
+    /// 포탑이 도는 시점이 두 파일에 나뉘어 있으면 반드시 어긋난다 - 대사 하나를 옮기면
+    /// 연출도 같이 옮겨져야 하는데, 옮기는 사람이 그걸 기억할 이유가 없다.
+    /// </summary>
+    public DialogueCue[] cue;
+
+    /// <summary>
+    /// 이 이름의 컷신 배가 **당할 때까지** 다음 줄로 안 넘어간다. 비면 안 기다린다.
+    ///
+    /// 충각처럼 결과를 시뮬레이션이 내는 연출에 필요하다 - 대본은 "몇 초 뒤에 부딪힌다"를
+    /// 알 수가 없다. 거리도 속도도 매번 다르고, 그것이 이 게임에서 충각이 값어치 있는
+    /// 이유이기도 하다.
+    ///
+    /// **상한이 있다.** 창이 빗나가면 그 배는 영영 안 죽고, 그러면 컷신이 거기서 멈춘다.
+    /// 연출이 조금 어긋나는 것이 화면이 영원히 안 넘어가는 것보다 낫다.
+    /// </summary>
+    public string awaitWreck;
+
+    /// <summary>
+    /// <see cref="awaitWreck"/>를 들이받는 배. **닿는 순간 표적을 유폭시키고 이 배는
+    /// 추적을 놓는다** - 관통해서 지나가는 그림이 그것이다.
+    ///
+    /// 왜 물리에만 안 맡기나: 창이 452 m/s로 달려들면 한 틱에 15 m를 건너뛴다. 스치는
+    /// 각도와 판 배치에 따라 관통이 될 때도, 옆구리를 긁고 지나갈 때도 있다 - 연출은
+    /// 그 주사위를 못 받는다. **충각이 일어나는 것은 물리가 정하고, 그 결과가 격침인
+    /// 것은 대본이 정한다.** 유폭 자체는 CriticalModule을 통과하는 진짜 경로라 화면에
+    /// 나오는 그림은 실전과 같다.
+    ///
+    /// 비우면 순수하게 기다리기만 한다.
+    /// </summary>
+    public string awaitRammer;
+}
+
+/// <summary>
+/// 대사 한 줄에 붙는 연출 지시. **컷신 배에만 닿는다** - 캠페인이 소환한 배는 이 길로
+/// 조종되지 않는다.
+///
+/// JsonUtility라 사전도 다형성도 못 쓴다. 그래서 필드를 다 펴 놓고 <see cref="act"/>가
+/// 어느 필드를 읽을지 정하는 꼴이다 - 안 쓰는 필드는 그냥 기본값으로 남는다.
+/// </summary>
+[Serializable]
+public class DialogueCue
+{
+    /// <summary>
+    /// 지시 이름. 모르는 값이면 경고를 찍고 넘어간다 - 오타 하나가 컷신을 통째로 멈추는
+    /// 것보다 낫다. 목록은 대사 폴더의 README에 있다.
+    /// </summary>
+    public string act;
+
+    /// <summary>대상 컷신 배의 이름. spawn이면 새로 붙일 이름이다.</summary>
+    public string name;
+
+    /// <summary>spawn 전용. 함선 설계도 이름(StreamingAssets/Ships).</summary>
+    public string ship;
+
+    /// <summary>spawn 전용. Ally / Enemy / Neutral. 비면 Enemy.</summary>
+    public string team;
+
+    /// <summary>spawn 전용. 음수면 좌우 반전이다.</summary>
+    public float facing = 1f;
+
+    public float x;
+    public float y;
+
+    /// <summary>
+    /// 좌표의 **기준점**을 이름으로 준다. <c>player</c>는 예약어로 지금 플레이어가 모는
+    /// 배다 - 그 배가 씬 어디에 서 있는지는 대본을 쓰는 시점에 알 수가 없다.
+    ///
+    /// **있으면 x·y가 그 기준점으로부터의 오프셋이 된다.** 둘 다 0이면 그 자리 그대로다.
+    /// 절대 좌표로 적으면 플레이어를 옮기는 순간 대본이 통째로 어긋난다 - 연출은 "플레이어
+    /// 앞 300 m"라고 말하지 "월드 640"이라고 말하지 않는다.
+    /// </summary>
+    public string at;
+
+    /// <summary>
+    /// look 전용. 둘을 담을 때의 여유(거리에 곱해 화면 크기가 된다). 0이면 씬의 값을
+    /// 그대로 쓴다.
+    ///
+    /// **작을수록 바짝 붙는다.** 두 배가 300 m 떨어져 있는데 1.4를 쓰면 화면이 840 m
+    /// 폭이라 배가 점이 된다 - 컷신은 얼굴이 보여야 하므로 전투 값보다 훨씬 작다.
+    /// </summary>
+    public float zoom;
 }
 
 /// <summary>
@@ -255,6 +341,17 @@ public class StoryScriptManager : MonoBehaviour
     [Header("Script")]
     // 시작할 때 재생할 대본. 비우면 아무것도 안 한다.
     public string openingScript = "prologue";
+
+    /// <summary>
+    /// 여는 대본을 **런 하나에 한 번만** 튼다. 끄면 씬이 열릴 때마다 나온다(연출을 고치는 중에 쓴다).
+    ///
+    /// 판정은 <see cref="RunState.Sector"/>다 - 0보다 크면 이미 굴러가던 런이므로
+    /// 프롤로그는 지난 이야기다. **<see cref="RunState.Exists"/>를 쓰면 안 된다** -
+    /// 그쪽은 배 파일과 진행도 파일이 둘 다 있어야 참인데, 승리 직후 한쪽만 있는 창이
+    /// 정상 경로에 항상 열린다(CLAUDE.md "첫 승리의 반쪽은 정상이다"). 그 창에서
+    /// 프롤로그가 다시 나오면 원인이 "가끔 다시 나온다"라 재현이 안 된다.
+    /// </summary>
+    public bool openingOncePerRun = true;
 
     /// <summary>전투·격침 같은 사건이 대사를 띄우게 할 것인가.</summary>
     public bool reactToSimulation = true;
@@ -528,8 +625,48 @@ public class StoryScriptManager : MonoBehaviour
 
     private void Start()
     {
-        if (!string.IsNullOrWhiteSpace(openingScript))
-            Play(openingScript, PlayerShipName());
+        // 여는 대본이 없으면 기다릴 것도 없다. **그래도 반드시 한 번은 열어야 한다** -
+        // Campaign이 waitForCutscene으로 멈춰 서 있으면, 여기서 안 부르는 순간 그 씬은
+        // 영영 전투가 시작되지 않는다. 증상이 "아무 일도 안 일어남"이라 제일 비싸다.
+        // 이어하는 런이면 프롤로그는 지난 이야기다. 대본이 비었을 때와 같은 길로 나간다 -
+        // 어느 쪽이든 **반드시 한 번은 열어야** Campaign이 waitForCutscene에서 안 굳는다.
+        bool alreadyRunning = openingOncePerRun && RunState.Sector > 0;
+
+        if (string.IsNullOrWhiteSpace(openingScript) || alreadyRunning)
+        {
+            CutSceneManager.EndAndStartRun();
+            return;
+        }
+
+        // 지난 판의 컷신 배를 걷어낸다. 목록이 static이라 씬을 다시 시작해도 살아남는다.
+        CutSceneManager.Begin();
+
+        Play(openingScript, PlayerShipName());
+        StartCoroutine(EndCutsceneWhenOpeningDone());
+    }
+
+    /// <summary>
+    /// 여는 대본이 화면에서 다 사라지면 컷신을 걷고 1구역을 연다. 프롤로그가 도는 동안
+    /// 이미 전투가 굴러가던 것이 이 기다림이 없어서였다.
+    ///
+    /// **Texts가 비는 것으로 끝을 안다.** 대본이 여러 줄이면 Run 코루틴이 순서대로 뿌리고,
+    /// 마지막 줄은 뿌린 뒤에도 duration만큼 화면에 남는다 - 코루틴이 끝나는 시점을 기다리면
+    /// 마지막 대사가 읽히기 전에 전투가 시작된다. 잡담이 Texts가 빌 때까지 기다리는 것과
+    /// 같은 규칙이다.
+    ///
+    /// Play가 실패했으면(대본 파일이 없다) Texts가 처음부터 비어 있어서 즉시 연다. Play는
+    /// 첫 줄을 코루틴에 넘기기 **전에** 동기로 Spawn하므로, 성공한 경우 여기 도달할 때는
+    /// 이미 차 있다 - 그 순서 덕에 한 프레임 유예를 둘 필요가 없다.
+    /// </summary>
+    private IEnumerator EndCutsceneWhenOpeningDone()
+    {
+        // 대본이 아직 돌고 있거나 화면에 대사가 남아 있으면 아직이다. 둘 다 봐야 한다 -
+        // 연출 전용 줄에서는 화면이 잠깐 비고(Texts 0), 마지막 줄은 코루틴이 끝난 뒤에도
+        // duration만큼 남는다(_running 0). 한쪽만 보면 그 창에서 컷신이 걷힌다.
+        while (_running > 0 || Texts.Count > 0)
+            yield return null;
+
+        CutSceneManager.EndAndStartRun();
     }
 
     /// <summary>
@@ -544,13 +681,10 @@ public class StoryScriptManager : MonoBehaviour
     /// </summary>
     private static string PlayerShipName()
     {
-        for (int i = 0; i < Ship.All.Count; i++)
+        Ship ship = PlayerShip();
+
+        if (ship != null)
         {
-            Ship ship = Ship.All[i];
-
-            if (ship == null || !ship.IsPlayerControlled)
-                continue;
-
             return string.IsNullOrEmpty(ship.shipDefName) ? ship.name : ship.shipDefName;
         }
 
@@ -721,20 +855,50 @@ public class StoryScriptManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 지금 도는 <see cref="Run"/>의 수. **Texts만으로는 대본의 끝을 못 안다** - 연출
+    /// 전용 줄(대사 없는 줄)에서는 화면이 잠깐 빌 수 있고, 그 순간을 끝으로 읽으면
+    /// 컷신이 중간에 걷히고 전투가 시작된다.
+    /// </summary>
+    private int _running;
+
     private IEnumerator Run(DialogueScript script, string arg, bool viaSystem)
     {
+        _running++;
+
+        try
+        {
         for (int i = 0; i < script.lines.Length; i++)
         {
             DialogueLine line = script.lines[i];
 
-            if (line == null || string.IsNullOrEmpty(line.message))
+            if (line == null)
                 continue;
+
+            // **연출은 대사보다 위다.** 말할 사람이 죽어도(Silenced) 세계에서 일어나는 일은
+            // 일어난다 - 적함은 함내 누가 살았는지와 무관하게 나타난다. 아래로 내렸더니
+            // "전술"이 조용한 판에서 적함 spawn이 통째로 빠지고, 그 뒤의 모든 지시가
+            // 대상을 잃어 경고만 쏟아졌다.
+            //
+            // 말이 없는 줄(message가 빈 줄)도 여기까지 온다. 그것이 **연출 전용 줄**이고,
+            // 유폭처럼 대사 없이 시간만 필요한 장면을 그걸로 잡는다.
+            RunCues(line.cue);
 
             // viaSystem이면 이미 전부 죽은 자리라 거를 것이 없다. 아니면 죽은 줄만 빠지고
             // 나머지는 자기 목소리 그대로 나간다 - 배가 통째로 조용해지는 것이 아니라
             // 한 사람 몫이 사라진다.
-            if (!viaSystem && Silenced(line.author))
+            bool speaks = !string.IsNullOrEmpty(line.message)
+                       && (viaSystem || !Silenced(line.author));
+
+            if (!speaks)
+            {
+                // 말은 안 해도 시간은 흐른다. 연출 전용 줄의 wait이 곧 그 장면의 길이다 -
+                // 여기서 안 기다리면 유폭 셋이 한 프레임에 몰린다.
+                if (line.wait > 0f)
+                    yield return new WaitForSecondsRealtime(line.wait);
+
                 continue;
+            }
 
             Dialogue spawned = Spawn(
                 Substitute(line.message, arg),
@@ -753,8 +917,350 @@ public class StoryScriptManager : MonoBehaviour
             float wait = line.wait > 0f ? line.wait : spawned.typingDuration + lineGap;
 
             yield return new WaitForSecondsRealtime(Mathf.Max(0.05f, wait));
+
+            // 시뮬레이션이 결과를 낼 때까지. 대사보다 아래인 것이 요점이다 - 줄이 뜨고
+            // 읽히는 동안 창이 날아가고, 다 읽은 뒤에 그 결과를 기다린다.
+            if (!string.IsNullOrWhiteSpace(line.awaitWreck))
+                yield return AwaitWreck(line.awaitWreck, line.awaitRammer);
+        }
+        }
+        finally
+        {
+            _running--;
         }
     }
+
+    // =========================================================
+    // 연출 (컷신)
+    // =========================================================
+
+    /// <summary>
+    /// 충각이 이 안에 안 끝나면 포기하고 대본을 이어 간다. **넉넉해야 한다** - 창이
+    /// 700 m 밖에서 출발하고 가속에도 시간이 걸린다. 짧게 잡으면 아직 날아오는 중에
+    /// 대본이 다음 장면으로 넘어가서, 유폭이 엉뚱한 대사 위에서 난다.
+    /// </summary>
+    private const float AwaitWreckTimeout = 45f;
+
+    /// <summary>
+    /// 그 배가 전투불능이 될 때까지 기다린다. **판정은 IsCombatEffective 하나다** -
+    /// 컷신 전용 "죽음"을 따로 정의하면 화면에 부서진 것으로 보이는 배와 시뮬레이션이
+    /// 죽었다고 보는 배가 어긋난다.
+    ///
+    /// 배가 통째로 사라지는 경우(오브젝트 파괴)도 끝으로 친다.
+    /// </summary>
+    /// <summary>
+    /// 들이받았다고 볼 거리(m). 판정이 아니라 **연출의 문턱이다** - 창이 한 틱에 15 m를
+    /// 건너뛰므로 정확한 접촉을 기다리면 그 틱을 통째로 넘길 수 있다. 구축함 반길이쯤.
+    /// </summary>
+    private const float RamContactRange = 40f;
+
+    private static IEnumerator AwaitWreck(string name, string rammer)
+    {
+        float spent = 0f;
+
+        while (spent < AwaitWreckTimeout)
+        {
+            if (!CutSceneManager.TryGet(name, out CutSceneManager.CutScene_ShipObj target)
+                || target.ship == null
+                || !target.ship.IsCombatEffective)
+                yield break;
+
+            // 들이받는 배가 닿았으면 그 자리에서 결말을 낸다. 유폭은 CriticalModule을
+            // 통과하는 진짜 경로라 그림이 실전과 같고, 창은 추적을 놓아 관성으로 지나간다 -
+            // 안 놓으면 시체 자리에서 맴돈다.
+            if (!string.IsNullOrWhiteSpace(rammer)
+                && CutSceneManager.TryGet(rammer, out CutSceneManager.CutScene_ShipObj hitter)
+                && hitter.Root != null && target.Root != null
+                && Vector2.Distance(hitter.Root.transform.position, target.Root.transform.position)
+                   <= RamContactRange)
+            {
+                hitter.Chase(null);
+                target.Detonate();
+                yield break;
+            }
+
+            spent += Time.unscaledDeltaTime;
+            yield return null;
+        }
+
+        Debug.LogWarning(
+            $"[대사] '{name}'이 {AwaitWreckTimeout:0}초 안에 안 부서졌다. 창이 빗나갔을 수 있다 - " +
+            "연출을 이어 간다.");
+    }
+
+    /// <summary>
+    /// 한 줄에 붙은 연출을 순서대로 집행한다. **모르는 지시는 경고만 찍고 넘어간다** -
+    /// 오타 하나로 컷신이 통째로 멈추면 대본을 고치는 사람이 원인을 못 찾는다.
+    /// </summary>
+    private void RunCues(DialogueCue[] cues)
+    {
+        if (cues == null)
+            return;
+
+        for (int i = 0; i < cues.Length; i++)
+            RunCue(cues[i]);
+    }
+
+    private void RunCue(DialogueCue cue)
+    {
+        if (cue == null || string.IsNullOrWhiteSpace(cue.act))
+            return;
+
+        // look은 대상이 컷신 배가 아닐 수도 있다(player). 그래서 아래 TryGet 관문 위에 둔다.
+        // name이 비면 카메라를 놓는다 - 인스펙터가 적어 둔 프레임으로 돌아간다.
+        if (cue.act == "look")
+        {
+            if (string.IsNullOrWhiteSpace(cue.name))
+            {
+                CameraSystem.ReleaseCutscene();
+                return;
+            }
+
+            CameraSystem.CutsceneFrame(TransformOf(cue.name), TransformOf(cue.at), cue.zoom);
+            return;
+        }
+
+        // spawn만 대상이 아직 없어도 된다. 나머지는 이미 서 있는 배에게 거는 지시다.
+        if (cue.act == "spawn")
+        {
+            // at이 있으면 그 배 기준 오프셋이다. 프롤로그는 거의 전부 "플레이어 앞/뒤
+            // 몇 m"라, 절대 좌표로 적으면 배를 옮길 때마다 대본을 다시 계산해야 한다.
+            if (!TryResolvePoint(cue, out Vector2 where))
+                return;
+
+            CutSceneManager.SpawnCutSceneShips(
+                cue.name, where, cue.facing, cue.ship, TeamOf(cue.team));
+
+            return;
+        }
+
+        // **join은 컷신 배가 아니라 런에 건다.** 컷신 배는 release 때 사라지지만 동료는
+        // 남은 구역을 전부 따라가야 하므로, 명단이 RunState에 있고 구역마다 Campaign이
+        // 다시 소환한다. ship이 설계도, x·y가 편대 자리(플레이어 기준)다.
+        if (cue.act == "join")
+        {
+            RunState.Join(cue.ship, new Vector2(cue.x, cue.y));
+            Debug.Log($"[대사] '{cue.ship}' 합류. 편대 자리 ({cue.x}, {cue.y}).");
+            return;
+        }
+
+        // camera는 배가 없어도 된다. 화면 자체를 만지는 지시다.
+        if (cue.act == "camera")
+        {
+            CameraSystem.CutsceneDamp(cue.x, cue.y);
+            return;
+        }
+
+        CutSceneManager.CutScene_ShipObj target = TargetOf(cue.name);
+
+        if (target == null)
+        {
+            Debug.LogWarning($"[대사] 연출 '{cue.act}'의 대상 '{cue.name}'이 없다. 먼저 spawn해야 한다.");
+            return;
+        }
+
+        switch (cue.act)
+        {
+            case "moveTo":
+                // moveTo는 **지금 좌표를 고정한다.** 움직이는 표적에는 chase를 쓴다.
+                if (TryResolvePoint(cue, out Vector2 to))
+                {
+                    // 쫓기도 편대도 매 틱 _targetPos를 다시 쓴다 - 안 풀면 이 좌표가
+                    // 다음 틱에 덮어써져서 moveTo가 아무 일도 안 한 것처럼 보인다.
+                    target.Chase(null);
+                    target.Formation(null, Vector2.zero);
+                    target.MoveTo(to);
+                }
+                break;
+
+            case "chase":
+                target.Formation(null, Vector2.zero);
+                target.Chase(TransformOf(cue.at));
+                break;
+
+            case "unchase":
+                target.Chase(null);
+                break;
+
+            // at을 편대장으로, x·y를 **그 배 기준** 자리로 읽는다. moveTo와 달리 매 틱
+            // 다시 계산하므로 편대장이 움직이고 돌아도 간격이 그대로 남는다.
+            case "formation":
+                target.Chase(null);
+                target.Formation(TransformOf(cue.at), new Vector2(cue.x, cue.y));
+                break;
+
+            case "unformation":
+                target.Formation(null, Vector2.zero);
+                break;
+
+            case "aimAt":
+                // 좌표든 대상이든 못 찾으면 null을 준다 - 그러면 포탑이 평소대로 가장
+                // 가까운 적을 잡는다. 컷신이 조준을 놓는 정식 길이기도 하다.
+                target.AimAt(TryResolvePoint(cue, out Vector2 aim) ? aim : (Vector2?)null);
+                break;
+
+            case "face":
+                // x를 각도로 읽는다. at이 있으면 그 대상을 향하는 각도로 푼다.
+                target.Face(FaceAngleFor(cue, target));
+                break;
+
+            case "unface":
+                target.Face(null);
+                break;
+
+            case "hold":
+                target.HoldFire(true);
+                break;
+
+            case "release":
+                target.HoldFire(false);
+                break;
+
+            case "fire":
+                target.ForceFire(true);
+                break;
+
+            case "ceasefire":
+                target.ForceFire(false);
+                break;
+
+            case "boost":
+                target.Boost(true);
+                break;
+
+            case "unboost":
+                target.Boost(false);
+                break;
+
+            case "detonate":
+                target.Detonate();
+                break;
+
+            case "despawn":
+                CutSceneManager.Remove(cue.name);
+                break;
+
+            default:
+                Debug.LogWarning(
+                    $"[대사] 모르는 연출 '{cue.act}'. spawn/despawn/moveTo/chase/unchase/aimAt/" +
+                    "face/unface/hold/release/fire/ceasefire/boost/unboost/detonate/look/camera " +
+                    "중 하나여야 한다.");
+                break;
+        }
+    }
+
+    /// <summary>
+    /// 지시를 받을 배. **컷신 배가 아니면 그 자리에서 빌린다** - 플레이어 배는 씬의 것이라
+    /// spawn된 적이 없고, 대본에서 <c>player</c>라고만 부른다. 빌린 배는 컷신이 끝날 때
+    /// 지워지지 않고 조종간만 돌아간다.
+    /// </summary>
+    private static CutSceneManager.CutScene_ShipObj TargetOf(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+
+        if (CutSceneManager.TryGet(name, out CutSceneManager.CutScene_ShipObj had))
+            return had;
+
+        return name == "player" ? CutSceneManager.Borrow(name, PlayerShip()) : null;
+    }
+
+    /// <summary>
+    /// face가 향할 각도. <c>at</c>이 있으면 그 대상을 바라보는 각도를 풀고, 없으면 x를
+    /// 각도로 그대로 쓴다 - "저 배 쪽으로 뱃머리를 튼다"가 좌표를 세는 것보다 훨씬 자주 쓴다.
+    /// </summary>
+    private static float FaceAngleFor(DialogueCue cue, CutSceneManager.CutScene_ShipObj target)
+    {
+        if (string.IsNullOrWhiteSpace(cue.at) || target.Root == null)
+            return cue.x;
+
+        Transform at = TransformOf(cue.at);
+
+        if (at == null)
+            return cue.x;
+
+        Vector2 to = (Vector2)at.position - (Vector2)target.Root.transform.position;
+
+        // ShipAi.Turn이 hullAngle과 비교하는 각도와 같은 규약이어야 한다.
+        return Mathf.Atan2(to.y, to.x) * Mathf.Rad2Deg
+             - (target.Root.transform.localScale.x < 0f ? 180f : 0f);
+    }
+
+    /// <summary>
+    /// 연출의 목표점. <see cref="DialogueCue.at"/>이 있으면 그 이름을 좌표로 풀고,
+    /// 없으면 x·y를 그대로 쓴다. 이름을 못 찾으면 false - 부르는 쪽이 그때 무엇을 할지
+    /// 정한다(aimAt은 조준을 놓고, moveTo는 아무 데도 안 간다).
+    /// </summary>
+    /// <summary>
+    /// 연출이 가리키는 점. <see cref="DialogueCue.at"/>이 있으면 **그 대상 위치 + (x,y)**,
+    /// 없으면 x·y 그대로다.
+    ///
+    /// 오프셋으로 두는 것이 요점이다 - "플레이어 앞 300 m"를 절대 좌표로 적으면 배를
+    /// 한 번 옮길 때마다 대본의 모든 숫자를 다시 계산해야 한다. x·y가 0이면 예전처럼
+    /// 그 대상의 자리 그대로라 이미 쓰인 대본도 안 깨진다.
+    /// </summary>
+    private static bool TryResolvePoint(DialogueCue cue, out Vector2 point)
+    {
+        point = new Vector2(cue.x, cue.y);
+
+        if (string.IsNullOrWhiteSpace(cue.at))
+            return true;
+
+        Transform at = TransformOf(cue.at);
+
+        if (at == null)
+        {
+            Debug.LogWarning($"[대사] 연출 대상 '{cue.at}'을 못 찾았다.");
+            return false;
+        }
+
+        point += (Vector2)at.position;
+        return true;
+    }
+
+    /// <summary>
+    /// 이름 하나를 Transform으로 푼다. <c>player</c>는 예약어이고, 나머지는 컷신 배의
+    /// 이름이다. 못 찾으면 null - 부르는 쪽이 그때 무엇을 할지 정한다.
+    ///
+    /// 좌표(<see cref="TryResolvePoint"/>)와 카메라(<c>look</c>)가 같은 이름 규칙을 써야
+    /// 대본에서 "저 배"를 가리키는 말이 하나로 남는다.
+    /// </summary>
+    private static Transform TransformOf(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+
+        // 플레이어 배의 좌표는 대본을 쓰는 시점에 알 수 없다. 이름으로만 가리킬 수 있다.
+        if (name == "player")
+        {
+            Ship player = PlayerShip();
+            return player != null ? player.transform : null;
+        }
+
+        return CutSceneManager.TryGet(name, out CutSceneManager.CutScene_ShipObj ship) && ship.Root != null
+            ? ship.Root.transform
+            : null;
+    }
+
+    private static Ship PlayerShip()
+    {
+        for (int i = 0; i < Ship.All.Count; i++)
+        {
+            Ship ship = Ship.All[i];
+
+            if (ship != null && ship.IsPlayerControlled)
+                return ship;
+        }
+
+        return null;
+    }
+
+    private static Ship.Team TeamOf(string team) => team switch
+    {
+        "Ally" => Ship.Team.Ally,
+        "Neutral" => Ship.Team.Neutral,
+        _ => Ship.Team.Enemy,
+    };
 
     // =========================================================
     // 시뮬레이션 반응

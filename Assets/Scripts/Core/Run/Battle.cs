@@ -50,6 +50,19 @@ public sealed class Battle
     /// </summary>
     private bool _sawHostile;
 
+    /// <summary>
+    /// 연료가 바닥나 아무 적에게도 못 닿는 틱이 이어진 개수. drag=0에서 새로 생긴 상황 -
+    /// 예전에는 항력이 있어서 종단속도가 있었고, 못 미는 배는 그냥 멈춰 서 있어서 적이
+    /// 다가올 수 있었다. drag=0이면 서로 흘러가며 벌어질 수 있다.
+    ///
+    /// 한 틱만 보면 안 되는 이유: 거리가 DetectionDistance 경계에서 흔들리면 매 틱
+    /// 다르게 잡힌다. 몇 초 이어져야 진짜 좌초다.
+    /// </summary>
+    private int _strandedTicks;
+
+    /// <summary>5초 @ 60틱. 순간적인 거리 흔들림에 안 걸리는 최소한의 여유.</summary>
+    private const int StrandedTimeoutTicks = TickManager.TickRate * 5;
+
     public Battle()
     {
         current = this;
@@ -67,7 +80,7 @@ public sealed class Battle
         // 순서가 중요하다. 목표를 먼저 본다 - 마지막 적과 서로 죽이면 그건 승리다.
         if (objective != null && objective())
             End(true);
-        else if (!PlayerStillFighting())
+        else if (!PlayerStillFighting() || Stranded())
             End(false);
     }
 
@@ -127,6 +140,49 @@ public sealed class Battle
         Ship player = Player();
 
         return player != null && player.IsCombatEffective;
+    }
+
+    /// <summary>
+    /// 플레이어가 못 움직이고, 닿는 적도 없다. 걸쇠(<see cref="_strandedTicks"/>)로
+    /// 몇 초 이어져야 참이 된다 - <see cref="_sawHostile"/>과 같은 이유로, 상태가 아니라
+    /// **지속된** 상태가 사건이다.
+    ///
+    /// 패배로 친다. 오너의 판단 - 플레이어의 목표는 끝까지 나아가는 것이라, 못 움직이고
+    /// 적도 못 닿으면 그 자체로 임무 실패다. 무력한 채 살아있는 것을 승리로 치지 않는다.
+    /// </summary>
+    private bool Stranded()
+    {
+        Ship player = Player();
+
+        // 탱크가 하나도 없으면 Drive()가 무제한이라 이 배는 애초에 좌초할 수 없다 -
+        // 배치를 아직 안 끝낸 배(지금 다섯 함급 전부)가 여기 걸리면 안 된다.
+        if (player == null || player.shipTanks.Count == 0 || player.AvailableDeltaV() > 0f)
+        {
+            _strandedTicks = 0;
+            return false;
+        }
+
+        for (int i = 0; i < Ship.All.Count; i++)
+        {
+            Ship other = Ship.All[i];
+
+            if (other == null || !player.IsHostileTo(other))
+                continue;
+
+            // DetectionDistance가 기준이다 - NearestHostile()이 같은 반경을 쓰므로,
+            // 이 밖에 있으면 포탑도 애초에 그 적을 조준 대상으로 못 잡는다. 못 움직이는데
+            // 조준도 못 하면 할 수 있는 일이 없다.
+            float dist = Vector2.Distance(player.transform.position, other.transform.position);
+
+            if (dist <= player.DetectionDistance)
+            {
+                _strandedTicks = 0;
+                return false;
+            }
+        }
+
+        _strandedTicks++;
+        return _strandedTicks >= StrandedTimeoutTicks;
     }
 
     private static Ship Player()

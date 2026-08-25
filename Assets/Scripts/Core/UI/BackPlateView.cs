@@ -410,7 +410,7 @@ public sealed class BackPlateView : MonoBehaviour
             meshType: SpriteMeshType.FullRect);
 
         // 소속 판정. 잔해·Hulk는 Ship이 없으니 저절로 외피 쪽으로 떨어진다.
-        overlay.mine = structure.TryGetComponent(out Ship ship) && ship.IsPlayerControlled;
+        overlay.mine = false;//structure.TryGetComponent(out Ship ship) && ship.IsPlayerControlled;
 
         overlay.renderer = go.AddComponent<SpriteRenderer>();
         overlay.renderer.sprite = overlay.sprite;

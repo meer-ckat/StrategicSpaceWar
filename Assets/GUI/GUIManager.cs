@@ -212,7 +212,7 @@ namespace IMGUI // not I'm GUI.
 
         private void OnGUI()
         {
-            // GUI.skin을 사용하는 초기화는 반드시 여기서.
+            if(!GUIStyleMaker.Initialized)
             GUIStyleMaker.Initialize();
 
             isIterating = true;

@@ -221,7 +221,11 @@ public static class RamImpact
         // 닿을 수 있는 건 남의 몸 반경 + step 안에 있는 앞면 몇 장뿐이라, 그것만 골라
         // 하나씩 캐스트하고 거리순으로 합친다 - 아래 루프의 "거리순으로 온다" 가정이
         // 이 정렬로 유지된다.
-        int n = SweepNearColliders(body, dir, step);
+        // 회전으로 쓸리는 거리. capsule 검사가 이만큼 반경을 부풀려서, 도는 몸이 옆구리로
+        // 후려치는 판을 안 놓친다. 병진만 있으면 0이라 순수 capsule이다.
+        float swing = Mathf.Abs(omega) * rMax * lead;
+
+        int n = SweepNearColliders(body, dir, step, swing);
 
         if (n == 0)
             return;
@@ -631,11 +635,79 @@ public static class RamImpact
     private static readonly List<Vector2> _nearLocal = new();
 
     /// <summary>
+    /// 반경 <paramref name="radius"/>짜리 원을 <paramref name="from"/>에서 <paramref name="dir"/>
+    /// 방향으로 <paramref name="step"/>만큼 밀었을 때 <paramref name="target"/>을 스칠 수 있나.
+    ///
+    /// **원 검사를 캡슐로 좁히는 것이 요점이다.** 예전에는 `거리 <= reach + step`이라
+    /// 뒤·옆에 있는 콜라이더까지 후보가 됐다 - 이번 틱에 절대 안 닿는 자리인데도 비싼
+    /// Cast를 한 번씩 냈다.
+    ///
+    /// **보수적으로만 틀려야 한다.** true를 잘못 내면 헛Cast 한 번이고, false를 잘못 내면
+    /// 충각이 통째로 사라진다(시뮬 버그). 그래서 시작점 **뒤로도** radius만큼은 남긴다 -
+    /// 이미 겹쳐 있는 접촉이 그 자리다.
+    /// </summary>
+    private static bool SweptCircleMayHit(
+        Vector2 from, Vector2 target, Vector2 dir, float step, float radius)
+    {
+        Vector2 rel = target - from;
+        float along = Vector2.Dot(rel, dir);
+
+        if (along < -radius || along > step + radius)
+            return false;
+
+        float sideSq = rel.sqrMagnitude - along * along;
+
+        return sideSq <= radius * radius;
+    }
+
+    /// <summary>
     /// 남의 몸 근처에 있는 콜라이더만 골라 스윕한다. 판 300장짜리 배가 갈고 있어도
     /// 실제로 캐스트되는 건 접촉면의 몇십 장이다. 결과는 거리순 - body.Cast가 주던
     /// 순서를 정렬로 복원한다.
     /// </summary>
-    private static int SweepNearColliders(Rigidbody2D body, Vector2 dir, float step)
+    /// <param name="swing">
+    /// 이번 틱에 회전으로 쓸리는 거리(m). **capsule을 안전하게 만드는 항이다** - step에는
+    /// 회전 몫이 이미 들어 있는데 capsule은 직선 dir 하나로 자르므로, 제자리 회전으로
+    /// 옆구리를 후려치는 판이 통째로 빠진다. 이만큼 반경을 부풀리면 병진만 있을 때는 0이라
+    /// 순수 capsule이고, 회전이 지배하면 원으로 되돌아간다 - 그때는 실제로 전방향이다.
+    /// </param>
+#if UNITY_EDITOR
+    /// <summary>
+    /// capsule 검사는 **보수적으로만 틀려야 한다.** true를 잘못 내면 헛Cast 한 번이지만,
+    /// false를 잘못 내면 그 틱의 충각이 통째로 사라진다 - 링 검사(RemovalMightSplit)와
+    /// 같은 비대칭이라 같은 방식으로 못 박는다.
+    /// </summary>
+    internal static bool SweptCircleSelfTest()
+    {
+        Vector2 from = Vector2.zero;
+        Vector2 dir = Vector2.right;
+
+        // 진행 방향 정면, 사거리 안 - 반드시 잡는다.
+        bool ahead = SweptCircleMayHit(from, new Vector2(5f, 0f), dir, 10f, 1f);
+
+        // 바로 뒤 - 예전 원 검사는 잡았고 capsule은 버린다. 그것이 이 최적화의 전부다.
+        bool behind = SweptCircleMayHit(from, new Vector2(-5f, 0f), dir, 10f, 1f);
+
+        // 이미 겹쳐 있는 접촉은 시작점보다 뒤에 있어도 살아야 한다.
+        bool touching = SweptCircleMayHit(from, new Vector2(-0.5f, 0f), dir, 10f, 1f);
+
+        // 옆으로 반경 밖 - 아무리 멀리 가도 안 스친다.
+        bool aside = SweptCircleMayHit(from, new Vector2(5f, 3f), dir, 10f, 1f);
+
+        // 옆이지만 반경 안 - 스친다.
+        bool grazing = SweptCircleMayHit(from, new Vector2(5f, 0.9f), dir, 10f, 1f);
+
+        // 사거리 너머 - 이번 틱에는 못 닿는다.
+        bool far = SweptCircleMayHit(from, new Vector2(20f, 0f), dir, 10f, 1f);
+
+        // 반경을 그만큼 부풀리면(= swing) 뒤쪽도 도로 들어온다. 제자리 회전이 그 경우다.
+        bool swung = SweptCircleMayHit(from, new Vector2(-5f, 0f), dir, 10f, 6f);
+
+        return ahead && !behind && touching && !aside && grazing && !far && swung;
+    }
+#endif
+
+    private static int SweepNearColliders(Rigidbody2D body, Vector2 dir, float step, float swing)
     {
         using var _ = _mSweep.Auto();
         int attached = body.GetAttachedColliders(_attached);
@@ -650,6 +722,14 @@ public static class RamImpact
         for (int k = 0; k < _nearBodies.Count; k++)
             _nearLocal.Add(bodyT.InverseTransformPoint(_nearBodies[k].centre));
 
+        // **부호를 손으로 마저 뒤집는다.** InverseTransformDirection은 scale을 무시하는데
+        // 위의 InverseTransformPoint는 안 무시한다 - 반전 함선(localScale.x = -1)에서 둘을
+        // 그냥 섞으면 방향만 거울이 아니라서 capsule이 엉뚱한 쪽을 본다. Conduct의 axisL과
+        // 같은 자리다.
+        Vector2 dirLocal = bodyT.InverseTransformDirection(dir);
+        Vector3 ls = bodyT.lossyScale;
+        dirLocal = new Vector2(dirLocal.x * Mathf.Sign(ls.x), dirLocal.y * Mathf.Sign(ls.y));
+
         for (int i = 0; i < attached; i++)
         {
             Collider2D c = _attached[i];
@@ -658,14 +738,14 @@ public static class RamImpact
                 continue;
 
             (Vector2 pivotLocal, float reach) col = ColliderLocal(bodyT, c);
-            float mine = col.reach + step;
+            float mine = col.reach + swing;
             bool near = false;
 
             for (int k = 0; k < _nearBodies.Count; k++)
             {
                 float r = _nearBodies[k].radius + mine;
 
-                if ((col.pivotLocal - _nearLocal[k]).sqrMagnitude <= r * r)
+                if (SweptCircleMayHit(col.pivotLocal, _nearLocal[k], dirLocal, step, r))
                 {
                     near = true;
                     break;
@@ -834,7 +914,8 @@ public static class RamImpact
 
         Vector2 acrossAxis = new(-axisL.y, axisL.x);
         Vector2 pivot = origin.CellLocal;
-        float cutoff = damage * cutoff01;
+        // 컷오프를 지수 쪽으로 옮겨 둔 것. 루프에서 Exp를 돌리기 **전에** 이 값과 비교한다.
+        float lnCutoff = Mathf.Log(Mathf.Max(1e-6f, cutoff01));
 
         // Pow 두 번을 Exp 한 번으로: a^x * b^y = exp(x ln a + y ln b). 감쇠 공식 결과는 동일.
         float lnAlong = Mathf.Log(Mathf.Max(1e-6f, along));
@@ -865,13 +946,19 @@ public static class RamImpact
 
                     // 칸이 1 m라 거리가 그대로 미터다. Abs인 이유: Unity의 접촉면 법선 부호는
                     // 콜백을 받는 쪽에 따라 뒤집힌다. 어차피 축의 양쪽으로 똑같이 번지면 된다.
-                    float share = damage * Mathf.Exp(
+                    float exponent =
                         Mathf.Abs(Vector2.Dot(offset, axisL)) * lnAlong
-                        + Mathf.Abs(Vector2.Dot(offset, acrossAxis)) * lnAcross);
+                        + Mathf.Abs(Vector2.Dot(offset, acrossAxis)) * lnAcross;
 
-                    // 더 멀리는 더 작다. 여기서 끊어도 놓치는 판이 없다.
-                    if (share < cutoff)
+                    // **컷오프를 지수에서 본다.** damage > 0이므로
+                    //   damage*exp(e) < damage*cutoff01  <=>  e < ln(cutoff01)
+                    // 이라 결과가 글자 그대로 같고, 버릴 판에는 Exp 자체를 안 돈다.
+                    // 유폭 한 번이 BlastMaxPlates(96)장을 도는데 대부분은 여기서 걸린다 -
+                    // 이 BFS는 끝을 확인하려고 항상 경계 밖까지 한 겹 더 본다.
+                    if (exponent < lnCutoff)
                         continue;
+
+                    float share = damage * Mathf.Exp(exponent);
 
                     if (nested)
                         reached.Add(neighbour);

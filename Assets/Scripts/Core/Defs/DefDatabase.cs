@@ -139,6 +139,10 @@ public static class DefDatabase
     private static void ReloadMenu()
     {
         Reload();
+
+        // 설계도도 같이. 두 캐시가 따로 놀면 def는 새 값인데 배치는 옛 값이 된다.
+        ShipDef.ClearCache();
+
         Debug.Log("[DefDatabase] 다시 읽었다. 플레이 중이면 배를 다시 지어야 반영된다.");
     }
 

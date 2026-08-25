@@ -229,7 +229,8 @@ public sealed class ShipPainter : EditorWindow
                 _plateDefs.Add(head.defName);
             else if (typeof(Gun).IsAssignableFrom(def.MainType)
                   || typeof(Engine).IsAssignableFrom(def.MainType)
-                  || typeof(CriticalModule).IsAssignableFrom(def.MainType))
+                  || typeof(CriticalModule).IsAssignableFrom(def.MainType)
+                  || typeof(Tank).IsAssignableFrom(def.MainType))
                 _moduleDefs.Add(head.defName);
         }
 
@@ -1977,6 +1978,7 @@ public sealed class ShipPainter : EditorWindow
         "Reactor" => new Color(0.35f, 0.85f, 0.45f),
         "Magazine" => new Color(0.90f, 0.35f, 0.30f),
         "SuperDuper Engine" => new Color(0.95f, 0.60f, 0.25f),
+        "Fuel Tank" => new Color(0.85f, 0.80f, 0.30f),
         _ => new Color(0.55f, 0.75f, 0.95f),
     };
 

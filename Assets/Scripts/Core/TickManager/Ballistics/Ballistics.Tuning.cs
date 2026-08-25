@@ -340,6 +340,18 @@ public static partial class Ballistics
     public const float DebrisHpFraction = 0.35f;
 
     /// <summary>
+    /// 판이 통째로 받는 충격(충각·유폭) 중 그 판에 볼트로 붙은 모듈이 같이 받는 몫.
+    ///
+    /// **모듈은 스윕에 안 잡힌다.** `RamImpact.Punch`도 `Radiate`도 Armor만 고르므로,
+    /// 이 값이 없으면 포탑을 정면으로 들이받아도 포탑은 흠집 하나 안 난다 - 판만 부서지고
+    /// 그 위의 주포는 멀쩡히 계속 쏜다.
+    ///
+    /// 1이 아닌 이유: 모듈 체력(40쯤)이 판(400쯤)보다 훨씬 작아서, 같은 값을 주면 스치기만
+    /// 해도 전부 즉사한다. 큰 충각은 죽이고 작은 접촉은 안 죽이는 선이다.
+    /// </summary>
+    public const float ModuleShockFraction = 0.15f;
+
+    /// <summary>
     /// 후면의 유효 RHA = 그 자리 판 RHA x 이 값.
     ///
     /// 체력을 그 자리 판에서 뽑는 것(<c>HullStructure.RearHealthAt</c>)과 같은 규칙이다.
@@ -411,5 +423,12 @@ public static partial class Ballistics
     public const float HeatFromExposure = 1.6f;
 
     /// <summary>열이 절반으로 식는 데 걸리는 시간(초). 2~5초 사이가 보기 좋다.</summary>
-    public const float HeatHalfLife = 1.4f;
+    public const float HeatHalfLife = 5f;
+
+    // 후면 열에 상수를 따로 두지 않는다. 후면이 달궈지는 두 사건이 앞판의 그것과 같은
+    // 사건이라 같은 값을 쓴다 - 맞으면 HeatFromDamage, 뚫리면 HeatFromExposure.
+    //
+    // 한때 "살아 있는 판이 매 틱 자기 뒤를 데운다"는 전도 경로가 있었고 상수도 둘 더
+    // 있었는데, 내 배의 후면은 판 뒤(sortingOrder -10)에 어둡게 깔려서 판이 성한 자리는
+    // 화면에 아무것도 안 나온다. 안 보이는 것을 매 틱 계산하고 있었다.
 }

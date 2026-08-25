@@ -1,0 +1,26 @@
+{
+  "defName": "Fuel Tank",
+  "thingClass": "Tank",
+  "comps": [
+    "SolidSkin"
+  ],
+  "layer": "Module",
+  "collider": {
+    "size": {
+      "x": 1,
+      "y": 1
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "maxHealth": 100,
+  "impulse": 120000,
+  "tint": {
+    "r": 0.7,
+    "g": 0.7,
+    "b": 0.3,
+    "a": 1
+  }
+}

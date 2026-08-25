@@ -18,7 +18,6 @@
   "muzzleSpeed": 1400,
   "armorLayer": { "m_Bits": 64 },
   "moduleLayer": { "m_Bits": 128 },
-  "spallLayer": { "m_Bits": 192 },
   "tint": { "r": 1.0, "g": 0.85, "b": 0.4, "a": 1 },
   "skinSize": { "x": 0.16, "y": 0.16 },
   "m_ComponentVersion": 2,

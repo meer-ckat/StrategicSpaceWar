@@ -21,9 +21,12 @@ public static partial class Ballistics
             * Mathf.Pow(mass, 0.71f)
             / Mathf.Pow(caliber, 1.07f);
     }
-
-    /// <summary>HP fraction -> RHA multiplier. 1.0 / 0.9 / 0.5 / 0.0 at 100% / 60% / 25% / 0%.</summary>
-    public static float RhaCurve(float hpFraction)
+    /// <summary>
+    /// 장갑의 잔여 체력에 따른 RHA multiplier 계산, 즉 장갑이 걸레짝이 될수록 유효방호력도 낮아짐.
+    /// </summary>
+    /// <param name="hpFraction"></param>
+    /// <returns></returns>
+    public static float RhaCurve(float hpFraction) 
     {
         float f = Mathf.Clamp01(hpFraction);
 
@@ -37,8 +40,7 @@ public static partial class Ballistics
     }
 
     /// <summary>
-    /// 탄이 잃은 운동량 = 맞은 몸이 받은 충격량(N·s). 관통 결과 이름이나 임의 배율은
-    /// 들어오지 않는다. 속도의 크기뿐 아니라 방향도 빼므로 도탄의 방향 전환도 보존된다.
+    /// 탄이 잃은 velocity로 잃은 운동량, 즉 다시 말해 충격량을 계산
     /// </summary>
     public static Vector2 ImpactImpulse(
         float mass,
@@ -51,7 +53,7 @@ public static partial class Ballistics
         return mass * (incomingVelocity - outgoingVelocity);
     }
 
-    public static uint Hash(int projectileId, long tick, int hitIndex) //발사체의 정보를 Random value로 바꿔주는 함수. 필요 없음.
+    public static uint Hash(int projectileId, long tick, int hitIndex) //발사체 정보를 randomValue로 바꿈. 그런데 결정론적이라서 projectile id, tick, hitIndex 모두 같으면 똑같은 random이 나옴.
     {
         unchecked
         {

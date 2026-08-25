@@ -59,10 +59,38 @@ public sealed class Campaign : TickBehaviour
             current = null;
     }
 
+    /// <summary>
+    /// 켜면 <see cref="Start"/>가 1구역을 안 연다. 컷신이 끝나고 <see cref="StartRun"/>을
+    /// 부를 때까지 캠페인은 가만히 있는다 - 프롤로그가 도는 동안 이미 전투가 굴러가던 것이
+    /// 이 걸쇠 하나가 없어서였다.
+    ///
+    /// **인스펙터 값이다.** 컷신을 안 쓰는 씬은 예전 그대로 Start에서 시작한다.
+    /// </summary>
+    [SerializeField] private bool waitForCutscene;
+
+    private bool _runStarted;
+
     private void Start()
     {
-        if (_def == null)
+        if (_def == null || waitForCutscene)
             return;
+
+        StartRun();
+    }
+
+    /// <summary>
+    /// 1구역을 연다. 컷신이 끝나는 자리에서 부른다 - **Campaign은 컷신을 모른다.**
+    /// 반대로 컷신이 Campaign을 아는 쪽이라, 연출이 늘어도 이 파일은 안 바뀐다.
+    ///
+    /// 두 번 불러도 안전하다. 컷신이 중간에 끊기는 길이 여럿이라(스킵·표적 소실) 한쪽만
+    /// 부르게 두면 언젠가 두 번 불리고, 그러면 구역이 두 번 열려 소환물이 두 배가 된다.
+    /// </summary>
+    public void StartRun()
+    {
+        if (_def == null || _runStarted)
+            return;
+
+        _runStarted = true;
 
         // 씬에 손으로 놓아둔 적은 캠페인의 것이 아니다. 남겨두면 1구역이 실제로 무엇인지가
         // 씬과 def 두 곳에 적히고, 그 둘은 반드시 어긋난다.
@@ -117,6 +145,8 @@ public sealed class Campaign : TickBehaviour
 
         foreach (SpawnDef spawn in sector.spawns)
             Spawn(spawn);
+
+        SpawnWingmen();
 
         _battle = new Battle();
 
@@ -177,6 +207,9 @@ public sealed class Campaign : TickBehaviour
             RunState.Salvage += taken;
             Debug.Log($"[Campaign] 노획 판 {taken}장 (누적 {RunState.Salvage}).");
         }
+
+        // **잔해를 걷기 전에 센다** - 노획과 같은 이유로 여기가 마지막 기회다.
+        BuryWingmen();
 
         _sector++;
         RunState.Sector = _sector;
@@ -248,6 +281,113 @@ public sealed class Campaign : TickBehaviour
 
         RunState.Salvage = budget - used;
         Debug.Log($"[Campaign] 판 {used}장 수리. 노획 {RunState.Salvage}장 남음.");
+    }
+
+    /// <summary>
+    /// 이번 구역에 살아 있는 동료들. 인덱스가 <see cref="RunState.Wingmen"/>의 것과 같아서,
+    /// 전투가 끝날 때 누가 죽었는지 그 자리로 지운다 - 같은 설계도가 둘일 수 있으므로
+    /// 이름으로 지우면 엉뚱한 쪽이 빠진다.
+    /// </summary>
+    private readonly List<Ship> _wingmen = new();
+
+    /// <summary>
+    /// 합류한 아군을 구역마다 다시 소환한다. **손상은 안 들고 온다** - 멀쩡한 몸으로
+    /// 나오고, 대신 죽으면 명단에서 빠져 다음 구역부터 영영 없다.
+    ///
+    /// 조종은 편대에 묶고 사격은 안 건드린다. `_detatchBrain`이 켜져 있으면 ShipAi가
+    /// 스스로 표적을 안 고르므로 조타가 편대 자리에 붙고, 포탑은 원래부터 ShipAi를 안
+    /// 거치고 <c>Gun</c>이 직접 <c>NearestHostile</c>을 잡는다 - 그래서 "따라다니되
+    /// 알아서 쏘는" 것이 분기 하나 없이 나온다.
+    /// </summary>
+    private void SpawnWingmen()
+    {
+        _wingmen.Clear();
+
+        Ship player = PlayerShip();
+
+        if (player == null)
+            return;
+
+        List<RunState.Wingman> roster = RunState.Wingmen;
+
+        for (int i = 0; i < roster.Count; i++)
+        {
+            RunState.Wingman w = roster[i];
+
+            // 자리를 미리 계산해서 거기 띄운다. 안 그러면 첫 구역 시작마다 동료가
+            // 원점에서 편대까지 날아오는 그림이 나온다.
+            Vector2 right = player.NoseDirection;
+            Vector2 up = new(-right.y, right.x);
+
+            Vector2 at = (Vector2)player.transform.position
+                + right * w.slot.x + up * w.slot.y;
+
+            Ship ship = SpawnAlly(w.ship, at, player.transform.localScale.x);
+
+            _wingmen.Add(ship);   // 실패해도 null로 넣는다 - 인덱스가 명단과 같아야 한다
+
+            if (ship != null && ship.TryGetComponent(out ShipAi ai))
+            {
+                ai._detatchBrain = true;
+                ai._formation = player.transform;
+                ai._formationOffset = w.slot;
+            }
+        }
+    }
+
+    /// <summary>전투가 끝났다. 못 싸우게 된 동료는 명단에서 뺀다 - 뒤에서부터 지워야 인덱스가 안 밀린다.</summary>
+    private void BuryWingmen()
+    {
+        for (int i = _wingmen.Count - 1; i >= 0; i--)
+        {
+            Ship ship = _wingmen[i];
+
+            if (ship == null || !ship.IsCombatEffective)
+            {
+                Debug.Log($"[Campaign] 동료 {i + 1}번 상실. 남은 구역은 그만큼 혼자다.");
+                RunState.Lose(i);
+            }
+        }
+
+        _wingmen.Clear();
+    }
+
+    private Ship PlayerShip()
+    {
+        for (int i = 0; i < Ship.All.Count; i++)
+        {
+            if (Ship.All[i] != null && Ship.All[i].IsPlayerControlled)
+                return Ship.All[i];
+        }
+
+        return null;
+    }
+
+    /// <summary>아군 한 척. <see cref="Spawn"/>과 같은 규칙(비활성으로 짓고 마지막에 켠다).</summary>
+    private Ship SpawnAlly(string shipDef, Vector2 at, float facing)
+    {
+        if (string.IsNullOrEmpty(shipDef) || !File.Exists(ShipDef.PathOf(shipDef)))
+        {
+            Debug.LogError($"[Campaign] 동료 '{shipDef}' 설계도가 없다. 건너뛴다.");
+            return null;
+        }
+
+        var go = new GameObject(shipDef);
+        go.SetActive(false);
+
+        go.transform.position = new Vector3(at.x, at.y, 0f);
+        go.transform.localScale = new Vector3(facing < 0f ? -1f : 1f, 1f, 1f);
+
+        var ship = go.AddComponent<Ship>();
+        ship.shipDefName = shipDef;
+        ship.team = Ship.Team.Ally;
+
+        go.AddComponent<ShipAi>();
+
+        go.SetActive(true);
+        _spawned.Add(go);   // 다음 구역에 걷히는 것도 캠페인이 소환한 것들과 같다
+
+        return ship;
     }
 
     private void Spawn(SpawnDef spawn)

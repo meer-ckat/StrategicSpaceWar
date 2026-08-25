@@ -1,0 +1,25 @@
+{
+    "name": "SUPERRADIANCE",
+    "rootNamespace": "",
+    "references": [
+        "SUPERRADIANCE.GUI",
+        "Unity.InputSystem",
+        "Unity.RenderPipelines.Universal.Runtime",
+        "Unity.RenderPipelines.Universal.2D.Runtime",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.Mathematics",
+        "Unity.Burst",
+        "Unity.TextMeshPro",
+        "Unity.VisualEffectGraph.Runtime",
+        "UnityEngine.UI"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

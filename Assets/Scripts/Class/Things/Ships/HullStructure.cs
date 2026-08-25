@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Drawing;
 using UnityEngine;
 
 /// <summary>
@@ -183,21 +184,73 @@ public sealed class HullStructure : MonoBehaviour
     private readonly List<Vector2Int> _hotRear = new();
 
     /// <summary>
-    /// 후면 칸 하나를 달군다. 새 열원이 아니라 죽은 판의 Heat 스냅샷이다 - 뜯기는
-    /// 순간에만 부른다.
+    /// <see cref="_hotRear"/>의 멤버십 사본. 리스트는 그림(BackPlateView)이 순회해야 해서
+    /// 남기고, "이미 들어 있나"는 이쪽으로 O(1)에 묻는다 - List.Contains는 선형이라 뜨거운
+    /// 칸이 수백 개로 늘면 판 하나 죽을 때마다 그 수만큼 훑는다.
+    ///
+    /// **넣고 빼는 자리가 둘뿐이라 어긋날 자리가 없다** - <see cref="HeatRearAt"/>이 같이
+    /// 넣고 <see cref="PruneHotRear"/>가 같이 뺀다. <c>_rear</c>를 통째로 비우는 자리
+    /// (배가 다시 지어지거나 파단할 때)는 이 둘을 안 건드리는데, 그래도 어긋나지 않는다 -
+    /// 남은 칸은 <c>TryGetValue</c>가 실패해서 다음 Prune에 같이 걷힌다.
+    /// </summary>
+    private readonly HashSet<Vector2Int> _hotRearSet = new();
+
+    /// <summary>
+    /// 뜯긴 자리에서 열이 번지는 모양. **BFS가 아니라 표다.**
+    ///
+    /// 반경 2의 4방향 이웃은 13칸으로 **고정**이다 - 큐도 방문집합도 세대 카운터도
+    /// 필요 없다. 표에 중복이 없으므로 같은 칸을 두 번 달구는 일도 구조적으로 없고,
+    /// 큐 기반이 겪던 "A→B→C와 A→D→C가 겹쳐 대각선이 중심보다 뜨거워지는" 문제가
+    /// 존재할 자리가 없다.
+    ///
+    /// 가중치가 곧 감쇠다. 세대를 세서 0.5^n을 구하는 대신 여기 적으므로, 번지는 모양을
+    /// 바꾸고 싶으면 이 표만 고치면 된다 - 코드가 아니라 데이터다.
+    /// </summary>
+    private static readonly (int dx, int dy, float weight)[] RearHeatSpread =
+    {
+        ( 0,  0, 1.00f),
+        ( 0,  1, 0.50f), ( 0, -1, 0.50f), ( 1,  0, 0.50f), (-1,  0, 0.50f),
+        ( 1,  1, 0.25f), ( 1, -1, 0.25f), (-1,  1, 0.25f), (-1, -1, 0.25f),
+        ( 0,  2, 0.25f), ( 0, -2, 0.25f), ( 2,  0, 0.25f), (-2,  0, 0.25f),
+    };
+
+    /// <summary>
+    /// 한 칸과 그 둘레의 후면을 달군다. **사건 전용이다** - 부르는 자리가 둘뿐이고 둘 다
+    /// 순간이다: 판이 뜯길 때(<see cref="ReportPlateLost"/>)와 후면 자체가 맞거나 뚫릴
+    /// 때(<see cref="DamageRear"/>). 그래서 더하기가 맞다.
+    ///
+    /// **살아 있는 판은 자기 뒤를 안 데운다.** 한번 넣었다가 뺐다 - 내 배의 후면은 판
+    /// 뒤(sortingOrder -10)에 어둡게 깔려서, 판이 성한 자리는 그 판이 가려 화면에
+    /// 아무것도 안 나온다. 안 보이는 것을 매 틱 계산하고 있었다.
+    ///
+    /// 번지는 모양은 <see cref="RearHeatSpread"/> 표가 전부 정한다 - 표에 없는 칸은
+    /// 안 달궈지고, 표에 중복이 없으므로 같은 칸을 두 번 더하는 일도 없다. 후면이
+    /// 없는 칸(<c>_rear</c>에 없는 칸)은 조용히 건너뛴다.
     /// </summary>
     private void HeatRearAt(Vector2Int cell, float amount)
     {
-        if (amount <= 0f || !_rear.TryGetValue(cell, out RearCell wall))
+        if (amount <= 0f)
             return;
 
-        wall.heat0 = Mathf.Min(1f, RearHeatNow(wall) + amount);
-        wall.heatSetTick = Core.TickManager.currentTick;
-        _rear[cell] = wall;
+        for (int i = 0; i < RearHeatSpread.Length; i++)
+        {
+            (int dx, int dy, float weight) = RearHeatSpread[i];
 
-        if (!_hotRear.Contains(cell))
-            _hotRear.Add(cell);
+            var at = new Vector2Int(cell.x + dx, cell.y + dy);
+
+            if (!_rear.TryGetValue(at, out RearCell wall))
+                continue;
+
+            // 이미 식는 중인 열 위에 더한다 - 연달아 맞은 자리가 더 뜨거워야 한다.
+            wall.heat0 = Mathf.Min(1f, RearHeatNow(wall) + amount * weight);
+            wall.heatSetTick = Core.TickManager.currentTick;
+            _rear[at] = wall;
+
+            if (_hotRearSet.Add(at))
+                _hotRear.Add(at);
+        }
     }
+
 
     /// <summary>
     /// 후면 칸의 지금 열. heat0을 적은 틱에서 흐른 시간만큼 지수 감쇠 - Armor.OnTick과
@@ -226,7 +279,10 @@ public sealed class HullStructure : MonoBehaviour
             Vector2Int cell = _hotRear[i];
 
             if (!_rear.TryGetValue(cell, out RearCell wall) || RearHeatNow(wall) <= 0f)
+            {
                 _hotRear.RemoveAt(i);
+                _hotRearSet.Remove(cell);
+            }
         }
     }
 
@@ -405,9 +461,51 @@ public sealed class HullStructure : MonoBehaviour
         RearVersion++;
 
         if (wall.hp > 0f)
+        {
             _rear[cell] = wall;
+
+            // 맞은 만큼 달아오른다. **눈금이 Armor와 같아야 한다** - 거기는
+            // `amount / SubCellFullHp`로 재고, 그 분모는 판 HP의 1/36이다. 여기서 칸 HP
+            // 통째로 나누면 같은 피해가 36배 차갑게 나와서 화면에서 0이 된다. 실제로
+            // 그랬고, 증상은 "뚫린 둘레만 타고 맞은 자리는 안 탄다"였다.
+            //
+            // 후면에는 서브셀이 없지만(칸 해상도라 칸 안을 표현할 데가 없다) 눈금은
+            // 빌려올 수 있다 - maxHp / SubCount가 곧 "이 칸을 36등분했을 때 하나"다.
+            float unit = wall.maxHp / Ballistics.SubCount;
+
+            HeatRearAt(cell, amount / Mathf.Max(1e-3f, unit) * Ballistics.HeatFromDamage);
+        }
         else
-            _rear.Remove(cell);
+        {
+            KillRear(cell);
+        }
+    }
+
+    /// <summary>
+    /// 후면 칸 하나가 뚫린다. **지우는 자리는 여기 하나여야 한다.**
+    ///
+    /// 예전에는 <see cref="PunchRear"/>가 `_rear.Remove`를 직접 불렀다. 그 길이 탄이 뒷벽을
+    /// **뚫고 나가는** 경로, 즉 제일 극적인 순간인데 거기서 열이 하나도 안 났다 - 관통은
+    /// 조용하고 못 뚫고 갉는 것만 빛나는, 정확히 거꾸로 된 그림이었다. 증상이 "후면이
+    /// 과감하게 안 탄다"라 상수를 의심하게 되는데(실제로 HeatFromExposure에 x10을 붙여
+    /// 봤다) 값이 아니라 **경로가 통째로 빠져 있던 것**이다.
+    ///
+    /// **순서가 중요하다: 지우기 전에 달군다.** 지운 뒤엔 <see cref="HeatRearAt"/>이 이
+    /// 칸을 못 찾고, 못 찾으면 표의 이웃 12칸도 안 돈다. 이 칸 자신의 열은 곧 사라지므로
+    /// 화면에 남는 것은 **둘레**다 - 구멍은 검고 테두리가 탄다.
+    ///
+    /// Armor에서 이웃 판이 죽어 새로 드러난 면이 달아오르는 것과 같은 사건이라
+    /// <see cref="Ballistics.HeatFromExposure"/>를 그대로 쓴다.
+    /// </summary>
+    private void KillRear(Vector2Int cell)
+    {
+        if (!_rear.ContainsKey(cell))
+            return;
+
+        HeatRearAt(cell, Ballistics.HeatFromExposure);
+
+        _rear.Remove(cell);
+        RearVersion++;   // 그림이 이걸 보고 칸 마스크를 다시 채운다
     }
 
     /// <summary>
@@ -537,14 +635,9 @@ public sealed class HullStructure : MonoBehaviour
                 continue;
 
             if (penetration >= wall.rha)
-            {
-                body._rear.Remove(cell);
-                body.RearVersion++;   // 그림이 이걸 보고 칸 마스크를 다시 채운다
-            }
+                body.KillRear(cell);
             else
-            {
                 body.DamageRear(cell, damage);
-            }
         }
     }
 

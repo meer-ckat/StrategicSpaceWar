@@ -1,5 +1,6 @@
 using UnityEngine;
 using Core;
+using System.Reflection;
 
 /// <summary>
 /// 탄 한 발. 한 틱 동안 자기 경로를 훑으면서, 만나는 판마다 판정을 받고 계속 간다.
@@ -18,46 +19,22 @@ public abstract partial class Projectile : Thing, ITickLate
     public float mass = 5f;              // kg
     public float caliber = 100f;         // mm
     public float shatterVelocity = 800f; // m/s
-
-    /// <summary>
-    /// Calibration constant for the penetration formula - its units are arbitrary, so this
-    /// is what ties it to millimetres of RHA. At 1.0 a .50 cal punches 169 mm and reads
-    /// like a tank gun.
-    ///
-    /// Fitted against real rounds, the exponents hold across the whole scale:
-    ///   .50 BMG AP   0.046 kg  890 m/s  12.7 mm  ->  20 mm   k 0.164
-    ///   20 mm AP     0.130 kg  830 m/s  20   mm  ->  30 mm   k 0.211
-    ///   128 mm APCBC 28.0  kg  950 m/s  128  mm  -> 200 mm   k 0.186
-    ///
-    /// 0.18 puts every one of those inside 15%. Override per shell for anything exotic.
-    /// </summary>
-    public float penetrationK = 0.18f;
-    /// <summary>
-    /// 0보다 크면 고폭탄이다. 맞은 자리에서 터진다 - **뚫든 못 뚫든**.
-    ///
-    /// 새 폭발 시스템이 없다. <see cref="RamImpact.Detonate"/>가 탄약고·원자로 유폭에
-    /// 쓰는 그것을 그대로 부른다. 유폭이 "등방성 충각"이었던 것과 같은 재사용이다 -
-    /// 이 게임에서 무엇이 터지는 방법은 하나뿐이어야 한다.
-    ///
-    /// 값의 감은 CriticalModule과 같다: destroyer 기준 800이면 판 17장, 1600이면
-    /// 선체가 갈라진다. 포탄은 탄약고보다 한참 작아야 한다.
-    /// </summary>
+    public float penetrationK = 0.18f; //영차원 상수
+    //탄두의 데미지
     public float blastDamage;
 
     public int lifeTick = 1800;          // 30 s
     public float muzzleSpeed = 900f;     // m/s, used only if nothing calls Launch
     public LayerMask armorLayer;    // 본체 레이캐스트 - Armor 레이어만
     public LayerMask moduleLayer;   // 직격 - Module 레이어만
-    public LayerMask spallLayer;    // 파편 - Armor | Module
+    private LayerMask spallLayer; //캐시 a | m
 
     [Header("Runtime")]
-    public Vector2 velocity;
+    public Vector2 velocity; //현재 속도
     public float integrity = 1f;         // 0..1. Shattered does NOT mean 0.
     public ShellState state = ShellState.Intact;
     public int hitIndex;
-
-    /// <summary>0 = fired from a gun. Anything higher is debris, and debris sheds none.</summary>
-    public int generation;
+    public int generation; //generation 0은 처음 발사된 탄두, 이후엔 파편들.
 
     public int ProjectileId { get; private set; } //Projectile을 구분하기 위한 ID
     public float Speed => velocity.magnitude;
@@ -67,12 +44,14 @@ public abstract partial class Projectile : Thing, ITickLate
         Ballistics.Penetration(penetrationK, IntegrityFactor, Speed, mass, caliber);
 
     // shared scratch - consumed synchronously inside one loop iteration
-    private static readonly RaycastHit2D[] _hits = new RaycastHit2D[16];
+    private static readonly RaycastHit2D[] _hits = new RaycastHit2D[4]; //다중 충돌 처리
     private static readonly SurfaceSet _surfaces = new();
     private static int _nextId; //다음 Projectile ID 할당
+    private Rigidbody2D _ownerRigidbody;
 
     protected override void Awake()
     {
+        spallLayer = armorLayer | spallLayer;
         base.Awake();
         ProjectileId = ++_nextId;
 
@@ -90,9 +69,11 @@ public abstract partial class Projectile : Thing, ITickLate
     /// 반동은 이 값을 안 본다. 포가 만든 운동량은 포구 속도 몫뿐이고, 물려받은 속도는
     /// 배가 이미 갖고 있던 것이라 배에서 빼야 할 이유가 없다.
     /// </summary>
-    public virtual void Launch(Vector2 direction, float speed, Vector2 inherited = default)
+    public virtual void Launch(Vector2 direction, float speed, Vector2 inherited = default, Rigidbody2D owner = null)
     {
+        _ownerRigidbody = owner;
         velocity = direction.normalized * speed + inherited;
+        transform.position += (Vector3)velocity * TickManager.TickDeltaTime / 2; // 0.5틱 먼저 이동 판정
 
         if (velocity.sqrMagnitude > 0f) //속도가 유효하다면
             transform.up = velocity.normalized;
@@ -127,7 +108,7 @@ public abstract partial class Projectile : Thing, ITickLate
             Vector2 dir = velocity / speed;
             float distance = speed * remainingTime;
 
-            if (!CollectSurfaces(position, dir, distance, lastCollider)) //레이케스트 진행, 만약 아무것도 없으면 이동하고 다음 틱 기다리기.
+            if (!CollectSurfaces(position, dir, distance, lastCollider, _ownerRigidbody)) //레이케스트 진행, 만약 아무것도 없으면 이동하고 다음 틱 기다리기.
             {
                 // 판을 안 만났어도 이번 구간에 모듈이 있었으면 그건 맞은 것이다
                 StrikeModules(position, dir, distance);

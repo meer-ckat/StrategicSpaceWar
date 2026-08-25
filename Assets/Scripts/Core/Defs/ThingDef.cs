@@ -68,6 +68,12 @@ public class ThingDef
     /// 부르는데, 그러면 stats가 들어가기 전에 Armor.Awake가 돌아서 판이 기본값 체력으로
     /// 태어난다. 위치까지 다 잡은 뒤에 한 번에 켜는 것이 유일하게 안전한 순서다.
     /// </summary>
+    /// <summary>
+    /// 물건 하나가 태어나는 값. **판 한 장마다 지난다** - destroyer가 629칸, lance가
+    /// 306칸이라 배 한 척의 소환 비용은 사실상 이 마커의 합이다.
+    /// </summary>
+    private static readonly Unity.Profiling.ProfilerMarker _mSpawn = new("ThingDef.Spawn");
+
     public Thing Spawn(
         Transform parent,
         Vector2 localPosition,
@@ -78,6 +84,8 @@ public class ThingDef
     {
         if (_mainType == null)
             return null;
+
+        using var _ = _mSpawn.Auto();
 
         var go = new GameObject(defName);
         go.SetActive(false);

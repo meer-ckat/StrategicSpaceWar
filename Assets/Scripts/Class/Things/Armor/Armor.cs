@@ -18,15 +18,8 @@ public abstract class Armor : Thing
     [SerializeField] private float rha = 100f;        // mm
 
     /// <summary>
-    /// 판 **1 m²당** 구조 예산. 실제 총량은 콜라이더 넓이를 곱해서 나온다.
-    ///
-    /// 두 가지를 동시에 막는 정의다.
-    /// 1. 서브셀당이 아니라 총량이라, SubGrid는 읽기 정밀도 손잡이로 남는다 - 예전에 3x3을
-    ///    6x6으로 올렸더니 판이 4배 튼튼해졌다.
-    /// 2. m²당이라, 판 크기가 달라도 재료 밀도가 같다. 예전에는 넓이를 안 봐서 0.4x1.0 얇은
-    ///    패널이 1x1 벽과 똑같은 총량을 받았고, 서브셀 하나로 치면 2.7배 단단했다.
-    ///    45도 경사판(1 x 1.414)은 프리팹에 1800 x sqrt(2) = 2546을 손으로 적어 넣어야 했는데,
-    ///    새 판 모양을 만들 때마다 사람이 곱셈을 하는 것이 곧 언젠가 잊는다는 뜻이다.
+    /// 제곱미터당 HP. 실제 총량은 콜라이더 넓이를 곱해서 나온다.
+    /// 즉 재질을 정의한다.
     /// </summary>
     [FormerlySerializedAs("cellHp")]
     [SerializeField] private float hpPerSquareMetre = 1800f;
@@ -156,14 +149,9 @@ public abstract class Armor : Thing
     }
 
     /// <summary>
-    /// 남은 구조를 비율만큼 깎는다. **피해가 아니라 값을 놓는 것이다** - 선체에서 뜯겨
-    /// 나가는 순간의 판이 온전할 수 없다는 사실을 반영할 뿐이라, 파편도 안 나가고 붕괴
-    /// 판정도 안 탄다. <see cref="ApplyDamageEvenly"/>로 대신하면 안 되는 이유가 그것이다:
-    /// 그쪽은 서브셀을 실제로 죽여서 파단 BFS 한가운데서 붕괴 연쇄를 시작한다.
-    ///
-    /// 곱하기라 이미 죽은 칸은 0으로 남고 산 칸은 절대 0이 안 된다(fraction &gt; 0이면).
-    /// <see cref="_dead"/>가 안 변하는 것이 곧 "이 호출은 아무도 안 죽인다"는 보장이다.
+    /// Health에 fraction을 곱한다. 잔해의 HP를 줄여 우주쓰레기가 미친 존나 강한 운석이 되는걸 방지.
     /// </summary>
+    /// <param name="fraction"></param>
     public void ScaleHealth(float fraction)
     {
         float f = Mathf.Clamp01(fraction);
@@ -182,9 +170,7 @@ public abstract class Armor : Thing
         // def 규칙대로 부모가 다 잡힌 뒤에 켜지므로 여기서 읽는 parent가 곧 몸이다.
         CachedBody = transform.parent;
 
-        // 배 로컬 위치 캐시. 판은 선체 직속 자식이고 잔해 재부모화가 localPosition을
-        // 보존하므로(같은 scale + worldPositionStays 불변식) 한 번 읽으면 영원히 맞다.
-        // 충격 전도 BFS가 간선마다 transform.position(네이티브)을 읽던 것을 이걸로 바꾼다.
+        // 배 좌표계에서 로컬 위치 캐시
         CellLocal = transform.localPosition;
 
         // 콜라이더를 먼저 읽는다. 체력이 넓이에서 나오므로 순서가 뒤집히면
@@ -217,24 +203,24 @@ public abstract class Armor : Thing
     /// </summary>
     private void BakeShape()
     {
-        if (shape == null || shape.Length < 3)
+        if (shape == null || shape.Length < 3) //걍 사각형이거나, 폴리곤이 비정상 수치라면(불가능함)
         {
-            for (int i = 0; i < SubCount; i++)
+            for (int i = 0; i < SubCount; i++) //진짜 만에 하나 우주 방사선 맞아서 폴리곤라고 뜨더라도 사각형으로 처리한다.
                 _solid[i] = 1f;
 
-            _shapeArea = _cellArea;
+            _shapeArea = _cellArea; //사각형이니 cellArea
             return;
         }
 
-        Vector2 sub = _cellSize / Ballistics.SubGrid;
-        float subArea = Mathf.Max(1e-6f, sub.x * sub.y);
+        Vector2 sub = _cellSize / Ballistics.SubGrid; // 각 서브셀에 크기를 균등하게 나눠준다.
+        float subArea = Mathf.Max(1e-6f, sub.x * sub.y); //clamp
         float total = 0f;
 
         for (int i = 0; i < SubCount; i++)
         {
             // 서브셀 인덱스 규약은 Ballistics.SubCell과 같아야 한다 - col이 낮은 비트다.
-            int col = i % Ballistics.SubGrid;
-            int row = i / Ballistics.SubGrid;
+            int col = i % Ballistics.SubGrid; // subgrid가 6임. subCount는 subgrid^2이니 36, 그러니까 col은 0~5까지
+            int row = i / Ballistics.SubGrid; // 얜 0~6까지.
 
             var min = new Vector2(col * sub.x - _cellSize.x * 0.5f, row * sub.y - _cellSize.y * 0.5f);
             float area = Ballistics.ClippedArea(shape, min, min + sub);
@@ -498,6 +484,13 @@ public abstract class Armor : Thing
         if (Heat <= 0f)
             return;
 
+        // **판은 자기 뒤 후면을 안 데운다.** 한번 넣어봤다가 뺐다 - 내 배의 후면은
+        // sortingOrder -10에 0.35까지 어둡게 깔리므로, 살아 있는 판 **밑**은 그 판이
+        // 가려서 화면에 아무것도 안 나온다. 안 보이는 것을 매 틱 뜨거운 판 수만큼
+        // 계산하고 있었다.
+        //
+        // 후면이 빛나는 자리는 판이 없는 자리뿐이고, 거기로 열이 들어오는 길은 둘이다 -
+        // 판이 뜯길 때(HullStructure.ReportPlateLost)와 후면 자체가 맞을 때(DamageRear).
         Heat *= Mathf.Pow(0.5f, TickManager.TickDeltaTime / Ballistics.HeatHalfLife);
 
         if (Heat < 0.004f)
@@ -534,8 +527,12 @@ public abstract class Armor : Thing
             return;
 
         // 맞은 만큼 달아오른다. 서브셀 하나를 통째로 날리는 피해가 기준.
-AddHeat(amount / Mathf.Max(1e-3f, SubCellFullHp) * Ballistics.HeatFromDamage);
-
+        AddHeat(amount / Mathf.Max(1e-3f, SubCellFullHp) * Ballistics.HeatFromDamage);
+        foreach (Armor neighbour in Neighbours)
+        {
+            if (neighbour != null && SameBodyAs(neighbour))
+                neighbour.AddHeat(Ballistics.HeatFromExposure);
+        }
         // 소리는 판당 프레임당 한 번. SoundManager가 어차피 프레임 중복을 걸러서 들리는
         // 결과는 같은데, 그 거름이 Play 안쪽이라 transform.position(네이티브)과 사전 조회는
         // 호출마다 전액이었다 - 충각 그라인딩은 이 함수를 틱당 수천 번 부른다(판당 36칸).
@@ -643,6 +640,7 @@ AddHeat(amount / Mathf.Max(1e-3f, SubCellFullHp) * Ballistics.HeatFromDamage);
         //
         // Ship이 아니라 HullStructure를 찾는다. 잔해 안의 판은 Ship을 못 찾아서 아무에게도
         // 보고하지 못했고, 그래서 잔해는 한 번 떨어진 뒤로 영영 안 쪼개졌다.
+        GetComponentInParent<Ship>()?.RecalcMass();
         GetComponentInParent<HullStructure>()?.ReportPlateLost(transform, Heat);
 
         GetComponentsInChildren(_dyingColliders);
@@ -673,6 +671,51 @@ AddHeat(amount / Mathf.Max(1e-3f, SubCellFullHp) * Ballistics.HeatFromDamage);
         // 막아주므로 남은 반복은 조용히 아무 일도 안 한다.
         for (int i = 0; i < SubCount; i++)
             ApplyDamage(i, share);
+
+        ShockModules(amount * Ballistics.ModuleShockFraction);
+    }
+
+    // 흔들림이 재진입한다: 모듈이 죽으면 CriticalModule.Detonate -> RamImpact.Detonate가
+    // 이 판을 다시 때리며 여기로 돌아온다. 깊이별로 목록을 따로 들면 안쪽 폭발이 바깥의
+    // 순회 대상을 갈아치우는 일이 없다 - 판 붕괴의 _criticalsByDepth와 같은 패턴이다.
+    private static readonly List<List<IDamageable>> _shockedByDepth = new();
+    private static int _shockDepth;
+
+    /// <summary>
+    /// **판에 볼트로 붙은 것은 판이 받는 충격을 같이 받는다.** 충각 스윕도 유폭 질의도
+    /// Armor만 고르므로, 이 길이 없으면 포탑을 정면으로 들이받아도 포탑은 멀쩡하다.
+    ///
+    /// <see cref="ApplyDamageEvenly"/>에서만 부르는 것이 요점이다 - 그쪽은 판을 통째로
+    /// 미는 충격(충각·유폭) 전용이고, 포탄은 <see cref="ApplyDamageAlong"/>으로 온다.
+    /// 관통은 판을 뚫고 지나가는 것이라 그 위의 모듈을 흔들 이유가 없다.
+    /// </summary>
+    private void ShockModules(float amount)
+    {
+        if (amount <= 0f || _collapsed)
+            return;
+
+        while (_shockedByDepth.Count <= _shockDepth)
+            _shockedByDepth.Add(new List<IDamageable>());
+
+        List<IDamageable> shocked = _shockedByDepth[_shockDepth++];
+
+        try
+        {
+            GetComponentsInChildren(shocked);
+
+            for (int i = 0; i < shocked.Count; i++)
+            {
+                IDamageable module = shocked[i];
+
+                // 이미 죽은 것을 또 때리면 유폭이 두 번 난다.
+                if (module != null && !module.Neutralized)
+                    module.TakeDamage(amount);
+            }
+        }
+        finally
+        {
+            _shockDepth--;
+        }
     }
 
     /// <summary>

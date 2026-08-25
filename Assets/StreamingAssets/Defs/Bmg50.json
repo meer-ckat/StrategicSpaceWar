@@ -27,9 +27,6 @@
   "moduleLayer": {
     "m_Bits": 128
   },
-  "spallLayer": {
-    "m_Bits": 192
-  },
   "tint": {
     "r": 1.0,
     "g": 0.55,

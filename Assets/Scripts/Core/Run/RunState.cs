@@ -38,6 +38,37 @@ public static class RunState
         /// 남아 많이 뜯어오고, 충각으로 갈아버리면 가져올 것이 없다. 규칙을 따로 안 썼다.
         /// </summary>
         public int salvage;
+
+        /// <summary>
+        /// 합류한 아군의 설계도 이름. **런 전체를 따라다닌다** - 구역마다 이 목록대로
+        /// 다시 소환된다.
+        ///
+        /// **손상은 안 들고 간다.** 다음 구역에 멀쩡한 몸으로 다시 나온다 - 손상을 안고
+        /// 가는 것은 플레이어 한 척뿐이고, 그게 이 게임에서 배 한 척이 특별한 유일한
+        /// 자리다(CLAUDE.md). 대신 **죽으면 목록에서 빠진다.** 그래서 잃는 것은 한 구역의
+        /// 체력이 아니라 남은 런 전체의 동료다.
+        /// </summary>
+        public List<string> wingmen = new();
+
+        /// <summary>
+        /// 편대 자리. <see cref="wingmen"/>과 **같은 순서, 같은 길이**다 - 둘을 한 클래스로
+        /// 묶지 않은 이유는 JsonUtility가 중첩 리스트를 못 읽어서고, 그래서 길이가
+        /// 어긋나면 <see cref="Wingmen"/>이 짧은 쪽에 맞춰 자른다.
+        /// </summary>
+        public List<Vector2> wingmenSlots = new();
+    }
+
+    /// <summary>합류한 아군 한 척. 이름과 편대 자리.</summary>
+    public readonly struct Wingman
+    {
+        public readonly string ship;
+        public readonly Vector2 slot;
+
+        public Wingman(string ship, Vector2 slot)
+        {
+            this.ship = ship;
+            this.slot = slot;
+        }
     }
 
     internal static string FilePath =>
@@ -108,15 +139,87 @@ public static class RunState
     }
 
     /// <summary>
+    /// 지금 따라다니는 아군. 순서가 곧 편대 순서다.
+    ///
+    /// 두 리스트를 짧은 쪽에 맞춰 자른다 - 저장이 반쪽으로 끝났거나 손으로 고친 파일이
+    /// 들어와도 인덱스가 밖으로 나가지 않는다.
+    /// </summary>
+    public static List<Wingman> Wingmen
+    {
+        get
+        {
+            Progress p = Read();
+            int n = Mathf.Min(p.wingmen?.Count ?? 0, p.wingmenSlots?.Count ?? 0);
+
+            var list = new List<Wingman>(n);
+
+            for (int i = 0; i < n; i++)
+                list.Add(new Wingman(p.wingmen[i], p.wingmenSlots[i]));
+
+            return list;
+        }
+    }
+
+    /// <summary>
+    /// 아군 하나가 합류한다. 같은 설계도가 이미 있어도 막지 않는다 - 같은 함급 두 척이
+    /// 서로 다른 자리에 서는 것이 편대다.
+    /// </summary>
+    public static void Join(string ship, Vector2 slot)
+    {
+        if (string.IsNullOrWhiteSpace(ship))
+            return;
+
+        Progress p = Read();
+
+        p.wingmen ??= new List<string>();
+        p.wingmenSlots ??= new List<Vector2>();
+
+        p.wingmen.Add(ship);
+        p.wingmenSlots.Add(slot);
+
+        Write(p);
+    }
+
+    /// <summary>
+    /// 아군 하나가 죽었다. **자리로 지운다** - 같은 설계도가 둘일 수 있으므로 이름으로
+    /// 지우면 엉뚱한 쪽이 빠진다.
+    /// </summary>
+    public static void Lose(int index)
+    {
+        Progress p = Read();
+
+        if (p.wingmen == null || index < 0 || index >= p.wingmen.Count)
+            return;
+
+        p.wingmen.RemoveAt(index);
+
+        if (p.wingmenSlots != null && index < p.wingmenSlots.Count)
+            p.wingmenSlots.RemoveAt(index);
+
+        Write(p);
+    }
+
+    /// <summary>
     /// 진행도를 읽는다. **<see cref="Exists"/>를 탄다** - 배 파일과 짝이 안 맞으면 여기서도
     /// 처음 상태여야 하고, 그 판정을 두 벌로 두면 언젠가 한쪽만 고친다.
     /// </summary>
+    /// <summary>
+    /// 진행도를 읽는다. **<see cref="Exists"/>(두 파일)가 아니라 진행도 파일 자체를 본다.**
+    ///
+    /// 예전에는 Exists를 탔다. `Sector`·`Salvage`는 첫 승리 **뒤에만** 쓰이고 그때는 배
+    /// 파일도 같이 있어서 20구역을 멀쩡히 굴렀는데, 첫 전투 **전에** 쓰는 것이 하나
+    /// 생기자마자(동료 합류) 조용히 깨졌다: 쓰기는 성공해서 파일이 생기는데, 배 파일이
+    /// 아직 없으니 Exists가 false라 **바로 다음 Read가 그 파일을 안 읽는다.** 증상은
+    /// "합류시켰는데 안 나온다"뿐이고 에러도 경고도 없다.
+    ///
+    /// 반쪽 상태를 판정하고 지우는 것은 <see cref="ValidateOrClear"/>의 일이고, 그건 런이
+    /// 시작될 때 한 번만 돈다. 읽을 때마다 짝을 확인하면 그 둘의 주인이 겹친다 - CLAUDE.md의
+    /// "판정과 정리의 주인이 갈려 있어야 한다"가 이 자리를 말한다.
+    /// </summary>
     private static Progress Read()
     {
-        if (!Exists)
-        {
+        if (!File.Exists(ProgressPath))
             return new Progress();
-        }
 
         string raw = File.ReadAllText(ProgressPath);
 

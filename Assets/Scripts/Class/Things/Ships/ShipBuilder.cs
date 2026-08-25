@@ -250,6 +250,84 @@ public static class ShipBuilder
         return map;
     }
 
+    /// <summary>
+    /// 선체 직속 자식으로 남아 있는 모듈을 자기 발밑 판의 자식으로 내린다.
+    ///
+    /// **<see cref="Stamp"/> 안에서 부르지 않는다.** Stamp는 순수 질의라 export와
+    /// self-test도 부르는데, 거기서 계층을 바꾸면 저작 중인 씬이 조용히 변한다.
+    /// 부르는 자리는 런타임 조립 경로 하나뿐이다.
+    ///
+    /// **JSON 경로에는 이미 있던 규칙이고, 씬 경로에만 없었다.** <see cref="Spawn"/>은
+    /// <c>mountCol/mountRow</c>를 보고 판 밑으로 넣는데, 씬에서 손으로 지은 배
+    /// (<c>shipDefName</c>이 빈 배 = export 원본)는 그 단계를 안 거쳐서 포탑이 선체 직속
+    /// 자식으로 남는다. 그러면 **그 모듈은 불사가 된다** - 판이 죽어도 안 죽고, 조각이
+    /// 잔해로 떠나도 안 따라가고, <see cref="Ship.StillAboard"/>는 선체 직속 자식도
+    /// "이 배의 것"으로 세므로 계속 쏘고 IsCombatEffective에도 잡혀서 전투가 안 끝난다.
+    /// 증상은 "부서진 배에서 멀리 떨어진 포탑 하나가 혼자 쏘고 있다"다.
+    ///
+    /// CLAUDE.md 불변식이 이미 말하던 것("판이 아닌 것은 선체 직속 자식이 되면 안 된다")을
+    /// 씬 경로에서도 강제하는 자리다. 격자를 다 찍은 **뒤에** 도는 것이 요점 - 그 전에
+    /// 옮기면 <c>foreach (Transform child in hull)</c> 순회 도중에 계층이 바뀐다.
+    ///
+    /// 발밑에 판이 없는 모듈은 **파괴한다.** 경고만 하고 두면 지금 버그가 그대로 남는다 -
+    /// 어디에도 안 매달린 불사 오브젝트가 시뮬레이션 안에 살아 있는 것이 제일 나쁘다.
+    /// </summary>
+    public static void MountLooseModules(
+        Transform hull,
+        ShipGrid.Map map,
+        Dictionary<Vector2Int, Armor> armorAt,
+        Dictionary<Vector2Int, Door> doorAt)
+    {
+        if (hull == null || map == null)
+            return;
+
+        _loose.Clear();
+
+        foreach (Transform child in hull)
+        {
+            // 판과 문은 선체 직속이 맞다 - 격자에 도장을 찍는 것이 그 정의다.
+            if (child == null || StampsGrid(child, out _))
+                continue;
+
+            // **IDamageable이 곧 모듈이다.** Gun·Engine·CriticalModule·Tank 넷이고,
+            // Armor와 Door는 Thing만 상속해서 안 걸린다. 타입 목록을 손으로 적으면
+            // 다섯 번째 모듈이 생기는 날 조용히 빠진다.
+            if (child.GetComponent<IDamageable>() != null)
+                _loose.Add(child);
+        }
+
+        for (int i = 0; i < _loose.Count; i++)
+        {
+            Transform module = _loose[i];
+            Vector2Int cell = map.ToCell(module.localPosition);
+
+            Transform plate = null;
+
+            if (map.Inside(cell))
+            {
+                if (armorAt.TryGetValue(cell, out Armor armor) && armor != null)
+                    plate = armor.transform;
+                else if (doorAt.TryGetValue(cell, out Door door) && door != null)
+                    plate = door.transform;
+            }
+
+            if (plate == null)
+            {
+                Debug.LogWarning(
+                    $"[ShipBuilder] '{module.name}'의 발밑({cell})에 판이 없다. 어디에도 " +
+                    "안 매달린 모듈은 불사가 되므로 파괴한다. 배치를 고칠 것.", hull);
+
+                Object.Destroy(module.gameObject);
+                continue;
+            }
+
+            module.SetParent(plate, worldPositionStays: true);
+        }
+    }
+
+    /// <summary>순회 도중 계층을 바꾸면 안 되므로 한 번 모아 두는 버퍼.</summary>
+    private static readonly List<Transform> _loose = new();
+
     // 구조는 대각선으로도 붙어 있다. 선체 연결성 BFS와 같은 8방향이어야 "붙어 있다"가
     // 한 가지 뜻만 갖는다.
     private static readonly Vector2Int[] Around =
@@ -322,10 +400,14 @@ public static class ShipBuilder
     /// <summary>
     /// 이미 읽어 둔 def로 짓는다. 저장된 런처럼 파일 이름으로 못 찾는 def가 있어서 갈랐다.
     /// </summary>
+    private static readonly Unity.Profiling.ProfilerMarker _mSpawnFrom = new("ShipBuilder.SpawnFrom");
+
     public static bool SpawnFrom(Transform hull, ShipDef def, Component pourInto)
     {
         if (def == null)
             return false;
+
+        using var _ = _mSpawnFrom.Auto();
 
         if (pourInto != null)
             def.Apply(pourInto);
@@ -421,15 +503,18 @@ public static class ShipBuilder
         // 자기 자신으로 착각하고 스스로의 부모가 된다.
         foreach ((Placement p, Transform module) in modules)
         {
-            if (!p.IsMounted)
-                continue;
-
-            var mount = new Vector2Int(p.mountCol - minCol, p.mountRow - minRow);
+            // **붙을 판을 안 적었으면 발밑 판에 붙는다.** 예전에는 조용히 넘어가서 선체
+            // 직속으로 남았는데, 그러면 판이 부서져도 안 죽고 잔해로 떠나도 안 따라가는
+            // 고아가 된다 - "판이 아닌 것은 선체 직속 자식이 되면 안 된다"가 깨지는 자리다.
+            // 증상이 "부서진 자리에 포탑만 떠 있다"라 배치 실수인지 코드 버그인지 안 갈린다.
+            var mount = p.IsMounted
+                ? new Vector2Int(p.mountCol - minCol, p.mountRow - minRow)
+                : new Vector2Int(p.col - minCol, p.row - minRow);
 
             if (!plateAt.TryGetValue(mount, out Transform plate))
             {
                 Debug.LogWarning(
-                    $"[ShipBuilder] '{p.def}'이 ({p.mountCol},{p.mountRow})의 판에 붙는다고 하는데 거기 판이 없다. " +
+                    $"[ShipBuilder] '{p.def}'이 붙을 판이 ({mount.x + minCol},{mount.y + minRow})에 없다. " +
                     "선체 직속으로 둔다 - 이 모듈은 벽이 부서져도 안 죽는다.");
                 continue;
             }

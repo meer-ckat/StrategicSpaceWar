@@ -23,6 +23,7 @@ public static class PenetrationSelfTest
         Check("spall trace IJobParallelFor", SpallResolver.TraceJobSelfTest());
         Check("spall budget defers but always drains", SpallResolver.FragmentBudgetSelfTest());
         Check("trace world cached source follows transform", TraceWorld.CachedSourceSelfTest());
+        Check("ram sweep capsule keeps contacts, drops the rear", RamImpact.SweptCircleSelfTest());
 
         {
             const float shellMass = 5f;
