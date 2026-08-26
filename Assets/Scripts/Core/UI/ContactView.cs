@@ -40,6 +40,15 @@ public sealed class ContactView : MonoBehaviour
     private const float MarkerWidth = 108f;
     private const float MarkerHeight = 22f;
 
+    /// <summary>화면에 든 배 위의 상태창 너비. 가장자리 표지보다 담는 것이 많다.</summary>
+    private const float PanelWidth = 150f;
+
+    /// <summary>
+    /// 상태창을 배에서 이만큼 **월드 기준으로** 띄운다. 함선이 35 m쯤 되므로 그 위로 나온다.
+    /// 픽셀로 띄우면 줌 배율에 따라 배 한가운데 겹치거나 저 멀리 뜬다.
+    /// </summary>
+    private const float StatusWorldRise = 26f;
+
     /// <summary>가장자리에서 이만큼 안쪽에 붙인다. 0이면 표지가 화면 밖으로 반쯤 잘린다.</summary>
     private const float EdgeInset = 16f;
 
@@ -58,22 +67,55 @@ public sealed class ContactView : MonoBehaviour
     private static GUIStyle _unknownStyle, _hostileStyle, _friendlyStyle;
 
     /// <summary>
-    /// 접촉별 위젯 id. 문자열 보간을 매 프레임 돌리면 그것도 프레임마다 나는 쓰레기다.
-    /// 한 런에서 보는 배가 수십 척이라 그냥 들고 있는다.
+    /// 접촉 하나를 읽는 데 필요한, 매 프레임 새로 구하면 아까운 것들.
+    ///
+    /// <see cref="maxAlive"/>가 **처음 본 판 수**인 것이 요점이다. 선체 비율의 분모인데,
+    /// ShipDef의 배치 수를 쓰면 두 군데서 틀린다: 배치에는 판만이 아니라 포탑·엔진·탱크도
+    /// 들어 있어서 멀쩡한 배가 87%로 뜨고, def를 매 프레임 읽는 비용이 붙는다. 적함은
+    /// 캠페인이 갓 소환한 것이라 처음 본 수가 곧 설계 수다.
     /// </summary>
-    private static readonly System.Collections.Generic.Dictionary<int, string> Ids = new();
+    private sealed class Tracked
+    {
+        public string id;
+        public HullStructure structure;
+        public int maxAlive;
+    }
+
+    /// <summary>
+    /// 접촉별 캐시. 위젯 id 문자열을 매 프레임 보간하면 그것도 프레임마다 나는 쓰레기고,
+    /// GetComponent도 접촉 수만큼 곱해진다. 한 런에서 보는 배가 수십 척이라 그냥 들고 있는다.
+    /// </summary>
+    private static readonly System.Collections.Generic.Dictionary<int, Tracked> Seen = new();
 
     private static GUIStyle StyleFor(Color text, ref GUIStyle cache) =>
         cache ??= GUIStyleMaker.Box(background: PanelBg, text: text, fontSize: 13)
             .Padding(6, 0)
             .Align(TextAnchor.MiddleCenter);
 
-    private static string IdFor(int instanceId)
+    /// <summary>
+    /// 이 배의 캐시. 처음 보는 순간의 판 수를 분모로 굳힌다.
+    ///
+    /// 수리로 판이 늘 수 있으므로(<see cref="Ship.RepairPlates"/>) 비율이 1을 넘을 수
+    /// 있다 - 읽는 쪽에서 자른다.
+    /// </summary>
+    private static Tracked Track(Ship ship)
     {
-        if (!Ids.TryGetValue(instanceId, out string id))
-            Ids[instanceId] = id = "contact_" + instanceId;
+        int key = ship.GetInstanceID();
 
-        return id;
+        if (Seen.TryGetValue(key, out Tracked tracked))
+            return tracked;
+
+        var structure = ship.GetComponent<HullStructure>();
+
+        tracked = new Tracked
+        {
+            id = "contact_" + key,
+            structure = structure,
+            maxAlive = structure != null ? structure.AliveCount : 0,
+        };
+
+        Seen[key] = tracked;
+        return tracked;
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -127,8 +169,13 @@ public sealed class ContactView : MonoBehaviour
             && screen.x >= 0f && screen.x <= Screen.width
             && screen.y >= 0f && screen.y <= Screen.height;
 
+        bool identified = distance <= IdentifyRange;
+
         if (onScreen)
-            return;   // 실물이 이미 보인다
+        {
+            Status(cam, at, other, distance, identified);
+            return;
+        }
 
         // GUI 좌표는 y가 아래로 증가한다. 스크린 좌표는 위로 증가하므로 여기서 뒤집는다.
         Vector2 point = new(screen.x, Screen.height - screen.y);
@@ -142,8 +189,6 @@ public sealed class ContactView : MonoBehaviour
         float y = Mathf.Clamp(point.y - MarkerHeight * 0.5f,
             EdgeInset, Screen.height - MarkerHeight - EdgeInset);
 
-        bool identified = distance <= IdentifyRange;
-
         string text = identified
             ? $"{Name(other)}  {distance:0} m"
             : $"접촉  {distance:0} m";
@@ -155,12 +200,98 @@ public sealed class ContactView : MonoBehaviour
         // id는 GetInstanceID다. Thing.stableId는 def의 배치 인덱스라 배끼리 겹친다 -
         // 그걸 쓰면 두 접촉이 같은 위젯을 두고 매 프레임 싸운다.
         GUIBoxLabel marker = ImGui.BoxLabel(
-            IdFor(other.GetInstanceID()),
+            Track(other).id,
             new Rect(x, y, MarkerWidth, MarkerHeight),
             text,
             style);
 
         marker.Layer = MarkerLayer;
+    }
+
+    /// <summary>
+    /// 화면에 든 배 위의 상태창. **어디를 쏠지가 결정이 되는 자리다** - 지금까지는 적이
+    /// 그냥 "쏘면 되는 것"이었고, 무엇을 부쉈는지 화면에 도달하지 않았다.
+    ///
+    /// 새로 재는 것이 없다. 넷 다 <see cref="Ship"/>이 이미 매 틱 답하던 파생값이다.
+    ///
+    /// **죽은 계통만 적는다.** 넷을 늘 적으면 멀쩡한 배마다 "주포 · 기관 · 전력"이 떠서
+    /// 읽을 것이 늘기만 한다. 없다가 생기는 것이 곧 "방금 내 사격이 뭔가 했다"는 신호다.
+    /// </summary>
+    private static void Status(Camera cam, Vector2 at, Ship other, float distance, bool identified)
+    {
+        // 배 **위쪽**으로 월드 기준 offset이다. 화면 픽셀로 띄우면 줌아웃했을 때 패널이
+        // 배에서 저 멀리 떨어져 뜬다 - 속도 줌이 붙은 뒤로는 그 폭이 크다.
+        Vector3 head = cam.WorldToScreenPoint(at + Vector2.up * StatusWorldRise);
+
+        float x = head.x - PanelWidth * 0.5f;
+        float y = Screen.height - head.y - MarkerHeight;
+
+        Tracked tracked = Track(other);
+
+        if (!identified)
+        {
+            // 화면에 들었어도 아직 먼 배다. 실물이 보이니 무엇인지는 알지만 편은 모른다.
+            GUIBoxLabel tag = ImGui.BoxLabel(
+                tracked.id,
+                new Rect(x, y, PanelWidth, MarkerHeight),
+                $"접촉  {distance:0} m",
+                StyleFor(UnknownColor, ref _unknownStyle));
+
+            tag.Layer = MarkerLayer;
+            return;
+        }
+
+        float hull = tracked.maxAlive > 0 && tracked.structure != null
+            ? Mathf.Clamp01((float)tracked.structure.AliveCount / tracked.maxAlive)
+            : 1f;
+
+        GUIStyle nameStyle = other.team == Ship.Team.Enemy
+            ? StyleFor(HostileColor, ref _hostileStyle)
+            : StyleFor(FriendlyColor, ref _friendlyStyle);
+
+        GUIBoxLabel head1 = ImGui.BoxLabel(
+            tracked.id,
+            new Rect(x, y, PanelWidth, MarkerHeight),
+            $"{Name(other)}  선체 {hull * 100f:0}%",
+            nameStyle);
+
+        head1.Layer = MarkerLayer;
+
+        string lost = LostSystems(other);
+
+        if (lost == null)
+            return;
+
+        GUIBoxLabel line2 = ImGui.BoxLabel(
+            tracked.id + "_lost",
+            new Rect(x, y + MarkerHeight + 2f, PanelWidth, MarkerHeight),
+            lost + " 상실",
+            StyleFor(HostileColor, ref _hostileStyle));
+
+        line2.Layer = MarkerLayer;
+    }
+
+    /// <summary>
+    /// 죽은 계통을 이어 붙인다. 하나도 없으면 null - 부르는 쪽이 줄 자체를 선언 안 한다.
+    ///
+    /// 셋이 각각 다른 결정을 만든다: 주포가 죽으면 안전하게 갉을 수 있고, 기관이 죽으면
+    /// 도망을 못 가고, 전력이 죽으면 조타와 조준이 **한꺼번에** 멈춘다. 기압을 안 넣는
+    /// 것은 승무원이 죽으면 어차피 셋 다 꺼지기 때문이다 - 같은 말이 두 번 나온다.
+    /// </summary>
+    private static string LostSystems(Ship ship)
+    {
+        string lost = null;
+
+        if (!ship.HasUsableGun)
+            lost = "주포";
+
+        if (ship.AvailableThrust(true) <= 0f && ship.AvailableThrust(false) <= 0f)
+            lost = lost == null ? "기관" : lost + "·기관";
+
+        if (!ship.HasPower)
+            lost = lost == null ? "전력" : lost + "·전력";
+
+        return lost;
     }
 
     private static string Name(Ship ship) =>
