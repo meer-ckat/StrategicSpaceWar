@@ -97,15 +97,6 @@
                     "initialStateCheck": false
                 },
                 {
-                    "name": "Flip",
-                    "type": "Button",
-                    "id": "49168a61-8b0e-4587-a0cd-de639704a49e",
-                    "expectedControlType": "",
-                    "processors": "",
-                    "interactions": "",
-                    "initialStateCheck": false
-                },
-                {
                     "name": "Boost",
                     "type": "Button",
                     "id": "a6dacfbe-2241-416b-b863-23667a8c11a6",
@@ -531,17 +522,6 @@
                     "processors": "",
                     "groups": "Keyboard&Mouse",
                     "action": "Crouch",
-                    "isComposite": false,
-                    "isPartOfComposite": false
-                },
-                {
-                    "name": "",
-                    "id": "4fd3302c-d129-49b8-a5a2-4703b6d9b555",
-                    "path": "<Keyboard>/f",
-                    "interactions": "",
-                    "processors": "",
-                    "groups": "",
-                    "action": "Flip",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },

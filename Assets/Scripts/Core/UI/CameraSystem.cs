@@ -200,8 +200,22 @@ public class CameraSystem : MonoBehaviour
     [SerializeField] float moveSmooth = 0.15f;
     [SerializeField] float zoomSmooth = 0.15f;
 
+    /// <summary>
+    /// 속도 기반 줌아웃의 여유 배율. SmoothDamp로 따라가는 카메라는 정속 이동 중
+    /// 목표보다 대략 "속도 × moveSmooth"만큼 뒤처진다(임계감쇠 근사) - 그 오차가
+    /// 화면 절반(orthographicSize)보다 커지면 배가 화면 밖으로 밀려난다. 1이면 딱
+    /// 오차만큼만 담아 배가 가장자리에 붙고, 그래서 여유를 둔다.
+    /// </summary>
+    [SerializeField] float speedZoomFactor = 2f;
+
+    /// <summary>속도 기반 줌의 상한. 없으면 충각·파편 따위의 순간 고속 스파이크에 화면이 무한히 넓어진다.</summary>
+    [SerializeField] float maxSpeedZoom = 80f;
+
     private Vector2 moveVelocity;
     private float zoomVelocity;
+
+    private Transform _rigOwner;
+    private Rigidbody2D _targetRig;
 
     void Aim()
     {
@@ -224,8 +238,20 @@ public class CameraSystem : MonoBehaviour
             (Vector2)A.position + aim * lookAhead;
 
         // 마우스가 중앙에서 멀수록 zoom out
-        float targetZoom =
+        float mouseZoom =
             Mathf.Lerp(minZoom, maxZoom, aim.magnitude);
+
+        // A가 바뀌는 자리(컷신 프레임 교체 포함)마다 새로 잡는다 - 캐시 하나로 충분하다.
+        if (_rigOwner != A)
+        {
+            _rigOwner = A;
+            _targetRig = A.GetComponent<Rigidbody2D>();
+        }
+
+        float speed = _targetRig != null ? _targetRig.linearVelocity.magnitude : 0f;
+        float speedZoom = Mathf.Min(maxSpeedZoom, speed * moveSmooth * speedZoomFactor);
+
+        float targetZoom = Mathf.Max(mouseZoom, speedZoom);
 
         Vector2 newPosition = Vector2.SmoothDamp(
             transform.position,

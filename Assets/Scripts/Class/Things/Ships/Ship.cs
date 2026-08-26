@@ -959,7 +959,6 @@ public partial class Ship : Thing
     // AI 함선은 컴포넌트가 없으므로 두 필드를 직접 세팅하면 된다.
     public void OnMove(InputValue v)  => thrustInput = v.Get<Vector2>();
     public void OnAngle(InputValue v) => angleInput  = v.Get<float>();
-    public void OnFlip(InputValue v)  { if (v.isPressed) TryFlipFacing(); }
 
     /// <summary>
     /// 부스터 방아쇠. <see cref="BoosterComp"/>가 매 프레임 읽어서 자기 엔진의 추력을
@@ -1004,48 +1003,6 @@ public partial class Ship : Thing
         // BoosterComp는 누가 켰는지 몰라도 된다.
         Boosting = cutsceneBoost || pilotBoost
             || (_boostAction != null && _boostAction.IsPressed());
-    }
-
-    /// <summary>이 틱이 지나야 다시 뒤집을 수 있다. 연타로 판을 계속 순간이동시키지 못하게.</summary>
-    private long _flipReadyTick;
-
-    private const int FlipCooldownTicks = 60;
-
-    /// <summary>
-    /// 배가 바라보는 쪽을 좌우로 뒤집는다. 성공하면 true.
-    ///
-    /// **격자·방·이웃은 하나도 안 건드린다.** 전부 로컬 위상이고 반전은 월드에만 있다 -
-    /// 반대쪽에서 소환된 배가 이미 localScale.x = -1로 멀쩡히 도는 이유가 그것이다.
-    /// 여기서 하는 일은 그 값을 런타임에 한 번 더 뒤집는 것뿐이다.
-    ///
-    /// **닿아 있으면 거부한다.** 뒤집기는 연속 운동이 아니라 순간이동이라, 56칸짜리 배면
-    /// 뱃머리 판이 한 프레임에 수십 미터를 건너뛴다. 그때 다른 몸과 겹쳐 있으면 솔버가
-    /// 그 겹침을 폭발적으로 밀어내서 두 배가 서로를 쏘아 보낸다. 접촉이 없을 때만 하면
-    /// 그 상황이 아예 안 생긴다.
-    ///
-    /// <see cref="Physics2D.SyncTransforms"/>가 필수다. TickManager가 simulationMode를
-    /// Script로 잡아 두어서, 안 부르면 이번 틱의 탄과 레이캐스트가 **옛 자리의 판**을 본다.
-    ///
-    /// 남는 구멍 하나: 이미 날아오고 있던 탄은 표면을 건너뛰어 그냥 빗나간다. 크래시가
-    /// 아니라 "가끔 안 맞는다"이고, 접촉 검사로는 못 잡는다 - 탄은 콜라이더로 닿는 것이
-    /// 아니라 매 틱 레이캐스트이기 때문이다.
-    /// </summary>
-    public bool TryFlipFacing()
-    {
-        if (Core.TickManager.currentTick < _flipReadyTick)
-            return false;
-
-        if (rig == null || rig.IsTouchingLayers())
-            return false;
-
-        Vector3 scale = transform.localScale;
-        scale.x = -scale.x;
-        transform.localScale = scale;
-
-        Physics2D.SyncTransforms();
-
-        _flipReadyTick = Core.TickManager.currentTick + FlipCooldownTicks;
-        return true;
     }
 
     /// <summary>

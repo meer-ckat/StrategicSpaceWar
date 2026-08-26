@@ -23,9 +23,32 @@ public sealed class Campaign : TickBehaviour
     /// <summary>구역 사이의 사이. 전투가 끝나자마자 다음 적이 뜨면 무슨 일이 났는지 안 보인다.</summary>
     public int interludeTicks = 90;
 
+    /// <summary>
+    /// 도착으로 보는 최소 완충 거리. 속도가 거의 없을 때(정지 근처)의 바닥값이다 -
+    /// <see cref="Arrived"/>가 실제로 쓰는 값은 이것과 "속도 × <see cref="reactionSeconds"/>"
+    /// 중 큰 쪽이다.
+    /// </summary>
+    public float arrivalBuffer = 300f;
+
+    /// <summary>
+    /// 적이 뜨는 순간부터 그 자리에 도달하기까지 남기고 싶은 시간(초). 완충을 고정 거리로
+    /// 두면 부스터로 가속하다 마주쳤을 때 그 거리를 한순간에 삼켜버려 급정거를 강요한다 -
+    /// 완충을 "속도 × 이 시간"으로 잡으면 몇 마하로 오든 적이 뜨고 도달할 때까지 남는
+    /// 시간은 이 값으로 똑같다.
+    /// </summary>
+    public float reactionSeconds = 4f;
+
     private CampaignDef _def;
     private int _sector;
     private int _wait = -1;
+
+    /// <summary>
+    /// 막간이 끝났고 다음 구역까지 날아가는 중. <see cref="Arrived"/>가 참이 될 때까지
+    /// 매틱 검사한다 - 반경이 아니라 **선**이다. 근접 반경으로 재면 부스터로 한 틱에
+    /// 반경을 통째로 건너뛸 수 있고(마하 1, 반경 수백 유닛), 그러면 도착을 영영 못 잡는다.
+    /// x축 문턱은 한 번 넘으면 그 뒤로 계속 참이라 통째로 건너뛰어도 그 틱에 걸린다.
+    /// </summary>
+    private bool _traveling;
 
     /// <summary>
     /// 이번 구역의 표적. 비어 있으면 목표는 "적이 없다"이고, 차 있으면 "이것들이 다 죽었다"다.
@@ -104,11 +127,58 @@ public sealed class Campaign : TickBehaviour
         {
             if (--_wait > 0) return;
             _wait = -1;
-            Begin();
+
+            // 구역이 더 없으면(런 클리어) 날아갈 곳도 없다 - 바로 끝을 알린다.
+            if (Current == null)
+            {
+                Begin();
+                return;
+            }
+
+            _traveling = true;
             return;      // 막간이 먼저. Begin()이 방금 만든 _battle을 같은 틱에 안 돌린다
         }
 
+        if (_traveling)
+        {
+            if (!Arrived()) return;
+            _traveling = false;
+            Begin();
+            return;
+        }
+
         _battle?.Tick();
+    }
+
+    /// <summary>
+    /// 다음 구역 스폰 중 제일 가까운 x보다 <see cref="arrivalBuffer"/>만큼 앞에 왔는가.
+    /// 구역 배치가 전부 +x 방향으로 벌어져 있다는 전제다 - y축으로 크게 벗어나 지나가도
+    /// x 문턱만 넘으면 도착으로 본다.
+    /// </summary>
+    private bool Arrived()
+    {
+        SectorDef sector = Current;
+
+        if (sector == null || sector.spawns.Count == 0)
+            return true;
+
+        Ship player = PlayerShip();
+
+        if (player == null)
+            return false;
+
+        float arriveX = float.MaxValue;
+
+        foreach (SpawnDef spawn in sector.spawns)
+            arriveX = Mathf.Min(arriveX, spawn.x);
+
+        // +x로 접근할 때만 속도를 완충에 반영한다. 뒷걸음질이나 옆으로 미끄러지는 속도로
+        // 완충을 늘리면 오히려 정지 상태보다 늦게 뜬다 - 여기서 볼 것은 "얼마나 빨리
+        // 그 좌표에 닿는가"뿐이다.
+        float approachSpeed = Mathf.Max(0f, player.velocity.x);
+        float buffer = Mathf.Max(arrivalBuffer, approachSpeed * reactionSeconds);
+
+        return player.transform.position.x >= arriveX - buffer;
     }
 
     /// <summary>
