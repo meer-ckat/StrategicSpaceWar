@@ -22,7 +22,7 @@ public sealed class ShipStatusHud : MonoBehaviour
         new(1.00f, 0.80f, 0.30f, 1f);
 
     private static readonly Color CriticalColor =
-        new(1.00f, 0.45f, 0.15f, 1f);
+        new(1.00f, 0.1f, 0.15f, 1f);
 
     private static readonly Color PanelBg =
         new(0.02f, 0.03f, 0.05f, 0.72f);
@@ -53,8 +53,9 @@ public sealed class ShipStatusHud : MonoBehaviour
 
     private const float MinVisibleSpeed = 0.05f;
 
-    // 실제 탄약 시스템이 들어오면 여기만 교체하면 된다.
-    private const int FakeAmmo = 999;
+    // 탄약 시스템이 아직 없다 - 가짜 숫자 대신 지금의 사실(무한)을 적는다.
+    // 실제 탄약이 들어오면 여기만 교체하면 된다.
+    private const string InfiniteAmmo = "∞";
 
     private readonly List<WeaponHudEntry> _weapons = new();
 
@@ -227,15 +228,31 @@ public sealed class ShipStatusHud : MonoBehaviour
 
         float speed = velocity.magnitude;
 
-        float heading =
-            speed > MinVisibleSpeed
-                ? (
-                    Mathf.Atan2(velocity.y, velocity.x)
-                    * Mathf.Rad2Deg
-                    - 90f
-                    + 360f
-                  ) % 360f
-                : 0f;
+        // 진행 방향은 월드의 속도 벡터가 이미 그려 준다 - 나침반 숫자는 그 중복이었다.
+        // 눈이 세계에서 못 읽는 값은 접근 속도다: 탄속 대비 리드가 여기서 갈린다.
+        Ship target = ship.NearestHostile();
+
+        string closing = "—";
+        Color closingColor = DimColor;
+
+        if (target != null)
+        {
+            Vector2 toTarget =
+                (Vector2)target.transform.position
+                - (Vector2)ship.transform.position;
+
+            if (toTarget.sqrMagnitude > 1e-4f)
+            {
+                // +면 가까워지는 중. 상대속도를 표적 방향에 투영한 것의 반대 부호다.
+                float rate = -Vector2.Dot(
+                    target.velocity - ship.velocity,
+                    toTarget.normalized
+                );
+
+                closing = $"{rate:+0;-0} m/s";
+                closingColor = HudColor;
+            }
+        }
 
         FuelStatus(
             ship,
@@ -243,11 +260,13 @@ public sealed class ShipStatusHud : MonoBehaviour
             out Color fuelColor
         );
 
-        float pressure =
-            PressureFraction(ship);
-
-        Color pressureColor =
-            StatusColor(pressure);
+        // 값은 배 전체 평균, 색은 최악의 방. 평균은 방 하나가 진공이어도 90%라고
+        // 웃는다 - 숫자는 전체 상태를, 색은 제일 급한 곳을 말해야 한다.
+        PressureStatus(
+            ship,
+            out float pressure,
+            out Color pressureColor
+        );
 
         float y =
             panel.y + HeaderHeight;
@@ -263,9 +282,9 @@ public sealed class ShipStatusHud : MonoBehaviour
         DrawValue(
             panel,
             ref y,
-            "HDG",
-            $"{heading:000}°",
-            HudColor
+            "CLS",
+            closing,
+            closingColor
         );
 
         DrawValue(
@@ -320,10 +339,15 @@ public sealed class ShipStatusHud : MonoBehaviour
     }
 
 
-    private static float PressureFraction(Ship ship)
+    private static void PressureStatus(
+        Ship ship,
+        out float average,
+        out Color color
+    )
     {
         float air = 0f;
         float volume = 0f;
+        float worst = 1f;
 
         for (int i = 0; i < ship.rooms.Count; i++)
         {
@@ -331,11 +355,18 @@ public sealed class ShipStatusHud : MonoBehaviour
 
             air += room.air;
             volume += room.Volume;
+
+            if (room.Volume > 0f)
+                worst = Mathf.Min(worst, room.Pressure);
         }
 
-        return volume > 0f
-            ? air / volume
-            : 0f;
+        average =
+            volume > 0f
+                ? air / volume
+                : 1f;
+
+        color =
+            StatusColor(worst);
     }
 
 
@@ -426,8 +457,8 @@ public sealed class ShipStatusHud : MonoBehaviour
                     55f,
                     RowHeight
                 ),
-                FakeAmmo.ToString(),
-                HudColor,
+                InfiniteAmmo,
+                DimColor,
                 _rightStyle
             );
 
