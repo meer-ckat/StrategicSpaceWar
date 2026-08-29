@@ -19,6 +19,7 @@
   "armorLayer": { "m_Bits": 64 },
   "moduleLayer": { "m_Bits": 128 },
   "unlit": true,
+  "glow": 4,
   "tint": { "r": 1.0, "g": 0.42, "b": 0.16, "a": 1 },
   "skinSize": { "x": 0.85, "y": 0.85 },
   "m_ComponentVersion": 2,

@@ -29,6 +29,7 @@
     "m_Bits": 128
   },
   "unlit": true,
+  "glow": 4,
   "tint": {
     "r": 1.0,
     "g": 0.28,

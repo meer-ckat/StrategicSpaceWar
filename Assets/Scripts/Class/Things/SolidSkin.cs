@@ -39,6 +39,14 @@ public sealed class SolidSkin : MonoBehaviour
     [SerializeField] private bool unlit;
 
     /// <summary>
+    /// 색에 곱하는 HDR 배율. 1을 넘으면 Bloom이 물어 트레이서가 빛난다. unlit일 때만
+    /// 쓰인다 - 값은 SpriteRenderer.color가 아니라 MaterialPropertyBlock으로 간다.
+    /// **SpriteRenderer.color는 HDR을 못 넘는다**(Color32 패킹에서 잘린다) - 적열과
+    /// 같은 함정이라 같은 길로 우회한다: 1 초과 색은 셰이더(TracerSkin)가 만든다.
+    /// </summary>
+    [SerializeField] private float glow = 1f;
+
+    /// <summary>
     /// 콜라이더가 없을 때 쓸 크기. 탄이 이 경우다 - 레이캐스트로 판정해서 콜라이더가 없다.
     /// </summary>
     [SerializeField] private Vector2 skinSize = new(0.3f, 0.3f);
@@ -76,6 +84,8 @@ public sealed class SolidSkin : MonoBehaviour
     }
 
     private static Material _unlitShared;
+    private static MaterialPropertyBlock _mpb;
+    private static readonly int GlowId = Shader.PropertyToID("_Glow");
 
     private static Material UnlitShared()
     {
@@ -84,11 +94,11 @@ public sealed class SolidSkin : MonoBehaviour
 
         // 런타임 Shader.Find라 빌드 스트리핑 대상이다 - PlateSkin/RearSkin과 같은 처지.
         // Always Included Shaders에 등록해야 빌드에서 산다.
-        Shader shader = Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default");
+        Shader shader = Shader.Find("SUPERRADIANCE/TracerSkin");
 
         if (shader == null)
         {
-            Debug.LogError("[SolidSkin] Sprite-Unlit-Default 셰이더가 없다. 조명 받는 채로 둔다.");
+            Debug.LogError("[SolidSkin] TracerSkin 셰이더가 없다. 조명 받는 채로 둔다.");
             return null;
         }
 
@@ -102,7 +112,15 @@ public sealed class SolidSkin : MonoBehaviour
         _renderer.sortingOrder = sortingOrder;
 
         if (unlit && UnlitShared() is Material m)
+        {
             _renderer.sharedMaterial = m;
+
+            // 머티리얼은 전 탄이 공유하고 glow만 renderer별로 얹는다. SetPropertyBlock이
+            // 값을 복사해 가므로 임시 블록은 하나를 돌려 쓴다.
+            _mpb ??= new MaterialPropertyBlock();
+            _mpb.SetFloat(GlowId, Mathf.Max(1f, glow));
+            _renderer.SetPropertyBlock(_mpb);
+        }
 
         // 자기에게 없으면 부모에게 묻는다. 터렛은 체력을 따로 안 들지만(피해는 포대가
         // 받는다) 포대가 상하면 같이 어두워져야 한 덩어리로 읽힌다.
