@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 /// <summary>
 /// Player ship combat HUD.
@@ -96,7 +97,7 @@ public sealed class ShipStatusHud : MonoBehaviour
         if (Event.current.type != EventType.Repaint)
             return;
 
-        Ship ship = Player();
+        Ship ship = GameManager.Player();
 
         if (ship == null)
             return;
@@ -108,7 +109,7 @@ public sealed class ShipStatusHud : MonoBehaviour
         // 월드 정보는 패널보다 먼저 그린다.
         // 패널이 선에 가려지지 않는다.
         // 전투 불능이 되면 조준 정보부터 즉시 끊긴다 - 패널은 하나씩 소등된다.
-        if (cam != null && ship.IsCombatEffective)
+        if (cam != null && !GameManager.PlayerDown)
         {
             DrawVelocityVector(ship, cam);
             DrawGunAimVectors(ship, cam);
@@ -129,20 +130,24 @@ public sealed class ShipStatusHud : MonoBehaviour
     // 사망 소등
     // ------------------------------------------------------------
 
-    private const float SectionStagger = 0.5f;      // 섹션 사이 간격(초)
-    private const float DieFlashSeconds = 0.15f;    // 빨갛게 흔들리는 시간
-    private const float DieShakePixels = 3f;
+    public const float SectionStagger = 0.6f;       // 섹션 사이 간격(초)
+    public const float DieFlashSeconds = 0.3f;      // 빨갛게 흔들리는 시간
+    private const float DieShakePixels = 30f;
+    private const int SectionCount = 3;
 
-    private static float _deathTime = -1f;
+    /// <summary>마지막 섹션까지 다 꺼지는 시각. GameManager가 이 뒤에 암전을 잇는다.</summary>
+    public const float ShutdownSeconds =
+        (SectionCount - 1) * SectionStagger + DieFlashSeconds;
+
     private static bool _sectionDying;
     private static Vector2 _sectionShake;
 
     /// <summary>
     /// 이 섹션을 그릴까. 소등 트리거는 승무원 사망이 아니라 **전투 불능**이다
-    /// (IsCombatEffective - 쏠 수도 움직일 수도 없는 배가 잔해다. 오너 결정 2026-08-29).
-    /// 승무원이 살아도 원자로가 나가면 계기는 나간다 - 전기가 없으니 오히려 그림이 맞다.
-    /// 전투 불능이면 order 순서대로 하나씩 꺼지고, 꺼지기 직전 0.15초 동안 섹션 전체가
-    /// 빨갛게 흔들린다. 수리로 되살아나면 계기도 돌아온다.
+    /// (쏠 수도 움직일 수도 없는 배가 잔해다. 오너 결정 2026-08-29). 승무원이 살아도
+    /// 원자로가 나가면 계기는 나간다 - 전기가 없으니 오히려 그림이 맞다.
+    /// 시계는 GameManager.DownSeconds 하나다 - 암전·재시작과 같은 원점을 써야
+    /// "모든 HUD가 꺼진 뒤"라는 시점이 안 어긋난다. 수리로 되살아나면 계기도 돌아온다.
     /// 틴트와 흔들림은 여기서 정하고 Draw* 헬퍼들이 읽는다 - 그리기 코드는 모른다.
     /// </summary>
     private static bool BeginSection(Ship ship, int order)
@@ -150,23 +155,17 @@ public sealed class ShipStatusHud : MonoBehaviour
         _sectionDying = false;
         _sectionShake = Vector2.zero;
 
-        if (ship.IsCombatEffective)
-        {
-            _deathTime = -1f;
+        float down = GameManager.DownSeconds;
+
+        if (down < 0f)
             return true;
-        }
 
-        // 사망 순간을 첫 호출이 적는다. 부활하면 위에서 -1로 돌아간다.
-        if (_deathTime < 0f)
-            _deathTime = Time.unscaledTime;
+        float dieAt = order * SectionStagger;
 
-        float dieAt = _deathTime + order * SectionStagger;
-        float now = Time.unscaledTime;
-
-        if (now >= dieAt + DieFlashSeconds)
+        if (down >= dieAt + DieFlashSeconds)
             return false;
 
-        if (now < dieAt)
+        if (down < dieAt)
             return true;
 
         _sectionDying = true;
@@ -1112,22 +1111,4 @@ public sealed class ShipStatusHud : MonoBehaviour
     }
 
 
-    private static Ship Player()
-    {
-        for (int i = 0; i < Ship.All.Count; i++)
-        {
-            Ship ship =
-                Ship.All[i];
-
-            if (
-                ship != null &&
-                ship.IsPlayerControlled
-            )
-            {
-                return ship;
-            }
-        }
-
-        return null;
-    }
 }

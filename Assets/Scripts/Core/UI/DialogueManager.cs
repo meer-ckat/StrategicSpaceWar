@@ -1,7 +1,5 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.IO;
 using System.Text;
 using IMGUI;
 using UnityEngine;
@@ -136,145 +134,20 @@ public class Dialogue
     }
 }
 
-/// <summary>대본 한 줄. JsonUtility가 읽으므로 필드는 전부 public이고 이름이 곧 키다.</summary>
-[Serializable]
-public class DialogueLine
-{
-    public string message;
-    public string author;
-
-    public float duration = 4f;
-    public float intensity = 1f;
-
-    /// <summary>presentation profile. radio/control/crew/damage/system/enemy.</summary>
-    public string style = "radio";
-
-    /// <summary>0~1. 낮을수록 frame/header 열화가 강해진다. body dropout은 enemy/radio의 극저품질에서만.</summary>
-    public float signalQuality = 1f;
-
-    /// <summary>참이면 기존 대사를 밀어내고 이 줄이 난입한다.</summary>
-    public bool interrupt;
-
-    /// <summary>다음 줄까지 기다릴 초. 0이면 이 줄의 실제 duration만큼 기다린다.</summary>
-    public float wait;
-
-    /// <summary>
-    /// 이 줄이 화면에 뜨는 순간 같이 도는 연출. 없으면 아무 일도 안 일어난다.
-    ///
-    /// **대사와 같은 파일에 적는 것이 요점이다.** "적함 포문 개방"이라고 말하는 줄과 실제로
-    /// 포탑이 도는 시점이 두 파일에 나뉘어 있으면 반드시 어긋난다 - 대사 하나를 옮기면
-    /// 연출도 같이 옮겨져야 하는데, 옮기는 사람이 그걸 기억할 이유가 없다.
-    /// </summary>
-    public DialogueCue[] cue;
-
-    /// <summary>
-    /// 이 이름의 컷신 배가 **당할 때까지** 다음 줄로 안 넘어간다. 비면 안 기다린다.
-    ///
-    /// 충각처럼 결과를 시뮬레이션이 내는 연출에 필요하다 - 대본은 "몇 초 뒤에 부딪힌다"를
-    /// 알 수가 없다. 거리도 속도도 매번 다르고, 그것이 이 게임에서 충각이 값어치 있는
-    /// 이유이기도 하다.
-    ///
-    /// **상한이 있다.** 창이 빗나가면 그 배는 영영 안 죽고, 그러면 컷신이 거기서 멈춘다.
-    /// 연출이 조금 어긋나는 것이 화면이 영원히 안 넘어가는 것보다 낫다.
-    /// </summary>
-    public string awaitWreck;
-
-    /// <summary>
-    /// <see cref="awaitWreck"/>를 들이받는 배. **닿는 순간 표적을 유폭시키고 이 배는
-    /// 추적을 놓는다** - 관통해서 지나가는 그림이 그것이다.
-    ///
-    /// 왜 물리에만 안 맡기나: 창이 452 m/s로 달려들면 한 틱에 15 m를 건너뛴다. 스치는
-    /// 각도와 판 배치에 따라 관통이 될 때도, 옆구리를 긁고 지나갈 때도 있다 - 연출은
-    /// 그 주사위를 못 받는다. **충각이 일어나는 것은 물리가 정하고, 그 결과가 격침인
-    /// 것은 대본이 정한다.** 유폭 자체는 CriticalModule을 통과하는 진짜 경로라 화면에
-    /// 나오는 그림은 실전과 같다.
-    ///
-    /// 비우면 순수하게 기다리기만 한다.
-    /// </summary>
-    public string awaitRammer;
-}
-
 /// <summary>
-/// 대사 한 줄에 붙는 연출 지시. **컷신 배에만 닿는다** - 캠페인이 소환한 배는 이 길로
-/// 조종되지 않는다.
+/// 화면에 대사 한 줄을 띄우고, 타이핑하고, 밀어 올리고, 지운다. **그것만 한다.**
 ///
-/// JsonUtility라 사전도 다형성도 못 쓴다. 그래서 필드를 다 펴 놓고 <see cref="act"/>가
-/// 어느 필드를 읽을지 정하는 꼴이다 - 안 쓰는 필드는 그냥 기본값으로 남는다.
+/// 예전에는 이 클래스가 JSON도 읽고, 컷신 배도 조종하고, RunLog도 구독했다. 2586줄이었고
+/// "대사가 안 나온다"는 증상 하나에 용의자가 그 전부였다. 지금은 셋이다 -
+/// <see cref="ScriptManager"/>가 무엇을 언제, <see cref="DramaManager"/>가 왜와 무슨 일이,
+/// 여기가 어떻게 보이는가.
+///
+/// **여기는 대본을 모른다.** 이 줄이 프롤로그의 것인지 유폭 보고인지 알 방법이 없고,
+/// 알 필요도 없다. 주어진 문자열과 style 하나로 그림이 정해진다.
+///
+/// 인스펙터 값 65개가 여기 있는 것이 그 증거다 - 저 값들은 전부 "어떻게 보이는가"다.
 /// </summary>
-[Serializable]
-public class DialogueCue
-{
-    /// <summary>
-    /// 지시 이름. 모르는 값이면 경고를 찍고 넘어간다 - 오타 하나가 컷신을 통째로 멈추는
-    /// 것보다 낫다. 목록은 대사 폴더의 README에 있다.
-    /// </summary>
-    public string act;
-
-    /// <summary>대상 컷신 배의 이름. spawn이면 새로 붙일 이름이다.</summary>
-    public string name;
-
-    /// <summary>spawn 전용. 함선 설계도 이름(StreamingAssets/Ships).</summary>
-    public string ship;
-
-    /// <summary>spawn 전용. Ally / Enemy / Neutral. 비면 Enemy.</summary>
-    public string team;
-
-    /// <summary>spawn 전용. 음수면 좌우 반전이다.</summary>
-    public float facing = 1f;
-
-    public float x;
-    public float y;
-
-    /// <summary>
-    /// 좌표의 **기준점**을 이름으로 준다. <c>player</c>는 예약어로 지금 플레이어가 모는
-    /// 배다 - 그 배가 씬 어디에 서 있는지는 대본을 쓰는 시점에 알 수가 없다.
-    ///
-    /// **있으면 x·y가 그 기준점으로부터의 오프셋이 된다.** 둘 다 0이면 그 자리 그대로다.
-    /// 절대 좌표로 적으면 플레이어를 옮기는 순간 대본이 통째로 어긋난다 - 연출은 "플레이어
-    /// 앞 300 m"라고 말하지 "월드 640"이라고 말하지 않는다.
-    /// </summary>
-    public string at;
-
-    /// <summary>
-    /// look 전용. 둘을 담을 때의 여유(거리에 곱해 화면 크기가 된다). 0이면 씬의 값을
-    /// 그대로 쓴다.
-    ///
-    /// **작을수록 바짝 붙는다.** 두 배가 300 m 떨어져 있는데 1.4를 쓰면 화면이 840 m
-    /// 폭이라 배가 점이 된다 - 컷신은 얼굴이 보여야 하므로 전투 값보다 훨씬 작다.
-    /// </summary>
-    public float zoom;
-}
-
-/// <summary>
-/// 대본 하나 = <c>StreamingAssets/대사/&lt;이름&gt;.json</c> 파일 하나. def와 같은 규칙이다 -
-/// 서로를 이름으로만 알고, 없으면 조용히 아무 일도 안 일어난다.
-/// </summary>
-[Serializable]
-public class DialogueScript
-{
-    public string defName;
-
-    /// <summary>
-    /// 참이면 `lines` 중 **하나만** 고른다. 대본이 아니라 변형 목록이라는 뜻이다.
-    ///
-    /// 이것 하나로 사건 대사가 살아난다 - 유폭이 스무 번 나는 전투에서 매번 같은 문장이면
-    /// 두 번째부터는 글자가 아니라 벽지다. 중첩 배열을 만들지 않아도 되는 이유는 사건
-    /// 대사가 원래 한 줄짜리이기 때문이다.
-    /// </summary>
-    public bool pickOne;
-
-    /// <summary>
-    /// 같은 대본이 이 초 안에 다시 안 나온다. 0이면 제한 없음.
-    ///
-    /// **사건 대사에는 반드시 있어야 한다.** 유폭·선체 절단은 한 틱에 여러 번 날 수 있고,
-    /// 그대로 두면 화면이 대사로 덮인다. maxLines가 넘치는 것만 막지 쏟아지는 것은 못 막는다.
-    /// </summary>
-    public float cooldown;
-
-    public DialogueLine[] lines;
-}
-
-public class StoryScriptManager : MonoBehaviour
+public class DialogueManager : MonoBehaviour
 {
     // 그리기 순서. GUIManager는 Layer로 정렬하고, 동률이면 **등록 순서**로 그린다 -
     // 즉시 모드 캐시에서 등록 순서는 "처음 선언된 프레임"이라 창을 늘려 패턴 행이 새로
@@ -284,9 +157,6 @@ public class StoryScriptManager : MonoBehaviour
     private const int AccentLayer = -1;
     private const int MessageLayer = 0;
     private const int AuthorLayer = 1;
-
-    /// <summary>author 한 줄의 높이. 판이 author까지 덮으려면 알아야 한다.</summary>
-    private const float AuthorHeight = 20f;
 
     /// <summary>
     /// 기능이 아니라 "느낌"을 결정하는 작은 프로필.
@@ -337,24 +207,6 @@ public class StoryScriptManager : MonoBehaviour
         }
     }
 
-
-    [Header("Script")]
-    // 시작할 때 재생할 대본. 비우면 아무것도 안 한다.
-    public string openingScript = "prologue";
-
-    /// <summary>
-    /// 여는 대본을 **런 하나에 한 번만** 튼다. 끄면 씬이 열릴 때마다 나온다(연출을 고치는 중에 쓴다).
-    ///
-    /// 판정은 <see cref="RunState.Sector"/>다 - 0보다 크면 이미 굴러가던 런이므로
-    /// 프롤로그는 지난 이야기다. **<see cref="RunState.Exists"/>를 쓰면 안 된다** -
-    /// 그쪽은 배 파일과 진행도 파일이 둘 다 있어야 참인데, 승리 직후 한쪽만 있는 창이
-    /// 정상 경로에 항상 열린다(CLAUDE.md "첫 승리의 반쪽은 정상이다"). 그 창에서
-    /// 프롤로그가 다시 나오면 원인이 "가끔 다시 나온다"라 재현이 안 된다.
-    /// </summary>
-    public bool openingOncePerRun = true;
-
-    /// <summary>전투·격침 같은 사건이 대사를 띄우게 할 것인가.</summary>
-    public bool reactToSimulation = true;
 
     /// <summary>
     /// 앞줄 타이핑이 끝나고 다음 줄이 오기까지의 사이. **이 값이 duration보다 작아서
@@ -451,30 +303,6 @@ public class StoryScriptManager : MonoBehaviour
     public float previousAlpha = 0.48f;
     public float historyAlpha = 0.22f;
 
-    /// <summary>
-    /// 화면이 이만큼 비어 있으면 승무원이 잡담을 시작한다.
-    ///
-    /// 사건 대사가 하나라도 살아 있는 동안은 안 센다. "말이 끊긴 시간"이지 "조용한
-    /// 시간"이 아니다 - 유폭 대사가 화면에 떠 있는데 그 옆에서 농담이 올라오면
-    /// 두 줄 다 안 읽힌다.
-    /// </summary>
-    public float idleGap = 14f;
-
-    /// <summary>
-    /// 긴장이 절반으로 식는 데 걸리는 초. **곱수가 아니라 반감기로 적는 이유는 이것이
-    /// 귀로 잴 수 있는 유일한 단위이기 때문이다** - "0.97을 곱한다"는 아무것도 안
-    /// 말해주지만 "20초면 절반"은 세어볼 수 있다.
-    ///
-    /// 20초면 선체 절단(0.6) 뒤 약 25초, 유폭(0.8) 뒤 약 34초에 잡담이 돌아온다.
-    /// </summary>
-    public float tensionHalfLife = 20f;
-
-    /// <summary>이 값보다 긴장이 높으면 잡담이 안 나온다.</summary>
-    public float chitChatMaxTension = 0.25f;
-
-    /// <summary>디버그 표시. 반감기는 이거 없이는 못 맞춘다 - 소리로만 드러나는 값이다.</summary>
-    public bool showTension;
-
     public List<Dialogue> Texts = new();
 
     private int _nextId;
@@ -494,100 +322,19 @@ public class StoryScriptManager : MonoBehaviour
 
     private string _patternLineCache;
 
-    private static readonly Dictionary<string, DialogueScript> ScriptCache = new();
-
-    /// <summary>대본 이름 -> 마지막으로 재생한 시각. 쿨다운이 읽는다.</summary>
-    private readonly Dictionary<string, float> _lastPlayed = new();
-
-    /// <summary>변형 고르기의 소금. 같은 틱에 두 번 골라도 같은 문장이 안 나오게 한다.</summary>
-    private int _pickSalt;
-
-    /// <summary>
-    /// 이 승무원이 잃은 자리. <see cref="RunLog.Kind.RoleLost"/>가 채우고 **아무것도
-    /// 비우지 않는다** - 기관실이 재가압돼도 죽은 기관사는 안 돌아온다.
-    ///
-    /// ponytail: 런을 새로 시작할 때 비우는 자리가 없다. 지금은 런마다 씬이 새로 떠서
-    /// 이 매니저도 새로 나므로 문제가 안 된다. 씬을 유지한 채 런을 다시 시작하는 길이
-    /// 생기면 그때 여기를 비워야 하고, 안 비우면 새 배의 기관사가 처음부터 말이 없다.
-    /// </summary>
-    private readonly HashSet<Ship.ShipRole> _lostRoles = new();
-
-    /// <summary>
-    /// 화자 이름 -> 자리. **이 대응이 있는 자리에만 대사가 있다** - Ship은 "기관"이라는
-    /// 낱말을 모르고, 대본은 <c>ShipRole</c>을 모른다. 둘을 아는 곳이 여기 하나다.
-    /// </summary>
-    private static readonly Dictionary<string, Ship.ShipRole> AuthorRoles = new()
-    {
-        ["기관"] = Ship.ShipRole.Engineer,
-        ["전술"] = Ship.ShipRole.Gunner,
-    };
-
-    private const string SystemAuthor = "시스템";
-    private const string SystemLineStyle = "system";
-
-    /// <summary>이 화자는 이제 없다. 이름이 대응표에 없으면(함장·통신) 언제나 말할 수 있다.</summary>
-    private bool Silenced(string author)
-        => !string.IsNullOrEmpty(author)
-        && AuthorRoles.TryGetValue(author, out Ship.ShipRole role)
-        && _lostRoles.Contains(role);
-
-    /// <summary>
-    /// 잡담 대본 이름. <c>chitchat-*.json</c>을 폴더에서 한 번 긁어 온다.
-    ///
-    /// 목록 파일을 따로 두지 않는 이유는 def와 같다 - 파일 하나가 곧 대본 하나이고,
-    /// 새 잡담은 폴더에 파일을 떨구면 끝이다. 목록을 손으로 들면 파일은 썼는데 목록에
-    /// 안 넣는 실수가 반드시 나오고, 그때 증상은 "안 나오는 대사"라 아무 데도 안 걸린다.
-    /// </summary>
-    private readonly List<string> _chitchat = new();
-
-    /// <summary>
-    /// 승무원 전멸. 죽은 배는 농담을 안 한다.
-    ///
-    /// <see cref="_lostRoles"/>로는 못 막는다. 전멸하면 두 자리가 다 죽으므로 잡담의
-    /// 모든 줄이 걸러지고, 그러면 "하나도 안 남았다"로 떨어져 **시스템이 대신 농담을
-    /// 읽는다.** 그 폴백은 사건 대사를 위한 것이지 잡담을 위한 것이 아니다.
-    /// </summary>
-    private bool _crewLost;
-
     private float _lastLine;
 
     /// <summary>
-    /// 지금 이 배가 얼마나 위험한가. 0이면 평시, 1이면 최악.
-    ///
-    /// **사건이 올리고 시간이 내린다. 대사는 안 건드린다.** 대사가 올리고 긴장이 대사를
-    /// 막으면 잡담이 자기 자신을 억제하는 되먹임이 생기고, 그건 상수로 못 고친다.
-    /// RunLog가 이미 "사건의 단일 깔때기"라 방향이 저절로 한쪽이다.
-    ///
-    /// 저장하지 않는다. 파생값이 아니라 이번 순간의 분위기이고, 다음 전투는 새로 센다.
+    /// 마지막으로 뭔가 말한 시각. <see cref="DramaManager"/>의 잡담이 "얼마나 조용했나"를
+    /// 이걸로 잰다 - 말이 끊긴 시간을 아는 것은 말을 띄우는 쪽이다.
     /// </summary>
-    private float _tension;
-
-    /// <summary>재사용 버퍼. 대사는 매 틱 도는 것이 아니지만 할당은 안 하는 편이 낫다.</summary>
-    private readonly List<int> _speakable = new();
+    public float LastLineTime => _lastLine;
 
     /// <summary>
-    /// 아직 입이 있는 줄만 모은다. 반환값이 0이면 이 대본은 **통째로** 죽은 자리의 것이다.
-    ///
-    /// 그때 침묵시키지 않고 시스템이 대신 읽는다. 여러 줄짜리 대본에서 한둘이 빠지는 것은
-    /// "저 사람이 없다"로 들리지만, 대본 전체가 사라지면 그냥 버그처럼 들린다 -
-    /// 유폭이 났는데 화면이 아무 말도 안 하면 플레이어는 유폭을 못 본 것과 같다.
+    /// 방금 뭔가 말한 것으로 친다. 잡담이 후보를 못 골랐을 때(전부 쿨다운)도 밀어야
+    /// 매 프레임 다시 시도하지 않는다.
     /// </summary>
-    private int CollectSpeakable(DialogueScript script)
-    {
-        _speakable.Clear();
-
-        for (int i = 0; i < script.lines.Length; i++)
-        {
-            DialogueLine line = script.lines[i];
-
-            if (line == null || string.IsNullOrEmpty(line.message) || Silenced(line.author))
-                continue;
-
-            _speakable.Add(i);
-        }
-
-        return _speakable.Count;
-    }
+    public void MarkLine() => _lastLine = Time.unscaledTime;
 
     // =========================================================
     // 수명
@@ -599,247 +346,25 @@ public class StoryScriptManager : MonoBehaviour
     ///
     /// null이 정상이다. 대사창이 없는 씬에서도 전투는 돌아야 한다.
     /// </summary>
-    public static StoryScriptManager current;
+    public static DialogueManager current;
 
-    private void OnEnable()
-    {
-        current = this;
-
-        ScanChitchat();
-
-        if (!reactToSimulation)
-            return;
-
-        RunLog.onEntry += OnRunEntry;
-        Battle.onAnyEnd += OnBattleEnd;
-    }
+    private void OnEnable() => current = this;
 
     private void OnDisable()
     {
-        RunLog.onEntry -= OnRunEntry;
-        Battle.onAnyEnd -= OnBattleEnd;
-
         if (current == this)
             current = null;
-    }
-
-    private void Start()
-    {
-        // 여는 대본이 없으면 기다릴 것도 없다. **그래도 반드시 한 번은 열어야 한다** -
-        // Campaign이 waitForCutscene으로 멈춰 서 있으면, 여기서 안 부르는 순간 그 씬은
-        // 영영 전투가 시작되지 않는다. 증상이 "아무 일도 안 일어남"이라 제일 비싸다.
-        // 이어하는 런이면 프롤로그는 지난 이야기다. 대본이 비었을 때와 같은 길로 나간다 -
-        // 어느 쪽이든 **반드시 한 번은 열어야** Campaign이 waitForCutscene에서 안 굳는다.
-        bool alreadyRunning = openingOncePerRun && RunState.Sector > 0;
-
-        if (string.IsNullOrWhiteSpace(openingScript) || alreadyRunning)
-        {
-            CutSceneManager.EndAndStartRun();
-            return;
-        }
-
-        // 지난 판의 컷신 배를 걷어낸다. 목록이 static이라 씬을 다시 시작해도 살아남는다.
-        CutSceneManager.Begin();
-
-        Play(openingScript, PlayerShipName());
-        StartCoroutine(EndCutsceneWhenOpeningDone());
-    }
-
-    /// <summary>
-    /// 여는 대본이 화면에서 다 사라지면 컷신을 걷고 1구역을 연다. 프롤로그가 도는 동안
-    /// 이미 전투가 굴러가던 것이 이 기다림이 없어서였다.
-    ///
-    /// **Texts가 비는 것으로 끝을 안다.** 대본이 여러 줄이면 Run 코루틴이 순서대로 뿌리고,
-    /// 마지막 줄은 뿌린 뒤에도 duration만큼 화면에 남는다 - 코루틴이 끝나는 시점을 기다리면
-    /// 마지막 대사가 읽히기 전에 전투가 시작된다. 잡담이 Texts가 빌 때까지 기다리는 것과
-    /// 같은 규칙이다.
-    ///
-    /// Play가 실패했으면(대본 파일이 없다) Texts가 처음부터 비어 있어서 즉시 연다. Play는
-    /// 첫 줄을 코루틴에 넘기기 **전에** 동기로 Spawn하므로, 성공한 경우 여기 도달할 때는
-    /// 이미 차 있다 - 그 순서 덕에 한 프레임 유예를 둘 필요가 없다.
-    /// </summary>
-    private IEnumerator EndCutsceneWhenOpeningDone()
-    {
-        // 대본이 아직 돌고 있거나 화면에 대사가 남아 있으면 아직이다. 둘 다 봐야 한다 -
-        // 연출 전용 줄에서는 화면이 잠깐 비고(Texts 0), 마지막 줄은 코루틴이 끝난 뒤에도
-        // duration만큼 남는다(_running 0). 한쪽만 보면 그 창에서 컷신이 걷힌다.
-        while (_running > 0 || Texts.Count > 0)
-            yield return null;
-
-        CutSceneManager.EndAndStartRun();
-    }
-
-    /// <summary>
-    /// 프롤로그의 <c>{0}</c>에 넣을 이름. <see cref="RunLog"/>가 사건 대사에 쓰는 것과
-    /// **같은 규칙**이어야 한다 - 관제가 부르는 함명과 격침 보고의 함명이 다르면 두 대사가
-    /// 다른 배 이야기로 읽힌다.
-    ///
-    /// 못 찾으면 null이 아니라 총칭을 돌려준다. <see cref="Substitute"/>는 arg가 비면
-    /// 치환을 아예 안 해서, 화면에 <c>{0}</c>이 글자 그대로 뜬다.
-    ///
-    /// Start에서 부르는 것이 요점이다. Ship은 Awake에서 목록에 등록되므로 그때는 이미 있다.
-    /// </summary>
-    private static string PlayerShipName()
-    {
-        Ship ship = PlayerShip();
-
-        if (ship != null)
-        {
-            return string.IsNullOrEmpty(ship.shipDefName) ? ship.name : ship.shipDefName;
-        }
-
-        return "초계함";
-    }
-
-    // =========================================================
-    // 대본
-    // =========================================================
-
-    /// <summary>대본 폴더. def와 같은 자리에 산다.</summary>
-    public static string ScriptFolder =>
-        Path.Combine(Application.streamingAssetsPath, "대사");
-
-    /// <summary>
-    /// 대본을 읽는다. **없으면 null이고 그것이 정상이다** - 아직 안 쓴 사건의 대사가 없다고
-    /// 게임이 멈추면 대본을 하나 늘릴 때마다 코드를 고쳐야 한다.
-    /// </summary>
-    /// <summary>폴더에서 <c>chitchat-*.json</c>을 긁는다. 순서를 정렬해 두는 것이 결정론이다.</summary>
-    private void ScanChitchat()
-    {
-        _chitchat.Clear();
-
-        if (!Directory.Exists(ScriptFolder))
-            return;
-
-        string[] files = Directory.GetFiles(ScriptFolder, "chitchat-*.json");
-
-        // GetFiles의 순서는 파일 시스템이 정한다. Pick이 인덱스를 고르므로 그대로 두면
-        // 같은 시드가 기계마다 다른 잡담을 낸다.
-        Array.Sort(files, StringComparer.Ordinal);
-
-        for (int i = 0; i < files.Length; i++)
-            _chitchat.Add(Path.GetFileNameWithoutExtension(files[i]));
-    }
-
-    public static DialogueScript LoadScript(string name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            return null;
-
-        if (ScriptCache.TryGetValue(name, out DialogueScript cached))
-            return cached;
-
-        string path = Path.Combine(ScriptFolder, name + ".json");
-
-        DialogueScript script = null;
-
-        if (File.Exists(path))
-        {
-            try
-            {
-                script = JsonUtility.FromJson<DialogueScript>(File.ReadAllText(path));
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"[Story] 대본 '{name}'을 못 읽었다: {e.Message}");
-            }
-        }
-
-        ScriptCache[name] = script;
-        return script;
-    }
-
-    /// <summary>에디터에서 JSON을 고친 뒤. def의 Reload와 같은 자리다.</summary>
-    public static void ReloadScripts() => ScriptCache.Clear();
-
-    /// <summary>
-    /// 대본을 띄운다. <paramref name="arg"/>는 각 줄의 <c>{0}</c>을 갈아끼운다 -
-    /// "{0} 격침 확인" 같은 사건 대사를 위해서다.
-    ///
-    /// **대본이 있었으면 true다.** 쿨다운에 걸려 실제로 아무것도 안 띄웠어도 true인 것이
-    /// 중요하다 - 부르는 쪽이 이걸로 폴백을 정하는데, 쿨다운을 "없음"으로 읽으면 막아둔
-    /// 대사가 공용 대본으로 새어 나온다.
-    /// </summary>
-    public bool Play(string scriptName, string arg = null)
-    {
-        DialogueScript script = LoadScript(scriptName);
-
-        if (script?.lines == null || script.lines.Length == 0)
-            return false;
-
-        if (!OffCooldown(scriptName, script))
-            return true;
-
-        // 죽은 자리의 줄은 후보에서 빠진다. 하나도 안 남으면 시스템이 대신 읽는다.
-        bool viaSystem = CollectSpeakable(script) == 0;
-
-        // 변형 목록이면 한 줄만. 코루틴을 안 타므로 기다림도 없다.
-        if (script.pickOne)
-        {
-            DialogueLine one = viaSystem
-                ? script.lines[Pick(scriptName, script.lines.Length)]
-                : script.lines[_speakable[Pick(scriptName, _speakable.Count)]];
-
-            if (one != null && !string.IsNullOrEmpty(one.message))
-            {
-                Spawn(
-                    Substitute(one.message, arg),
-                    viaSystem ? SystemAuthor : one.author,
-                    one.duration,
-                    one.intensity,
-                    viaSystem ? SystemLineStyle : one.style,
-                    one.signalQuality,
-                    one.interrupt);
-            }
-
-            return true;
-        }
-
-        StartCoroutine(Run(script, arg, viaSystem));
-        return true;
-    }
-
-    /// <summary>대본이 있으면 재생하고 있었는지 알려준다. 팀별 대본 -> 공용 대본 폴백에 쓴다.</summary>
-    private bool PlayIfExists(string scriptName, string arg) => Play(scriptName, arg);
-
-    private static string Substitute(string message, string arg)
-        => string.IsNullOrEmpty(arg) ? message : message.Replace("{0}", arg);
-
-    private bool OffCooldown(string scriptName, DialogueScript script)
-    {
-        if (script.cooldown <= 0f)
-            return true;
-
-        float now = Time.unscaledTime;
-
-        if (_lastPlayed.TryGetValue(scriptName, out float last) && now - last < script.cooldown)
-            return false;
-
-        _lastPlayed[scriptName] = now;
-        return true;
-    }
-
-    /// <summary>
-    /// 변형 중 하나를 고른다. <c>UnityEngine.Random</c>을 안 쓰는 것은 이 리포의 규칙이다.
-    /// 대사는 시뮬레이션이 아니라 재현성에 걸리진 않지만, 난수 출처가 둘이 되는 순간
-    /// "어디서 나온 값인가"를 매번 확인해야 한다.
-    ///
-    /// <c>_pickSalt</c>가 있어야 같은 틱에 두 번 골라도 다른 값이 나온다 - 유폭 연쇄가
-    /// 한 틱에 몰리면 tick만으로는 전부 같은 문장이 된다.
-    /// </summary>
-    private int Pick(string key, int count)
-    {
-        var rng = new DeterministicRng(
-            Ballistics.Hash(StableHash(key), Core.TickManager.currentTick, _pickSalt++));
-
-        return (int)(rng.NextUInt() % (uint)count);
     }
 
     /// <summary>
     /// FNV-1a. <c>string.GetHashCode</c>는 실행마다 달라질 수 있어서 못 쓴다 - 그러면 같은
     /// 세이브가 실행마다 다른 대사를 낸다.
+    ///
+    /// **여기 사는 이유는 쓰는 자리가 둘이기 때문이다** - 화면 흔들림의 시드(여기)와
+    /// 변형 고르기의 시드(<see cref="ScriptManager.Pick"/>). 두 벌로 두면 언젠가 한쪽만
+    /// 고치고, 그러면 같은 대본이 기계마다 다른 문장을 낸다.
     /// </summary>
-    private static int StableHash(string s)
+    public static int StableHash(string s)
     {
         unchecked
         {
@@ -855,527 +380,6 @@ public class StoryScriptManager : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// 지금 도는 <see cref="Run"/>의 수. **Texts만으로는 대본의 끝을 못 안다** - 연출
-    /// 전용 줄(대사 없는 줄)에서는 화면이 잠깐 빌 수 있고, 그 순간을 끝으로 읽으면
-    /// 컷신이 중간에 걷히고 전투가 시작된다.
-    /// </summary>
-    private int _running;
-
-    private IEnumerator Run(DialogueScript script, string arg, bool viaSystem)
-    {
-        _running++;
-
-        try
-        {
-        for (int i = 0; i < script.lines.Length; i++)
-        {
-            DialogueLine line = script.lines[i];
-
-            if (line == null)
-                continue;
-
-            // **연출은 대사보다 위다.** 말할 사람이 죽어도(Silenced) 세계에서 일어나는 일은
-            // 일어난다 - 적함은 함내 누가 살았는지와 무관하게 나타난다. 아래로 내렸더니
-            // "전술"이 조용한 판에서 적함 spawn이 통째로 빠지고, 그 뒤의 모든 지시가
-            // 대상을 잃어 경고만 쏟아졌다.
-            //
-            // 말이 없는 줄(message가 빈 줄)도 여기까지 온다. 그것이 **연출 전용 줄**이고,
-            // 유폭처럼 대사 없이 시간만 필요한 장면을 그걸로 잡는다.
-            RunCues(line.cue);
-
-            // viaSystem이면 이미 전부 죽은 자리라 거를 것이 없다. 아니면 죽은 줄만 빠지고
-            // 나머지는 자기 목소리 그대로 나간다 - 배가 통째로 조용해지는 것이 아니라
-            // 한 사람 몫이 사라진다.
-            bool speaks = !string.IsNullOrEmpty(line.message)
-                       && (viaSystem || !Silenced(line.author));
-
-            if (!speaks)
-            {
-                // 말은 안 해도 시간은 흐른다. 연출 전용 줄의 wait이 곧 그 장면의 길이다 -
-                // 여기서 안 기다리면 유폭 셋이 한 프레임에 몰린다.
-                if (line.wait > 0f)
-                    yield return new WaitForSecondsRealtime(line.wait);
-
-                continue;
-            }
-
-            Dialogue spawned = Spawn(
-                Substitute(line.message, arg),
-                viaSystem ? SystemAuthor : line.author,
-                line.duration,
-                line.intensity,
-                viaSystem ? SystemLineStyle : line.style,
-                line.signalQuality,
-                line.interrupt);
-
-            // **duration이 아니라 타이핑 시간을 기다린다.** duration은 이 줄이 화면에
-            // 머무는 시간이라, 그걸 기다리면 앞줄이 사라진 뒤에야 다음이 와서 통신이
-            // 절대 안 겹친다. 두 값을 갈라 놓아야 뒤에서 앞줄이 아직 살아 있는 채로
-            // 다음 줄이 올라온다 - 이미 있던 스택 연출(stackKick, depthAlpha)이 그제서야
-            // 할 일이 생긴다.
-            float wait = line.wait > 0f ? line.wait : spawned.typingDuration + lineGap;
-
-            yield return new WaitForSecondsRealtime(Mathf.Max(0.05f, wait));
-
-            // 시뮬레이션이 결과를 낼 때까지. 대사보다 아래인 것이 요점이다 - 줄이 뜨고
-            // 읽히는 동안 창이 날아가고, 다 읽은 뒤에 그 결과를 기다린다.
-            if (!string.IsNullOrWhiteSpace(line.awaitWreck))
-                yield return AwaitWreck(line.awaitWreck, line.awaitRammer);
-        }
-        }
-        finally
-        {
-            _running--;
-        }
-    }
-
-    // =========================================================
-    // 연출 (컷신)
-    // =========================================================
-
-    /// <summary>
-    /// 충각이 이 안에 안 끝나면 포기하고 대본을 이어 간다. **넉넉해야 한다** - 창이
-    /// 700 m 밖에서 출발하고 가속에도 시간이 걸린다. 짧게 잡으면 아직 날아오는 중에
-    /// 대본이 다음 장면으로 넘어가서, 유폭이 엉뚱한 대사 위에서 난다.
-    /// </summary>
-    private const float AwaitWreckTimeout = 45f;
-
-    /// <summary>
-    /// 그 배가 전투불능이 될 때까지 기다린다. **판정은 IsCombatEffective 하나다** -
-    /// 컷신 전용 "죽음"을 따로 정의하면 화면에 부서진 것으로 보이는 배와 시뮬레이션이
-    /// 죽었다고 보는 배가 어긋난다.
-    ///
-    /// 배가 통째로 사라지는 경우(오브젝트 파괴)도 끝으로 친다.
-    /// </summary>
-    /// <summary>
-    /// 들이받았다고 볼 거리(m). 판정이 아니라 **연출의 문턱이다** - 창이 한 틱에 15 m를
-    /// 건너뛰므로 정확한 접촉을 기다리면 그 틱을 통째로 넘길 수 있다. 구축함 반길이쯤.
-    /// </summary>
-    private const float RamContactRange = 40f;
-
-    private static IEnumerator AwaitWreck(string name, string rammer)
-    {
-        float spent = 0f;
-
-        while (spent < AwaitWreckTimeout)
-        {
-            if (!CutSceneManager.TryGet(name, out CutSceneManager.CutScene_ShipObj target)
-                || target.ship == null
-                || !target.ship.IsCombatEffective)
-                yield break;
-
-            // 들이받는 배가 닿았으면 그 자리에서 결말을 낸다. 유폭은 CriticalModule을
-            // 통과하는 진짜 경로라 그림이 실전과 같고, 창은 추적을 놓아 관성으로 지나간다 -
-            // 안 놓으면 시체 자리에서 맴돈다.
-            if (!string.IsNullOrWhiteSpace(rammer)
-                && CutSceneManager.TryGet(rammer, out CutSceneManager.CutScene_ShipObj hitter)
-                && hitter.Root != null && target.Root != null
-                && Vector2.Distance(hitter.Root.transform.position, target.Root.transform.position)
-                   <= RamContactRange)
-            {
-                hitter.Chase(null);
-                target.Detonate();
-                yield break;
-            }
-
-            spent += Time.unscaledDeltaTime;
-            yield return null;
-        }
-
-        Debug.LogWarning(
-            $"[대사] '{name}'이 {AwaitWreckTimeout:0}초 안에 안 부서졌다. 창이 빗나갔을 수 있다 - " +
-            "연출을 이어 간다.");
-    }
-
-    /// <summary>
-    /// 한 줄에 붙은 연출을 순서대로 집행한다. **모르는 지시는 경고만 찍고 넘어간다** -
-    /// 오타 하나로 컷신이 통째로 멈추면 대본을 고치는 사람이 원인을 못 찾는다.
-    /// </summary>
-    private void RunCues(DialogueCue[] cues)
-    {
-        if (cues == null)
-            return;
-
-        for (int i = 0; i < cues.Length; i++)
-            RunCue(cues[i]);
-    }
-
-    private void RunCue(DialogueCue cue)
-    {
-        if (cue == null || string.IsNullOrWhiteSpace(cue.act))
-            return;
-
-        // look은 대상이 컷신 배가 아닐 수도 있다(player). 그래서 아래 TryGet 관문 위에 둔다.
-        // name이 비면 카메라를 놓는다 - 인스펙터가 적어 둔 프레임으로 돌아간다.
-        if (cue.act == "look")
-        {
-            if (string.IsNullOrWhiteSpace(cue.name))
-            {
-                CameraSystem.ReleaseCutscene();
-                return;
-            }
-
-            CameraSystem.CutsceneFrame(TransformOf(cue.name), TransformOf(cue.at), cue.zoom);
-            return;
-        }
-
-        // spawn만 대상이 아직 없어도 된다. 나머지는 이미 서 있는 배에게 거는 지시다.
-        if (cue.act == "spawn")
-        {
-            // at이 있으면 그 배 기준 오프셋이다. 프롤로그는 거의 전부 "플레이어 앞/뒤
-            // 몇 m"라, 절대 좌표로 적으면 배를 옮길 때마다 대본을 다시 계산해야 한다.
-            if (!TryResolvePoint(cue, out Vector2 where))
-                return;
-
-            CutSceneManager.SpawnCutSceneShips(
-                cue.name, where, cue.facing, cue.ship, TeamOf(cue.team));
-
-            return;
-        }
-
-        // **join은 컷신 배가 아니라 런에 건다.** 컷신 배는 release 때 사라지지만 동료는
-        // 남은 구역을 전부 따라가야 하므로, 명단이 RunState에 있고 구역마다 Campaign이
-        // 다시 소환한다. ship이 설계도, x·y가 편대 자리(플레이어 기준)다.
-        if (cue.act == "join")
-        {
-            RunState.Join(cue.ship, new Vector2(cue.x, cue.y));
-            Debug.Log($"[대사] '{cue.ship}' 합류. 편대 자리 ({cue.x}, {cue.y}).");
-            return;
-        }
-
-        // camera는 배가 없어도 된다. 화면 자체를 만지는 지시다.
-        if (cue.act == "camera")
-        {
-            CameraSystem.CutsceneDamp(cue.x, cue.y);
-            return;
-        }
-
-        CutSceneManager.CutScene_ShipObj target = TargetOf(cue.name);
-
-        if (target == null)
-        {
-            Debug.LogWarning($"[대사] 연출 '{cue.act}'의 대상 '{cue.name}'이 없다. 먼저 spawn해야 한다.");
-            return;
-        }
-
-        switch (cue.act)
-        {
-            case "moveTo":
-                // moveTo는 **지금 좌표를 고정한다.** 움직이는 표적에는 chase를 쓴다.
-                if (TryResolvePoint(cue, out Vector2 to))
-                {
-                    // 쫓기도 편대도 매 틱 _targetPos를 다시 쓴다 - 안 풀면 이 좌표가
-                    // 다음 틱에 덮어써져서 moveTo가 아무 일도 안 한 것처럼 보인다.
-                    target.Chase(null);
-                    target.Formation(null, Vector2.zero);
-                    target.MoveTo(to);
-                }
-                break;
-
-            case "chase":
-                target.Formation(null, Vector2.zero);
-                target.Chase(TransformOf(cue.at));
-                break;
-
-            case "unchase":
-                target.Chase(null);
-                break;
-
-            // at을 편대장으로, x·y를 **그 배 기준** 자리로 읽는다. moveTo와 달리 매 틱
-            // 다시 계산하므로 편대장이 움직이고 돌아도 간격이 그대로 남는다.
-            case "formation":
-                target.Chase(null);
-                target.Formation(TransformOf(cue.at), new Vector2(cue.x, cue.y));
-                break;
-
-            case "unformation":
-                target.Formation(null, Vector2.zero);
-                break;
-
-            case "aimAt":
-                // 좌표든 대상이든 못 찾으면 null을 준다 - 그러면 포탑이 평소대로 가장
-                // 가까운 적을 잡는다. 컷신이 조준을 놓는 정식 길이기도 하다.
-                target.AimAt(TryResolvePoint(cue, out Vector2 aim) ? aim : (Vector2?)null);
-                break;
-
-            case "face":
-                // x를 각도로 읽는다. at이 있으면 그 대상을 향하는 각도로 푼다.
-                target.Face(FaceAngleFor(cue, target));
-                break;
-
-            case "unface":
-                target.Face(null);
-                break;
-
-            case "hold":
-                target.HoldFire(true);
-                break;
-
-            case "release":
-                target.HoldFire(false);
-                break;
-
-            case "fire":
-                target.ForceFire(true);
-                break;
-
-            case "ceasefire":
-                target.ForceFire(false);
-                break;
-
-            case "boost":
-                target.Boost(true);
-                break;
-
-            case "unboost":
-                target.Boost(false);
-                break;
-
-            case "detonate":
-                target.Detonate();
-                break;
-
-            case "despawn":
-                CutSceneManager.Remove(cue.name);
-                break;
-
-            default:
-                Debug.LogWarning(
-                    $"[대사] 모르는 연출 '{cue.act}'. spawn/despawn/moveTo/chase/unchase/aimAt/" +
-                    "face/unface/hold/release/fire/ceasefire/boost/unboost/detonate/look/camera " +
-                    "중 하나여야 한다.");
-                break;
-        }
-    }
-
-    /// <summary>
-    /// 지시를 받을 배. **컷신 배가 아니면 그 자리에서 빌린다** - 플레이어 배는 씬의 것이라
-    /// spawn된 적이 없고, 대본에서 <c>player</c>라고만 부른다. 빌린 배는 컷신이 끝날 때
-    /// 지워지지 않고 조종간만 돌아간다.
-    /// </summary>
-    private static CutSceneManager.CutScene_ShipObj TargetOf(string name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            return null;
-
-        if (CutSceneManager.TryGet(name, out CutSceneManager.CutScene_ShipObj had))
-            return had;
-
-        return name == "player" ? CutSceneManager.Borrow(name, PlayerShip()) : null;
-    }
-
-    /// <summary>
-    /// face가 향할 각도. <c>at</c>이 있으면 그 대상을 바라보는 각도를 풀고, 없으면 x를
-    /// 각도로 그대로 쓴다 - "저 배 쪽으로 뱃머리를 튼다"가 좌표를 세는 것보다 훨씬 자주 쓴다.
-    /// </summary>
-    private static float FaceAngleFor(DialogueCue cue, CutSceneManager.CutScene_ShipObj target)
-    {
-        if (string.IsNullOrWhiteSpace(cue.at) || target.Root == null)
-            return cue.x;
-
-        Transform at = TransformOf(cue.at);
-
-        if (at == null)
-            return cue.x;
-
-        Vector2 to = (Vector2)at.position - (Vector2)target.Root.transform.position;
-
-        // ShipAi.Turn이 hullAngle과 비교하는 각도와 같은 규약이어야 한다.
-        return Mathf.Atan2(to.y, to.x) * Mathf.Rad2Deg
-             - (target.Root.transform.localScale.x < 0f ? 180f : 0f);
-    }
-
-    /// <summary>
-    /// 연출의 목표점. <see cref="DialogueCue.at"/>이 있으면 그 이름을 좌표로 풀고,
-    /// 없으면 x·y를 그대로 쓴다. 이름을 못 찾으면 false - 부르는 쪽이 그때 무엇을 할지
-    /// 정한다(aimAt은 조준을 놓고, moveTo는 아무 데도 안 간다).
-    /// </summary>
-    /// <summary>
-    /// 연출이 가리키는 점. <see cref="DialogueCue.at"/>이 있으면 **그 대상 위치 + (x,y)**,
-    /// 없으면 x·y 그대로다.
-    ///
-    /// 오프셋으로 두는 것이 요점이다 - "플레이어 앞 300 m"를 절대 좌표로 적으면 배를
-    /// 한 번 옮길 때마다 대본의 모든 숫자를 다시 계산해야 한다. x·y가 0이면 예전처럼
-    /// 그 대상의 자리 그대로라 이미 쓰인 대본도 안 깨진다.
-    /// </summary>
-    private static bool TryResolvePoint(DialogueCue cue, out Vector2 point)
-    {
-        point = new Vector2(cue.x, cue.y);
-
-        if (string.IsNullOrWhiteSpace(cue.at))
-            return true;
-
-        Transform at = TransformOf(cue.at);
-
-        if (at == null)
-        {
-            Debug.LogWarning($"[대사] 연출 대상 '{cue.at}'을 못 찾았다.");
-            return false;
-        }
-
-        point += (Vector2)at.position;
-        return true;
-    }
-
-    /// <summary>
-    /// 이름 하나를 Transform으로 푼다. <c>player</c>는 예약어이고, 나머지는 컷신 배의
-    /// 이름이다. 못 찾으면 null - 부르는 쪽이 그때 무엇을 할지 정한다.
-    ///
-    /// 좌표(<see cref="TryResolvePoint"/>)와 카메라(<c>look</c>)가 같은 이름 규칙을 써야
-    /// 대본에서 "저 배"를 가리키는 말이 하나로 남는다.
-    /// </summary>
-    private static Transform TransformOf(string name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            return null;
-
-        // 플레이어 배의 좌표는 대본을 쓰는 시점에 알 수 없다. 이름으로만 가리킬 수 있다.
-        if (name == "player")
-        {
-            Ship player = PlayerShip();
-            return player != null ? player.transform : null;
-        }
-
-        return CutSceneManager.TryGet(name, out CutSceneManager.CutScene_ShipObj ship) && ship.Root != null
-            ? ship.Root.transform
-            : null;
-    }
-
-    private static Ship PlayerShip()
-    {
-        for (int i = 0; i < Ship.All.Count; i++)
-        {
-            Ship ship = Ship.All[i];
-
-            if (ship != null && ship.IsPlayerControlled)
-                return ship;
-        }
-
-        return null;
-    }
-
-    private static Ship.Team TeamOf(string team) => team switch
-    {
-        "Ally" => Ship.Team.Ally,
-        "Neutral" => Ship.Team.Neutral,
-        _ => Ship.Team.Enemy,
-    };
-
-    // =========================================================
-    // 시뮬레이션 반응
-    // =========================================================
-
-    /// <summary>
-    /// 사건 하나 -> 대본 이름. **팀별 대본이 있으면 그것, 없으면 공용으로 내려간다** -
-    /// 적함이 터지는 것과 아군이 터지는 것은 다른 대사여야 하지만, 그렇다고 모든 사건을
-    /// 두 벌씩 쓸 이유는 없다. 둘 다 없으면 그 사건엔 대사가 없는 것이고 그것도 정상이다.
-    /// </summary>
-    private void OnRunEntry(RunLog.Entry entry)
-    {
-        // 대사가 아니라 걸쇠다. 아래 switch에 맡기면 `_ => null`이 조용히 삼킨다.
-        //
-        // 아군만 본다. 적함 기관사가 죽는 것은 우리 무전에 아무 영향이 없다 - 적함
-        // 대본도 말하는 사람은 우리 승무원이다.
-        if (entry.kind == RunLog.Kind.RoleLost)
-        {
-            if (entry.team == Ship.Team.Ally
-                && Enum.TryParse(entry.what, out Ship.ShipRole lost))
-                _lostRoles.Add(lost);
-
-            return;
-        }
-
-        if (entry.kind == RunLog.Kind.CrewLost && entry.team == Ship.Team.Ally)
-            _crewLost = true;
-
-        // **더하지 않고 최댓값을 잡는다.** 유폭 한 번에 판 40장이 같은 틱에 죽으면
-        // 더하기는 긴장을 폭발시키고 배가 몇 분 동안 말을 안 한다. 최댓값이면 제일 큰
-        // 사건 하나가 분위기를 정하고, 회복 시간이 반감기 하나로 예측 가능해진다.
-        _tension = Mathf.Max(_tension, Severity(entry));
-
-        string key = entry.kind switch
-        {
-            RunLog.Kind.Finished => "ship-finished",
-            RunLog.Kind.Detonated => "detonated",
-            RunLog.Kind.HullSplit => "hull-split",
-            RunLog.Kind.CrewLost => "crew-lost",
-            _ => null,
-        };
-
-        if (key == null)
-            return;
-
-        string team = entry.team.ToString().ToLowerInvariant();
-
-        if (!PlayIfExists($"{key}-{team}", entry.what))
-            PlayIfExists(key, entry.what);
-    }
-
-    /// <summary>
-    /// 아무 일도 안 일어나는 동안 승무원이 말을 한다. **이것이 tension의 소비자다** -
-    /// 지금은 시간만 보지만, 다음에 tension이 들어오면 여기 조건이 하나 는다.
-    ///
-    /// Texts가 빌 때까지 기다리는 것이 요점이다. 사건 대사와 겹치면 둘 다 안 읽힌다.
-    /// </summary>
-    private void Chatter()
-    {
-        if (_crewLost || _chitchat.Count == 0 || Texts.Count > 0)
-            return;
-
-        if (Time.unscaledTime - _lastLine < idleGap)
-            return;
-
-        // **_lastLine을 밀기 전에 본다.** 그래야 긴장이 임계 밑으로 내려오는 순간
-        // 이미 지난 idleGap을 다시 안 기다리고 바로 누가 입을 연다. 긴장이 풀리자마자
-        // 말이 나오는 것이 이 시스템이 만들려는 장면이다.
-        if (_tension > chitChatMaxTension)
-            return;
-
-        // 쿨다운에 걸려도 _lastLine이 안 밀리면 매 프레임 다시 시도한다. 여기서 한 번
-        // 밀어 두면 다음 후보를 idleGap 뒤에 고른다 - 대본이 전부 쿨다운이면 그동안
-        // 조용한 것이고, 그것도 맞는 출력이다.
-        _lastLine = Time.unscaledTime;
-
-        Play(_chitchat[Pick("chitchat", _chitchat.Count)]);
-    }
-
-    /// <summary>
-    /// 이 사건이 얼마나 무거운가. 0~1.
-    ///
-    /// 팀별로 행을 열 개 쓰지 않는다. **사건의 무게 × 누구 일인가**로 갈라야 왜 그
-    /// 숫자인지 설명이 되고, 새 사건이 생겨도 배수는 안 건드린다.
-    ///
-    /// 적함이 0이 아니라 0.3인 이유: 위협은 아니지만 방금 눈앞에서 큰일이 났다.
-    /// 0이면 적 탄약고가 터지는 순간 바로 커피 얘기가 나온다.
-    ///
-    /// **적함 격침이 긴장을 내리는 규칙은 없다.** 적이 죽으면 새 사건이 안 들어오고,
-    /// 그러면 감쇠가 알아서 데려간다 - "숨통이 트인다"가 규칙 없이 나온다.
-    /// </summary>
-    private static float Severity(RunLog.Entry entry)
-    {
-        float weight = entry.kind switch
-        {
-            RunLog.Kind.CrewLost => 1.0f,
-            RunLog.Kind.Finished => 1.0f,
-            RunLog.Kind.Detonated => 0.8f,
-            RunLog.Kind.RoleLost => 0.8f,
-            RunLog.Kind.HullSplit => 0.6f,
-            _ => 0f,
-        };
-
-        float whose = entry.team switch
-        {
-            Ship.Team.Ally => 1.0f,
-            Ship.Team.Enemy => 0.3f,
-            _ => 0f,
-        };
-
-        return weight * whose;
-    }
-
-    private void OnBattleEnd(Battle battle) => Play(battle.Won ? "battle-won" : "battle-lost");
-
     // =========================================================
     // 프레임
     // =========================================================
@@ -1386,13 +390,6 @@ public class StoryScriptManager : MonoBehaviour
 
         Advance(dt);
 
-        // 지수 감쇠. dt에 안 걸리는 것이 요점이다 - 프레임이 튀어도 같은 시간에 같은
-        // 값이 되므로, 반감기가 "초"라는 뜻을 계속 유지한다.
-        if (_tension > 0f)
-            _tension *= Mathf.Pow(0.5f, dt / Mathf.Max(0.01f, tensionHalfLife));
-
-        Chatter();
-
         _interruptFlash = Mathf.MoveTowards(_interruptFlash, 0f, interruptFlashFade * dt);
 
         ImGui.Begin();
@@ -1400,12 +397,16 @@ public class StoryScriptManager : MonoBehaviour
         if (_interruptFlash > 0.001f)
             DrawInterruptCut();
 
-        if (showTension)
+        // 긴장의 주인은 DramaManager다. 그리는 것만 여기서 한다 - 값을 이쪽으로 옮기면
+        // 사건이 올리고 시간이 내리는 그 흐름이 두 파일로 갈라진다.
+        DramaManager drama = DramaManager.current;
+
+        if (drama != null && drama.showTension)
         {
             GUILabel gauge = ImGui.Label(
                 "tension_debug",
                 new Rect(new Vector2(12f, 12f), new Vector2(260f, 22f)),
-                $"tension {_tension:0.000}  (잡담 {chitChatMaxTension:0.00} 이하)",
+                $"tension {drama.Tension:0.000}  (잡담 {drama.chitChatMaxTension:0.00} 이하)",
                 AuthorStyle());
 
             gauge.Layer = AuthorLayer + 1;
@@ -1581,6 +582,10 @@ public class StoryScriptManager : MonoBehaviour
     /// </summary>
     private void OnGUI()
     {
+        // 격파 시퀀스 중에는 대사창이 즉시 꺼진다 - 죽는 마당에 대화가 이어지면 이상하다.
+        if (GameManager.PlayerDown)
+            return;
+
         if (Event.current.type != UnityEngine.EventType.Layout)
             return;
 
@@ -2015,15 +1020,12 @@ public class StoryScriptManager : MonoBehaviour
     }
 
 
-    public void Clear()
-    {
-        StopAllCoroutines();
-        Texts.Clear();
-
-        // 쿨다운도 같이 간다. 새 전투인데 지난 전투의 유폭 때문에 첫 유폭이 조용하면
-        // 원인이 화면에 안 보인다.
-        _lastPlayed.Clear();
-    }
+    /// <summary>
+    /// 화면을 비운다. **대본은 안 건드린다** - 돌고 있는 대본을 멈추고 쿨다운을 비우는
+    /// 것은 <see cref="ScriptManager.Clear"/>다. 둘을 한 함수에 두면 "화면만 지우고
+    /// 싶다"가 대본까지 끊는다.
+    /// </summary>
+    public void Clear() => Texts.Clear();
 
     // =========================================================
     // Presentation

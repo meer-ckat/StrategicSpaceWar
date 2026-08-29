@@ -189,6 +189,10 @@ public sealed class HitIndicatorUI : MonoBehaviour
             _built = true;
         }
 
+        // 격파 시퀀스 중에는 피격 표시가 즉시 꺼진다.
+        if (GameManager.PlayerDown)
+            return;
+
         if (view == null)
             view = Camera.main;
 
@@ -396,7 +400,7 @@ public sealed class HitIndicatorUI : MonoBehaviour
                     // 되돌아갈 목표가 매번 커져서 아이콘이 화면을 덮을 때까지 자란다.
                     //
                     // 제대로 고치려면 트윈을 걷어내고 매 프레임 최종값을 대입해야 한다
-                    // (StoryScriptManager가 화자 이름을 부풀릴 때 쓰는 방식). 이 한 줄은
+                    // (DialogueManager가 화자 이름을 부풀릴 때 쓰는 방식). 이 한 줄은
                     // 그때까지의 걸쇠다.
                     indicator.icon.RenderScale = Vector2.one;
 
