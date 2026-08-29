@@ -135,9 +135,16 @@ public sealed class ShipStatusHud : MonoBehaviour
     private const float DieShakePixels = 30f;
     private const int SectionCount = 3;
 
+    /// <summary>
+    /// 죽고 이만큼은 계기가 멀쩡하다. 조준 정보만 끊긴 채 이명 속에 표류하는 정적 -
+    /// "죽었다"를 인지할 호흡이 있어야 그 다음 소등이 연출로 읽힌다. 즉시 꺼지기
+    /// 시작하면 전부 한 호흡으로 뭉개진다.
+    /// </summary>
+    public const float ShutdownDelaySeconds = 2f;
+
     /// <summary>마지막 섹션까지 다 꺼지는 시각. GameManager가 이 뒤에 암전을 잇는다.</summary>
     public const float ShutdownSeconds =
-        (SectionCount - 1) * SectionStagger + DieFlashSeconds;
+        ShutdownDelaySeconds + (SectionCount - 1) * SectionStagger + DieFlashSeconds;
 
     /// <summary>부팅에서 마지막 섹션이 켜지는 시각. GameManager.GuiHidden이 이걸 본다.</summary>
     public const float BootSpanSeconds = (SectionCount - 1) * SectionStagger;
@@ -168,6 +175,12 @@ public sealed class ShipStatusHud : MonoBehaviour
 
             return sinceBoot >= (SectionCount - 1 - order) * SectionStagger;
         }
+
+        // 정적 구간. 계기는 아직 멀쩡하다 - 죽음을 먼저 읽게 한다.
+        down -= ShutdownDelaySeconds;
+
+        if (down < 0f)
+            return true;
 
         float dieAt = order * SectionStagger;
 

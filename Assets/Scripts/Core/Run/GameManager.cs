@@ -75,7 +75,7 @@ public sealed class GameManager : MonoBehaviour
 
     // 암전: 모든 HUD가 꺼진 뒤 붉게 번쩍(DieFlashSeconds), 검정으로 페이드, 잠시 들고 재시작.
     private const float BlackFadeSeconds = 1f;
-    private const float HoldBlackSeconds = 0.5f;
+    private const float HoldBlackSeconds = 1f;
 
     private Image _blackout;
     private bool _blackoutMissing;
