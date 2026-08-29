@@ -118,6 +118,21 @@ public partial class Ship : Thing
     public bool HasLiveGun => AnyModuleInLivingRoom(this, shipGuns);
     private bool _engineerLost, _gunnerLost;
 
+    /// <summary>
+    /// Atmosphere/Crew를 이 틱마다 한 번만 돈다(오너 승인, 2026-08-29). 죽는 순간이
+    /// 최대 이만큼(166ms) 늦게 잡힌다는 뜻이다 - WatchForCritical/WatchForRoles는
+    /// 그대로 매 틱이라 IsCombatEffective 자체는 안 늦는다, CrewAlive 전이만 늦는다.
+    /// </summary>
+    private const int AtmosphereInterval = 10;
+
+    /// <summary>
+    /// 배마다 다른 나머지. **전역 tick % N을 쓰면 안 된다** - 모든 배가 같은 틱에
+    /// 몰려서 그 틱만 스파이크가 된다. 예전 `tick % seed`가 정확히 이 함정이었다
+    /// (seed가 1인 배는 매 틱 걸려 공기가 안 새고, 2인 배는 절반 속도로 샜다).
+    /// Awake에서 한 번만 정해서 배 수명 내내 안 바뀐다.
+    /// </summary>
+    private int _atmosphereOffset;
+
     
     /// <summary>
     /// 승무원의 자리. **개별 승무원이 아니다** - 이 배에 그 일을 할 사람이 아직 있느냐다.
@@ -308,6 +323,13 @@ public partial class Ship : Thing
         base.Awake();
         rig = GetComponent<Rigidbody2D>();
 
+        // stableId는 배 자신에는 안 찍힌다 - ShipBuilder가 그 값을 배치(판·모듈)에만
+        // 매기고 컨테이너인 Ship 자체는 건드리지 않는다. 그래서 여기선 사실상 항상
+        // GetInstanceID로 빠지는데, 배마다 갈라주기만 하면 되는 스로틀 위상이라 무해하다 -
+        // 결정론이 걸리는 자리(파편 시드 등)와 달리 여긴 재현성이 필요 없다.
+        int atmosphereId = stableId >= 0 ? stableId : GetInstanceID();
+        _atmosphereOffset = ((atmosphereId % AtmosphereInterval) + AtmosphereInterval) % AtmosphereInterval;
+
         IsPlayerControlled = GetComponent<PlayerInput>() != null && GetComponent<ShipAi>() == null;
 
         if (IsPlayerControlled)
@@ -492,12 +514,18 @@ public partial class Ship : Thing
         if (isGunnerReady) AimGun();
         _mAim.End();
 
+        // Atmosphere/Crew만 10틱에 한 번 - 죽는 순간이 최대 166ms 늦게 잡히는 대신
+        // 매 틱 방 전체 순회를 없앤다. WatchForCritical은 안 늦춘다 - 배마다 위상이
+        // 갈라 있으니(_atmosphereOffset) 같은 틱에 다 몰리지 않는다.
+        bool dueForAtmosphere =
+            (Core.TickManager.currentTick + _atmosphereOffset) % AtmosphereInterval == 0;
+
         _mAtmosphere.Begin();
-        Atmosphere();
+        if (dueForAtmosphere) Atmosphere();
         _mAtmosphere.End();
 
         _mWatch.Begin();
-        Crew();
+        if (dueForAtmosphere) Crew();
         WatchForCritical();
         WatchForRoles();
         _mWatch.End();
@@ -706,7 +734,10 @@ public partial class Ship : Thing
     
     void Atmosphere()
     {
-        float dt = TickManager.TickDeltaTime;
+        // Ship.OnTick이 이 함수를 AtmosphereInterval틱마다 한 번만 부른다 - 그 사이
+        // 흐른 시간이 dt다. 실제 틱 간격 그대로 두면 10틱에 한 번 새는 것이 매 틱 새던
+        // 것보다 10배 느려진다 - 감쇠율이 아니라 **호출 빈도만** 줄여야 한다.
+        float dt = TickManager.TickDeltaTime * AtmosphereInterval;
 
         foreach (Room room in rooms)
         {
