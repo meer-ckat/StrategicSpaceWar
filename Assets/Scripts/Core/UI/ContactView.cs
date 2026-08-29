@@ -34,7 +34,7 @@ public sealed class ContactView : MonoBehaviour
     // 플레이어가 새로 배우지 않는다.
     private static readonly Color UnknownColor = new(0.70f, 0.72f, 0.78f, 1f);
     private static readonly Color HostileColor = new(1.00f, 0.45f, 0.15f, 1f);   // ShipStatusHud.CriticalColor
-    private static readonly Color FriendlyColor = new(0.78f, 0.90f, 1.00f, 1f);  // ShipStatusHud.NormalColor
+    private static readonly Color FriendlyColor = new(0.78f, 0.90f, 1.00f, 1f);  // ShipStatusHud.HudColor
     private static readonly Color PanelBg = new(0.05f, 0.06f, 0.09f, 0.55f);
 
     private const float MarkerWidth = 108f;
