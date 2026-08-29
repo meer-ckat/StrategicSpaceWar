@@ -39,6 +39,10 @@ public sealed class Flash : Thing
             Debug.LogError($"[Flash] {name}에 Light2D가 없다. def의 comps를 봐라.", this);
     }
 
+    // 아래 Update가 이 클래스의 유일한 일이다. TickManager에 등록할 이유가 없다 -
+    // 유폭마다 여러 개가 짧게 떠서, 큰 전투에선 리스너 수십 개가 매 틱 빈 호출을 받고 있었다.
+    protected override bool NeedsTick => false;
+
     public override void OnTick() { }
 
     // 틱이 아니라 프레임으로 돈다. 그림이라 틱 격자에 맞출 이유가 없고, 60틱에 묶이면
