@@ -428,8 +428,11 @@ public class ScriptManager : MonoBehaviour
             line.interrupt);
     }
 
+    // arg가 없다고 치환을 건너뛰면 화면에 "{0} 응답 없음." 같은 원문 태그가 그대로
+    // 샌다 - 플레이어가 볼 값이 아니다. 대신 [검열됨]으로 메운다. {0}이 없는 메시지에는
+    // Replace가 아무것도 안 해서 부작용이 없다.
     private static string Substitute(string message, string arg)
-        => string.IsNullOrEmpty(arg) ? message : message.Replace("{0}", arg);
+        => message.Replace("{0}", string.IsNullOrEmpty(arg) ? "[검열됨]" : arg);
 
     private bool OffCooldown(string scriptName, DialogueScript script)
     {
