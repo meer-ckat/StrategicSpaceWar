@@ -53,13 +53,30 @@ public static class TraceWorld
     /// </summary>
     private struct Source
     {
-        public Collider2D collider;
         public Transform transform;
         public Vector2 halfU;
         public Vector2 halfV;
         public Vector2 offset;
         public int layer;
         public bool isArmor;
+    }
+
+    private struct BodyGeometry
+    {
+        public Vector2 halfU;
+        public Vector2 halfV;
+        public Vector2 offset;
+    }
+
+    private sealed class HullSourceCache
+    {
+        public Rigidbody2D body;
+        public Collider2D[] colliders = new Collider2D[8];
+        public int[] sourceIndices = new int[8];
+        public BodyGeometry[] bodyGeometry = new BodyGeometry[8];
+        public int attachedCount = -1;
+        public int count;
+        public int bodyLocalCount;
     }
 
     /// <summary>
@@ -118,18 +135,19 @@ public static class TraceWorld
     // 몸/콜라이더 탐색과 GetComponent는 생성 직후 한 번만 한다. Source 순서는 등록 순서로
     // 고정되어 같은 입력의 동점 판정도 결정론적이다. 장갑/모듈 동점은 별도 판 우선 규칙.
     // **List가 아니라 평범한 배열이다.** List 인덱서는 메서드라 struct를 복사해서 돌려주고,
-    // Source가 44바이트라 틱당 콜라이더 수천 번이면 그 복사만으로 값이 나간다. 배열 원소는
-    // 주소를 가진 변수라 `in` 인자에 그대로 묶인다 - 복사가 없다.
+    // 틱당 콜라이더 수천 번이면 그 복사만으로 값이 나간다. 배열 원소는 주소를 가진 변수라
+    // `in` 인자에 그대로 묶인다 - 복사가 없다.
     //
-    // NativeArray는 여기 못 쓴다. Source가 Collider2D·Transform 참조를 들고 있고
-    // 네이티브 컨테이너는 unmanaged 타입만 받는다. TryBuildEntry가 Transform을
-    // 만져야 하므로 그 참조를 뺄 수도 없다 - 이 배열은 Burst로 갈 수 없는 층이다.
+    // NativeArray는 여기 못 쓴다. Source가 Transform 참조를 들고 있고 네이티브 컨테이너는
+    // unmanaged 타입만 받는다 - 이 배열은 Burst로 갈 수 없는 층이다.
     private static Source[] _sources = new Source[1024];
     private static int _sourceCount;
     private static readonly List<Collider2D> _nonBoxes = new();
-    // 몸 -> 등록 당시의 콜라이더 수. HashSet이면 "등록했다"만 알고 그 뒤에 붙은
-    // 콜라이더를 영영 못 본다.
-    private static readonly Dictionary<HullStructure, int> _registeredBodies = new();
+    // 몸별 연결은 콜라이더 수가 바뀔 때만 다시 뜬다. 첫 스냅샷 뒤에는 파괴·재부모화만
+    // 있으므로 수가 같으면 연결도 같다.
+    private static readonly Dictionary<HullStructure, HullSourceCache> _hullSources = new();
+    private static HullSourceCache[] _activeHullSources = new HullSourceCache[64];
+    private static int _activeHullSourceCount;
     private static readonly HashSet<Collider2D> _registeredColliders = new();
 
     /// <summary>
@@ -152,13 +170,14 @@ public static class TraceWorld
 
     private static void BuildIfStale()
     {
-        if (_builtTick == Core.TickManager.currentTick && _builtEpoch == _epoch)
+        long tick = Core.TickManager.currentTick;
+        int epoch = _epoch;
+
+        if (_builtTick == tick && _builtEpoch == epoch)
             return;
 
         using var _ = _mBuild.Auto();
 
-        _builtTick = Core.TickManager.currentTick;
-        _builtEpoch = _epoch;
         _count = 0;
         _skippedNonBox = 0;
 
@@ -167,40 +186,30 @@ public static class TraceWorld
         using (_mRegister.Auto())
         {
             // 긴 전투/캠페인에서 파괴된 Unity 참조가 끝없이 남지 않게 드문 압축만 한다.
-            if (_registeredBodies.Count > all.Count * 2 + 64)
-                RebuildSources(all);
-            else
-                RegisterNewBodies(all);
+            if (_hullSources.Count > all.Count * 2 + 64)
+                RebuildSources();
+
+            SyncHullSources(all);
         }
 
         using (_mPose.Auto())
         {
             _hullCount = 0;
+            EnsureHullCapacity(_activeHullSourceCount);
 
-            for (int h = 0; h < all.Count; h++)
+            for (int h = 0; h < _activeHullSourceCount; h++)
             {
-                HullStructure hull = all[h];
+                HullSourceCache cache = _activeHullSources[h];
 
-                if (hull == null || hull.Body == null)
+                if (cache.count <= 0)
                     continue;
 
-                Rigidbody2D body = hull.Body;
-
-                int required = body.attachedColliderCount;
-
-                if (required > _attached.Length)
-                {
-                    int capacity = _attached.Length;
-
-                    while (capacity < required)
-                        capacity *= 2;
-
-                    System.Array.Resize(ref _attached, capacity);
-                }
-
-                int attachedCount = body.GetAttachedColliders(_attached);
-
                 int start = _count;
+                EnsureSnapshotCapacity(_count + cache.count);
+
+                Matrix4x4 bodyToWorld = cache.bodyLocalCount > 0
+                    ? cache.body.transform.localToWorldMatrix
+                    : default;
 
                 Vector2 min = new(
                     float.PositiveInfinity,
@@ -210,23 +219,25 @@ public static class TraceWorld
                     float.NegativeInfinity,
                     float.NegativeInfinity);
 
-                for (int c = 0; c < attachedCount; c++)
+                for (int c = 0; c < cache.count; c++)
                 {
-                    Collider2D collider = _attached[c];
+                    int sourceIndex = cache.sourceIndices[c];
+                    ref Source source = ref _sources[sourceIndex];
+                    Entry entry;
 
-                    if (collider == null)
+                    bool built = source.isArmor
+                        ? TryBuildBodyEntry(
+                            in source,
+                            in cache.bodyGeometry[c],
+                            in bodyToWorld,
+                            out entry)
+                        : TryBuildEntry(in source, out entry);
+
+                    if (!built)
                         continue;
-
-                    if (!_sourceIndex.TryGetValue(collider, out int sourceIndex))
-                        continue;
-
-                    if (!TryBuildEntry(in _sources[sourceIndex], out Entry entry))
-                        continue;
-
-                    EnsureSnapshotCapacity();
 
                     _obb[_count] = entry;
-                    _colliders[_count] = collider;
+                    _colliders[_count] = cache.colliders[c];
 
                     // OBB를 감싸는 월드 AABB
                     float extentX =
@@ -255,9 +266,6 @@ public static class TraceWorld
                 if (colliderCount <= 0)
                     continue;
 
-                if (_hullCount >= _hulls.Length)
-                    System.Array.Resize(ref _hulls, _hulls.Length * 2);
-
                 _hulls[_hullCount++] = new HullEntry
                 {
                     min = min,
@@ -267,94 +275,148 @@ public static class TraceWorld
                 };
             }
 
-            // 기존 non-box 카운트는 그대로 유지
-            for (int i = 0; i < _nonBoxes.Count; i++)
+            if (VerifyMode)
             {
-                Collider2D collider = _nonBoxes[i];
+                for (int i = 0; i < _nonBoxes.Count; i++)
+                {
+                    Collider2D collider = _nonBoxes[i];
 
-                if (collider != null && collider.enabled)
-                    _skippedNonBox++;
+                    if (collider != null && collider.enabled)
+                        _skippedNonBox++;
+                }
             }
         }
+
+        _builtTick = tick;
+        _builtEpoch = epoch;
     }
 
-    private static void RegisterNewBodies(List<HullStructure> all)
+    private static void SyncHullSources(List<HullStructure> all)
     {
+        int previousActiveCount = _activeHullSourceCount;
+        _activeHullSourceCount = 0;
+        EnsureActiveHullCapacity(all.Count);
+
         for (int i = 0; i < all.Count; i++)
         {
-            HullStructure body = all[i];
+            HullStructure hull = all[i];
 
-            if (body == null || body.Body == null)
+            if (hull == null || hull.Body == null)
                 continue;
 
-            // **콜라이더 수가 늘면 다시 훑는다.** "이 몸은 이미 등록했다"만 보면 등록 뒤에
-            // 붙은 콜라이더가 이 세계에 영영 없고, 증상은 에러가 아니라 "파편이 그 판을
-            // 그냥 통과한다"다 - 판정이 Physics2D에서 넘어온 뒤로는 대조 모드에서만 보인다.
-            // 수가 주는 것은 무시해도 된다: 판은 죽기만 하고 TryBuildEntry가 죽은 것을 거른다.
-            int attached = body.Body.attachedColliderCount;
+            Rigidbody2D body = hull.Body;
+            int attached = body.attachedColliderCount;
 
-            if (_registeredBodies.TryGetValue(body, out int had) && had >= attached)
-                continue;
+            if (!_hullSources.TryGetValue(hull, out HullSourceCache cache))
+            {
+                cache = new HullSourceCache();
+                _hullSources.Add(hull, cache);
+            }
 
-            _registeredBodies[body] = attached;
-            RegisterBody(body.Body);
+            if (!ReferenceEquals(cache.body, body) || cache.attachedCount != attached)
+                RebuildHullSources(cache, body, attached);
+
+            _activeHullSources[_activeHullSourceCount++] = cache;
+        }
+
+        if (_activeHullSourceCount < previousActiveCount)
+        {
+            System.Array.Clear(
+                _activeHullSources,
+                _activeHullSourceCount,
+                previousActiveCount - _activeHullSourceCount);
         }
     }
 
-    private static void RebuildSources(List<HullStructure> all)
+    private static void RebuildSources()
     {
         // 참조를 지워서 파괴된 Collider2D/Transform이 배열에 매달려 있지 않게 한다.
         System.Array.Clear(_sources, 0, _sourceCount);
         _sourceCount = 0;
 
         _nonBoxes.Clear();
-        _registeredBodies.Clear();
+        _hullSources.Clear();
         _registeredColliders.Clear();
-
-        _sourceIndex.Clear(); // 추가
-
-        RegisterNewBodies(all);
+        _sourceIndex.Clear();
     }
 
-    private static void RegisterBody(Rigidbody2D body)
+    private static void RebuildHullSources(
+        HullSourceCache cache,
+        Rigidbody2D body,
+        int required)
     {
-        int required = body.attachedColliderCount;
-
-        if (required > _attached.Length)
-        {
-            int capacity = _attached.Length;
-
-            while (capacity < required)
-                capacity *= 2;
-
-            System.Array.Resize(ref _attached, capacity);
-        }
+        EnsureAttachedCapacity(required);
 
         int count = body.GetAttachedColliders(_attached);
+        EnsureHullSourceCapacity(cache, count);
+
+        int previousCount = cache.count;
+        cache.body = body;
+        cache.attachedCount = count;
+        cache.count = 0;
+        cache.bodyLocalCount = 0;
+
+        Matrix4x4 worldToBody = default;
+        bool hasWorldToBody = false;
 
         for (int i = 0; i < count; i++)
         {
             Collider2D collider = _attached[i];
 
-            // 잔해로 reparent된 콜라이더는 새 Rigidbody에서도 보인다. 전역 중복 제거로
-            // 원래 Source 하나를 유지하면 재등록/순서 변화가 없다.
-            if (collider == null || !_registeredColliders.Add(collider))
+            if (ReferenceEquals(collider, null)
+                || !TryGetOrRegisterSource(collider, out int sourceIndex))
                 continue;
 
-            if (TryCreateSource(collider, out Source source))
-            {
-                if (_sourceCount >= _sources.Length)
-                    System.Array.Resize(ref _sources, _sources.Length * 2);
+            int destination = cache.count++;
+            cache.colliders[destination] = collider;
+            cache.sourceIndices[destination] = sourceIndex;
 
-                _sources[_sourceCount] = source;
-                _sourceIndex.Add(collider, _sourceCount);
-                _sourceCount++;
-            }
-            else
+            ref Source source = ref _sources[sourceIndex];
+
+            if (source.isArmor)
             {
-                _nonBoxes.Add(collider);
+                if (!hasWorldToBody)
+                {
+                    worldToBody = body.transform.worldToLocalMatrix;
+                    hasWorldToBody = true;
+                }
+
+                cache.bodyGeometry[destination] = CreateBodyGeometry(
+                    in source,
+                    in worldToBody);
+                cache.bodyLocalCount++;
             }
         }
+
+        if (cache.count < previousCount)
+            System.Array.Clear(cache.colliders, cache.count, previousCount - cache.count);
+    }
+
+    private static bool TryGetOrRegisterSource(Collider2D collider, out int sourceIndex)
+    {
+        if (_sourceIndex.TryGetValue(collider, out sourceIndex))
+            return true;
+
+        if (!_registeredColliders.Add(collider))
+        {
+            sourceIndex = -1;
+            return false;
+        }
+
+        if (!TryCreateSource(collider, out Source source))
+        {
+            _nonBoxes.Add(collider);
+            sourceIndex = -1;
+            return false;
+        }
+
+        if (_sourceCount >= _sources.Length)
+            System.Array.Resize(ref _sources, _sources.Length * 2);
+
+        sourceIndex = _sourceCount++;
+        _sources[sourceIndex] = source;
+        _sourceIndex.Add(collider, sourceIndex);
+        return true;
     }
 
     private static bool TryCreateSource(Collider2D collider, out Source source)
@@ -366,7 +428,6 @@ public static class TraceWorld
 
         source = new Source
         {
-            collider = collider,
             transform = box.transform,
             halfU = new Vector2(box.size.x * 0.5f, 0f),
             halfV = new Vector2(0f, box.size.y * 0.5f),
@@ -377,30 +438,68 @@ public static class TraceWorld
         return true;
     }
 
+    private static BodyGeometry CreateBodyGeometry(
+        in Source source,
+        in Matrix4x4 worldToBody)
+    {
+        Matrix4x4 sourceToWorld = source.transform.localToWorldMatrix;
+
+        return new BodyGeometry
+        {
+            halfU = worldToBody.MultiplyVector(sourceToWorld.MultiplyVector(source.halfU)),
+            halfV = worldToBody.MultiplyVector(sourceToWorld.MultiplyVector(source.halfV)),
+            offset = worldToBody.MultiplyPoint3x4(sourceToWorld.MultiplyPoint3x4(source.offset)),
+        };
+    }
+
     private static bool TryBuildEntry(in Source source, out Entry entry)
     {
-        entry = default;
-
-        // **네이티브 호출은 이제 하나뿐이다.** 여기는 틱마다 콜라이더 4,000개를 도는 자리라
-        // 호출 하나가 곧 밀리초다. 예전에는 여섯이었다 - null 검사, enabled, transform
-        // null 검사, TransformVector 둘, TransformPoint 하나.
+        // 몸에 대해 움직일 수 있는 모듈만 이 길로 온다. 고정 장갑은 몸-로컬 기하를 캐시해
+        // 선체당 행렬 하나로 TryBuildBodyEntry에서 처리한다.
         //
         // enabled를 여기서 안 본다: 죽은 콜라이더는 **채택할 때** 걸러진다(Trace의 생존
         // 검사와 GetJobSnapshot의 active 배열). 여기서 한 번 더 보는 것은 같은 답을 두 번
         // 사는 것이고, 남는 엔트리는 hull AABB를 조금 부풀릴 뿐이라 보수적으로만 틀린다.
-        // transform null 검사도 뺀다 - 살아 있는 콜라이더에 transform이 없을 수 없다.
-        //
-        // 콜라이더 생존 검사도 여기 없다: 부르는 쪽 둘이 이미 보장한다. 자세 루프는
-        // _attached[c]를 검사한 뒤 오고(같은 오브젝트다), 자체 테스트는 방금 만든 것을
-        // 넘긴다. Unity의 == 는 네이티브 생존 확인이라 같은 답을 두 번 사는 것이었다.
 
         // TransformVector/TransformPoint를 따로 부르면 같은 행렬을 세 번 네이티브에서
         // 받아온다. 한 번 받아 C#에서 곱하면 산술은 같고 마샬링만 사라진다.
         Matrix4x4 toWorld = source.transform.localToWorldMatrix;
 
+        return TryBuildEntry(
+            in source,
+            in toWorld,
+            source.halfU,
+            source.halfV,
+            source.offset,
+            out entry);
+    }
+
+    private static bool TryBuildBodyEntry(
+        in Source source,
+        in BodyGeometry geometry,
+        in Matrix4x4 bodyToWorld,
+        out Entry entry)
+        => TryBuildEntry(
+            in source,
+            in bodyToWorld,
+            geometry.halfU,
+            geometry.halfV,
+            geometry.offset,
+            out entry);
+
+    private static bool TryBuildEntry(
+        in Source source,
+        in Matrix4x4 toWorld,
+        Vector2 halfU,
+        Vector2 halfV,
+        Vector2 offset,
+        out Entry entry)
+    {
+        entry = default;
+
         // 현재 회전·스케일을 먹는다. 캐시 뒤 이동/회전/좌우 반전돼도 OBB는 현재 자세를 따른다.
-        Vector2 u = toWorld.MultiplyVector(source.halfU);
-        Vector2 v = toWorld.MultiplyVector(source.halfV);
+        Vector2 u = toWorld.MultiplyVector(halfU);
+        Vector2 v = toWorld.MultiplyVector(halfV);
         float hu = u.magnitude;
         float hv = v.magnitude;
 
@@ -409,9 +508,9 @@ public static class TraceWorld
 
         entry = new Entry
         {
-            centre = toWorld.MultiplyPoint3x4(source.offset),
-            axisU = u / hu,
-            axisV = v / hv,
+            centre = toWorld.MultiplyPoint3x4(offset),
+            axisU = u * (1f / hu),
+            axisV = v * (1f / hv),
             halfU = hu,
             halfV = hv,
             radius = Mathf.Sqrt(hu * hu + hv * hv),
@@ -421,52 +520,166 @@ public static class TraceWorld
         return true;
     }
 
-    private static void EnsureSnapshotCapacity()
+    private static void EnsureAttachedCapacity(int required)
     {
-        if (_count < _obb.Length)
+        if (required <= _attached.Length)
             return;
 
-        System.Array.Resize(ref _obb, _obb.Length * 2);
-        System.Array.Resize(ref _colliders, _colliders.Length * 2);
+        int capacity = _attached.Length;
+
+        while (capacity < required)
+            capacity *= 2;
+
+        System.Array.Resize(ref _attached, capacity);
+    }
+
+    private static void EnsureHullSourceCapacity(HullSourceCache cache, int required)
+    {
+        if (required <= cache.colliders.Length)
+            return;
+
+        int capacity = cache.colliders.Length;
+
+        while (capacity < required)
+            capacity *= 2;
+
+        System.Array.Resize(ref cache.colliders, capacity);
+        System.Array.Resize(ref cache.sourceIndices, capacity);
+        System.Array.Resize(ref cache.bodyGeometry, capacity);
+    }
+
+    private static void EnsureActiveHullCapacity(int required)
+    {
+        if (required <= _activeHullSources.Length)
+            return;
+
+        int capacity = _activeHullSources.Length;
+
+        while (capacity < required)
+            capacity *= 2;
+
+        System.Array.Resize(ref _activeHullSources, capacity);
+    }
+
+    private static void EnsureHullCapacity(int required)
+    {
+        if (required <= _hulls.Length)
+            return;
+
+        int capacity = _hulls.Length;
+
+        while (capacity < required)
+            capacity *= 2;
+
+        System.Array.Resize(ref _hulls, capacity);
+    }
+
+    private static void EnsureSnapshotCapacity(int required)
+    {
+        if (required <= _obb.Length)
+            return;
+
+        int capacity = _obb.Length;
+
+        while (capacity < required)
+            capacity *= 2;
+
+        System.Array.Resize(ref _obb, capacity);
+        System.Array.Resize(ref _colliders, capacity);
     }
 
 #if UNITY_EDITOR
     internal static bool CachedSourceSelfTest()
     {
-        GameObject go = new("TraceWorld Cached Source Self Test");
+        GameObject fixture = new("TraceWorld Cached Source Self Test");
 
         try
         {
-            go.layer = 7;
-            BoxCollider2D box = go.AddComponent<BoxCollider2D>();
+            var bodyA = new GameObject("body A");
+            bodyA.transform.SetParent(fixture.transform, false);
+
+            var bodyB = new GameObject("body B");
+            bodyB.transform.SetParent(fixture.transform, false);
+
+            var plate = new GameObject("plate");
+            plate.transform.SetParent(bodyA.transform, false);
+            plate.layer = 7;
+            plate.transform.localPosition = new Vector3(1.5f, -0.75f, 0f);
+            plate.transform.localRotation = Quaternion.Euler(0f, 0f, 19f);
+            plate.transform.localScale = new Vector3(0.8f, 1.2f, 1f);
+
+            BoxCollider2D box = plate.AddComponent<BoxCollider2D>();
             box.size = new Vector2(2.5f, 1.25f);
             box.offset = new Vector2(0.3f, -0.2f);
 
             if (!TryCreateSource(box, out Source source))
                 return false;
 
-            // Source를 뜬 뒤 자세를 바꾼다. 음수 x는 좌우 반전 회귀까지 함께 고정한다.
-            go.transform.SetPositionAndRotation(new Vector3(4f, -3f), Quaternion.Euler(0f, 0f, 37f));
-            go.transform.localScale = new Vector3(-1.7f, 0.8f, 1f);
+            BodyGeometry bodyGeometry = CreateBodyGeometry(
+                in source,
+                bodyA.transform.worldToLocalMatrix);
 
-            if (!TryBuildEntry(source, out Entry entry))
+            bodyA.transform.SetPositionAndRotation(
+                new Vector3(4f, -3f),
+                Quaternion.Euler(0f, 0f, 37f));
+            bodyA.transform.localScale = new Vector3(-1.7f, 0.8f, 1f);
+
+            Matrix4x4 bodyToWorld = bodyA.transform.localToWorldMatrix;
+
+            if (!TryBuildBodyEntry(
+                    in source,
+                    in bodyGeometry,
+                    in bodyToWorld,
+                    out Entry bodyEntry)
+                || !EntryMatches(in source, plate.transform, in bodyEntry))
                 return false;
 
-            Vector2 expectedU = go.transform.TransformVector(source.halfU);
-            Vector2 expectedV = go.transform.TransformVector(source.halfV);
-            Vector2 expectedCentre = go.transform.TransformPoint(source.offset);
+            // 포탑처럼 몸에 대해 도는 모듈은 현재 Transform을 계속 읽는다.
+            plate.transform.localRotation = Quaternion.Euler(0f, 0f, -42f);
 
-            return Vector2.Distance(entry.centre, expectedCentre) < 1e-5f
-                && Vector2.Distance(entry.axisU, expectedU.normalized) < 1e-5f
-                && Vector2.Distance(entry.axisV, expectedV.normalized) < 1e-5f
-                && Mathf.Abs(entry.halfU - expectedU.magnitude) < 1e-5f
-                && Mathf.Abs(entry.halfV - expectedV.magnitude) < 1e-5f
-                && entry.layer == 7;
+            if (!TryBuildEntry(in source, out Entry dynamicEntry)
+                || !EntryMatches(in source, plate.transform, in dynamicEntry))
+                return false;
+
+            plate.transform.SetParent(bodyB.transform, worldPositionStays: true);
+            bodyGeometry = CreateBodyGeometry(
+                in source,
+                bodyB.transform.worldToLocalMatrix);
+
+            bodyB.transform.SetPositionAndRotation(
+                new Vector3(-6f, 2f),
+                Quaternion.Euler(0f, 0f, -23f));
+            bodyB.transform.localScale = new Vector3(1.25f, -0.9f, 1f);
+            bodyToWorld = bodyB.transform.localToWorldMatrix;
+
+            return TryBuildBodyEntry(
+                    in source,
+                    in bodyGeometry,
+                    in bodyToWorld,
+                    out Entry reboundEntry)
+                && EntryMatches(in source, plate.transform, in reboundEntry);
         }
         finally
         {
-            Object.DestroyImmediate(go);
+            Object.DestroyImmediate(fixture);
         }
+    }
+
+    private static bool EntryMatches(
+        in Source source,
+        Transform transform,
+        in Entry entry)
+    {
+        Vector2 expectedU = transform.TransformVector(source.halfU);
+        Vector2 expectedV = transform.TransformVector(source.halfV);
+        Vector2 expectedCentre = transform.TransformPoint(source.offset);
+
+        return Vector2.Distance(entry.centre, expectedCentre) < 1e-5f
+            && Vector2.Distance(entry.axisU, expectedU.normalized) < 1e-5f
+            && Vector2.Distance(entry.axisV, expectedV.normalized) < 1e-5f
+            && Mathf.Abs(entry.halfU - expectedU.magnitude) < 1e-5f
+            && Mathf.Abs(entry.halfV - expectedV.magnitude) < 1e-5f
+            && entry.layer == 7;
     }
 #endif
 
@@ -492,119 +705,138 @@ public static class TraceWorld
         Vector2 bestNormal = default;
         const float TieEpsilon = 1e-3f;   // 모듈이 판 면에 딱 붙은 자리의 동점 창
 
-        // 브로드페이즈: 사거리 원 밖의 OBB는 슬래브 검사 자체를 안 한다. 거울 링은
-        // 지름 120 m에 파편 사거리가 15 m라, 이 한 줄이 후보의 대부분을 자른다.
+        // 브로드페이즈 1단계: hull AABB. 거울 링(776판)처럼 콜라이더가 한 hull에 몰린
+        // 덩어리가 이 광선의 사거리 밖이면 그 안의 콜라이더를 전부 건너뛴다 - 파편
+        // Job(TraceJob, 아래)이 이미 쓰던 hull 단계를 일반 포탄 경로에도 그대로 쓴다.
+        // 예전엔 일반 포탄이 이 단계 없이 _count 전체(전장의 모든 콜라이더)를 돌았다.
         float reach = range;
 
-        for (int i = 0; i < _count; i++)
+        float2 startF = new(start.x, start.y);
+        float2 dirF = new(dir.x, dir.y);
+
+        for (int h = 0; h < _hullCount; h++)
         {
-            ref Entry e = ref _obb[i];
+            HullEntry hull = _hulls[h];
 
-            if ((layerMask & (1 << e.layer)) == 0)
+            if (!RayIntersectsAabb(
+                    startF, dirF, range,
+                    new float2(hull.min.x, hull.min.y),
+                    new float2(hull.max.x, hull.max.y)))
                 continue;
 
-            // OBB 로컬로: 슬래브 검사
-            Vector2 rel = start - e.centre;
+            int hullEnd = hull.start + hull.count;
 
-            float cull = reach + e.radius;
-
-            if (rel.sqrMagnitude > cull * cull)
-                continue;
-            float ru = Vector2.Dot(rel, e.axisU);
-            float rv = Vector2.Dot(rel, e.axisV);
-            float du = Vector2.Dot(dir, e.axisU);
-            float dv = Vector2.Dot(dir, e.axisV);
-
-            // 시작점이 안이면 통째로 무시 - queriesStartInColliders = false.
-            // **표면 1mm 안도 "안"이다.** 파편은 방금 맞은 면 위에서 태어난다 - Physics2D는
-            // 이 서브밀리 경계에서 미스와 0m 명중을 오락가락했고(대조 잔여 2건 전부 이것),
-            // 여기는 규칙이다: 낳아준 면을 도로 맞지 않는다. SpallResolver의 Epsilon 넛지와
-            // 같은 의도를 판정 쪽에서 못박는 것.
-            const float SurfaceSkin = 1e-3f;
-
-            if (Mathf.Abs(ru) < e.halfU + SurfaceSkin && Mathf.Abs(rv) < e.halfV + SurfaceSkin)
-                continue;
-
-            float tMin = 0f;
-            float tMax = range;
-            int minAxis = 0;      // 0 = u면, 1 = v면
-            float minSign = 0f;
-
-            // u 슬래브
-            if (Mathf.Abs(du) < 1e-9f)
+            // 브로드페이즈 2단계: hull을 통과한 것만 사거리 원(기존 로직 그대로)으로 거른다.
+            for (int i = hull.start; i < hullEnd; i++)
             {
-                if (Mathf.Abs(ru) > e.halfU)
+                ref Entry e = ref _obb[i];
+
+                if ((layerMask & (1 << e.layer)) == 0)
                     continue;
-            }
-            else
-            {
-                float inv = 1f / du;
-                float t1 = (-e.halfU - ru) * inv;
-                float t2 = (e.halfU - ru) * inv;
-                float sign = -Mathf.Sign(du);
 
-                if (t1 > t2)
-                    (t1, t2) = (t2, t1);
+                // OBB 로컬로: 슬래브 검사
+                Vector2 rel = start - e.centre;
 
-                if (t1 > tMin)
+                float cull = reach + e.radius;
+
+                if (rel.sqrMagnitude > cull * cull)
+                    continue;
+                float ru = Vector2.Dot(rel, e.axisU);
+                float rv = Vector2.Dot(rel, e.axisV);
+                float du = Vector2.Dot(dir, e.axisU);
+                float dv = Vector2.Dot(dir, e.axisV);
+
+                // 시작점이 안이면 통째로 무시 - queriesStartInColliders = false.
+                // **표면 1mm 안도 "안"이다.** 파편은 방금 맞은 면 위에서 태어난다 - Physics2D는
+                // 이 서브밀리 경계에서 미스와 0m 명중을 오락가락했고(대조 잔여 2건 전부 이것),
+                // 여기는 규칙이다: 낳아준 면을 도로 맞지 않는다. SpallResolver의 Epsilon 넛지와
+                // 같은 의도를 판정 쪽에서 못박는 것.
+                const float SurfaceSkin = 1e-3f;
+
+                if (Mathf.Abs(ru) < e.halfU + SurfaceSkin && Mathf.Abs(rv) < e.halfV + SurfaceSkin)
+                    continue;
+
+                float tMin = 0f;
+                float tMax = range;
+                int minAxis = 0;      // 0 = u면, 1 = v면
+                float minSign = 0f;
+
+                // u 슬래브
+                if (Mathf.Abs(du) < 1e-9f)
                 {
-                    tMin = t1;
-                    minAxis = 0;
-                    minSign = sign;
+                    if (Mathf.Abs(ru) > e.halfU)
+                        continue;
+                }
+                else
+                {
+                    float inv = 1f / du;
+                    float t1 = (-e.halfU - ru) * inv;
+                    float t2 = (e.halfU - ru) * inv;
+                    float sign = -Mathf.Sign(du);
+
+                    if (t1 > t2)
+                        (t1, t2) = (t2, t1);
+
+                    if (t1 > tMin)
+                    {
+                        tMin = t1;
+                        minAxis = 0;
+                        minSign = sign;
+                    }
+
+                    tMax = Mathf.Min(tMax, t2);
                 }
 
-                tMax = Mathf.Min(tMax, t2);
-            }
-
-            // v 슬래브
-            if (Mathf.Abs(dv) < 1e-9f)
-            {
-                if (Mathf.Abs(rv) > e.halfV)
-                    continue;
-            }
-            else
-            {
-                float inv = 1f / dv;
-                float t1 = (-e.halfV - rv) * inv;
-                float t2 = (e.halfV - rv) * inv;
-                float sign = -Mathf.Sign(dv);
-
-                if (t1 > t2)
-                    (t1, t2) = (t2, t1);
-
-                if (t1 > tMin)
+                // v 슬래브
+                if (Mathf.Abs(dv) < 1e-9f)
                 {
-                    tMin = t1;
-                    minAxis = 1;
-                    minSign = sign;
+                    if (Mathf.Abs(rv) > e.halfV)
+                        continue;
+                }
+                else
+                {
+                    float inv = 1f / dv;
+                    float t1 = (-e.halfV - rv) * inv;
+                    float t2 = (e.halfV - rv) * inv;
+                    float sign = -Mathf.Sign(dv);
+
+                    if (t1 > t2)
+                        (t1, t2) = (t2, t1);
+
+                    if (t1 > tMin)
+                    {
+                        tMin = t1;
+                        minAxis = 1;
+                        minSign = sign;
+                    }
+
+                    tMax = Mathf.Min(tMax, t2);
                 }
 
-                tMax = Mathf.Min(tMax, t2);
+                if (tMin > tMax || tMin <= 0f)
+                    continue;
+
+                // **동점은 판이 탄을 받는다.** 모듈은 판 위에 볼트로 붙어 면이 겹치므로 같은
+                // 거리의 명중이 상시로 나온다 - Physics2D는 내부 순서로 아무거나 줬고, 여기서는
+                // 규칙이다: 판이 겉이다.
+                bool tie = Mathf.Abs(tMin - best) <= TieEpsilon;
+
+                if (tie ? (bestIsArmor || !e.isArmor) : tMin >= best)
+                    continue;
+
+                // 스냅샷 뜬 뒤 같은 페이즈 안에서 죽은 콜라이더(유폭 연쇄가 이 창을 상시로
+                // 연다) - Physics2D처럼 없는 것으로 친다. 네이티브 검사가 후보에게만 나가고,
+                // 2단계의 wave 스냅샷이 이 검사를 구조적으로 대체한다.
+                Collider2D live = _colliders[i];
+
+                if (live == null || !live.enabled)
+                    continue;
+
+                best = tMin;
+                bestIndex = i;
+                bestIsArmor = e.isArmor;
+                bestNormal = (minAxis == 0 ? _obb[i].axisU : _obb[i].axisV) * minSign;
             }
-
-            if (tMin > tMax || tMin <= 0f)
-                continue;
-
-            // **동점은 판이 탄을 받는다.** 모듈은 판 위에 볼트로 붙어 면이 겹치므로 같은
-            // 거리의 명중이 상시로 나온다 - Physics2D는 내부 순서로 아무거나 줬고, 여기서는
-            // 규칙이다: 판이 겉이다.
-            bool tie = Mathf.Abs(tMin - best) <= TieEpsilon;
-
-            if (tie ? (bestIsArmor || !e.isArmor) : tMin >= best)
-                continue;
-
-            // 스냅샷 뜬 뒤 같은 페이즈 안에서 죽은 콜라이더(유폭 연쇄가 이 창을 상시로
-            // 연다) - Physics2D처럼 없는 것으로 친다. 네이티브 검사가 후보에게만 나가고,
-            // 2단계의 wave 스냅샷이 이 검사를 구조적으로 대체한다.
-            Collider2D live = _colliders[i];
-
-            if (live == null || !live.enabled)
-                continue;
-
-            best = tMin;
-            bestIndex = i;
-            bestIsArmor = e.isArmor;
-            bestNormal = (minAxis == 0 ? _obb[i].axisU : _obb[i].axisV) * minSign;
         }
 
         if (bestIndex < 0)
