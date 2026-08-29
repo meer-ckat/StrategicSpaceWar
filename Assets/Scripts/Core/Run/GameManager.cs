@@ -21,6 +21,22 @@ public sealed class GameManager : MonoBehaviour
     public static float DownSeconds =>
         PlayerDown ? Time.unscaledTime - _downTime : -1f;
 
+    /// <summary>씬이 열리고 흐른 시간(초). HUD 부팅 시각표의 원점.</summary>
+    public static float SceneSeconds => Time.unscaledTime - _sceneStart;
+
+    /// <summary>부팅 연출이 시작되기까지의 지연. 암전에서 씬이 밝아오는 시간이다.</summary>
+    public const float GuiBootDelay = 1.5f;
+
+    /// <summary>
+    /// 지금 GUI가 숨어야 하는가. 격파 중이거나, 재시작 직후 HUD 부팅이 아직 안 끝난
+    /// 동안이다 - 대사창·마커·피격 표시가 전부 이 하나를 본다. 계기가 다 들어온 뒤에
+    /// 전술 정보가 들어오는 순서다.
+    /// </summary>
+    public static bool GuiHidden =>
+        PlayerDown || SceneSeconds < GuiBootDelay + ShipStatusHud.BootSpanSeconds;
+
+    private static float _sceneStart;
+
     /// <summary>
     /// 플레이어 함선. 프레임당 여러 곳이 물어서 프레임 캐시 하나 - 파괴된 프레임에는
     /// 마지막 참조가 Unity fake-null이라 검사(== null)가 자연히 걸러낸다.
@@ -63,6 +79,9 @@ public sealed class GameManager : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Install()
     {
+        // 첫 씬은 sceneLoaded 콜백보다 먼저 열려 있다 - 원점을 여기서 한 번 찍는다.
+        _sceneStart = Time.unscaledTime;
+
         if (FindFirstObjectByType<GameManager>() != null)
             return;
 
@@ -72,6 +91,13 @@ public sealed class GameManager : MonoBehaviour
 
         go.AddComponent<GameManager>();
     }
+
+    private void OnEnable() => SceneManager.sceneLoaded += OnSceneLoaded;
+
+    private void OnDisable() => SceneManager.sceneLoaded -= OnSceneLoaded;
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode) =>
+        _sceneStart = Time.unscaledTime;
 
     private void Update()
     {

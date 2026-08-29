@@ -129,7 +129,7 @@ public sealed class ContactView : MonoBehaviour
     private void Update()
     {
         // 격파 시퀀스 중에는 접촉 마커가 즉시 꺼진다. 선언을 그만두는 것이 곧 지우는 것이다.
-        if (GameManager.PlayerDown)
+        if (GameManager.GuiHidden)
             return;
 
         ImGui.Begin();

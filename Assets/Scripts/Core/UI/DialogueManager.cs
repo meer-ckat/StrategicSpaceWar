@@ -391,7 +391,7 @@ public class DialogueManager : MonoBehaviour
         // 격파 시퀀스 중에는 대사창이 즉시 꺼지고 대사 진행도 멈춘다. Begin 뒤여야
         // 한다 - 선언만 그만두면 수확이 이번 프레임 위젯을 걷어 화면에서 사라진다.
         // (수확 자체는 GameManager가 프레임마다 보장한다.)
-        if (GameManager.PlayerDown)
+        if (GameManager.GuiHidden)
             return;
 
         Advance(dt);

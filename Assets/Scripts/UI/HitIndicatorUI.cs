@@ -190,7 +190,7 @@ public sealed class HitIndicatorUI : MonoBehaviour
         }
 
         // 격파 시퀀스 중에는 피격 표시가 즉시 꺼진다.
-        if (GameManager.PlayerDown)
+        if (GameManager.GuiHidden)
             return;
 
         if (view == null)

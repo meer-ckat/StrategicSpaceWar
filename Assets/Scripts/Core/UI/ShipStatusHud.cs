@@ -109,7 +109,7 @@ public sealed class ShipStatusHud : MonoBehaviour
         // 월드 정보는 패널보다 먼저 그린다.
         // 패널이 선에 가려지지 않는다.
         // 전투 불능이 되면 조준 정보부터 즉시 끊긴다 - 패널은 하나씩 소등된다.
-        if (cam != null && !GameManager.PlayerDown)
+        if (cam != null && !GameManager.GuiHidden)
         {
             DrawVelocityVector(ship, cam);
             DrawGunAimVectors(ship, cam);
@@ -139,6 +139,9 @@ public sealed class ShipStatusHud : MonoBehaviour
     public const float ShutdownSeconds =
         (SectionCount - 1) * SectionStagger + DieFlashSeconds;
 
+    /// <summary>부팅에서 마지막 섹션이 켜지는 시각. GameManager.GuiHidden이 이걸 본다.</summary>
+    public const float BootSpanSeconds = (SectionCount - 1) * SectionStagger;
+
     private static bool _sectionDying;
     private static Vector2 _sectionShake;
 
@@ -158,7 +161,13 @@ public sealed class ShipStatusHud : MonoBehaviour
         float down = GameManager.DownSeconds;
 
         if (down < 0f)
-            return true;
+        {
+            // 부팅. 소등의 역순(함체 -> 비행 -> 무장)으로 하나씩 켜진다 - 마지막에
+            // 꺼진 계기가 제일 먼저 돌아오는 대칭이고, 시동 순서로도 그게 맞다.
+            float sinceBoot = GameManager.SceneSeconds - GameManager.GuiBootDelay;
+
+            return sinceBoot >= (SectionCount - 1 - order) * SectionStagger;
+        }
 
         float dieAt = order * SectionStagger;
 
