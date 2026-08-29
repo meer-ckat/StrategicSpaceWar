@@ -72,7 +72,7 @@ public class CameraSystem : MonoBehaviour
         }
 
         transform.position = new Vector3(
-            transform.position.x + jitter.x, transform.position.y + jitter.y, -10f -cam.orthographicSize / 5f);
+            transform.position.x + jitter.x, transform.position.y + jitter.y, -10f -cam.orthographicSize);
     }
 
     // --- 컷신 프레이밍 ---
@@ -201,10 +201,9 @@ public class CameraSystem : MonoBehaviour
     [SerializeField] float zoomSmooth = 0.15f;
 
     /// <summary>
-    /// 속도 기반 줌아웃의 여유 배율. SmoothDamp로 따라가는 카메라는 정속 이동 중
-    /// 목표보다 대략 "속도 × moveSmooth"만큼 뒤처진다(임계감쇠 근사) - 그 오차가
-    /// 화면 절반(orthographicSize)보다 커지면 배가 화면 밖으로 밀려난다. 1이면 딱
-    /// 오차만큼만 담아 배가 가장자리에 붙고, 그래서 여유를 둔다.
+    /// 속도 기반 줌아웃 배율. 위치가 하드락된 뒤로 지연 보상이 아니라 순수 연출이다 -
+    /// 빠를수록 넓게 보여서 속도감을 주고, 마주 오는 것을 미리 보여준다.
+    /// 식의 moveSmooth 곱은 하드락 전 튜닝 값을 그대로 보존하려고 남겨 둔 상수다.
     /// </summary>
     [SerializeField] float speedZoomFactor = 2f;
 
@@ -213,6 +212,9 @@ public class CameraSystem : MonoBehaviour
 
     private Vector2 moveVelocity;
     private float zoomVelocity;
+
+    // 마우스 lookAhead 오프셋의 현재값. 부드러움은 이것에만 있다 - 배 위치는 하드락이다.
+    private Vector2 _aimOffset;
 
     private Transform _rigOwner;
     private Rigidbody2D _targetRig;
@@ -233,9 +235,14 @@ public class CameraSystem : MonoBehaviour
         // 원형 범위로 제한
         aim = Vector2.ClampMagnitude(aim, 1f);
 
-        // 마우스 방향으로 카메라 이동
-        Vector2 targetPosition =
-            (Vector2)A.position + aim * lookAhead;
+        // 배 위치는 보간 없이 그대로 물린다. SmoothDamp에 배 위치까지 넣으면 정상
+        // 이동 중 "속도 × moveSmooth"만큼 영구히 뒤처지고, 배(60Hz 틱)와 카메라
+        // (프레임 시계)가 다른 시계를 타서 배가 화면에서 떨린다 - 그 떨림이 속도에
+        // 비례해 커지는 것이 "빠르면 모션블러" 증상이었다. 하드락이면 배-카메라
+        // 상대 속도가 0이라 배는 픽셀에 고정되고 세계가 대신 스크롤한다. 렉으로
+        // 한 프레임에 틱이 몰아쳐도 배는 제자리다 - 스파이크는 배경으로만 보인다.
+        //
+        // 부드러움은 마우스 lookAhead 오프셋에만 남는다.
 
         // 마우스가 중앙에서 멀수록 zoom out
         float mouseZoom =
@@ -253,12 +260,14 @@ public class CameraSystem : MonoBehaviour
 
         float targetZoom = Mathf.Max(mouseZoom, speedZoom);
 
-        Vector2 newPosition = Vector2.SmoothDamp(
-            transform.position,
-            targetPosition,
+        _aimOffset = Vector2.SmoothDamp(
+            _aimOffset,
+            aim * lookAhead,
             ref moveVelocity,
             moveSmooth
         );
+
+        Vector2 newPosition = (Vector2)A.position + _aimOffset;
 
         transform.position = new Vector3(
             newPosition.x,
