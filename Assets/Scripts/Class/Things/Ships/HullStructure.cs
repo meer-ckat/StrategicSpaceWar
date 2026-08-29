@@ -140,6 +140,10 @@ public sealed class HullStructure : MonoBehaviour
     /// </summary>
     public void ReportPlateLost(Transform plate, float heat = 0f)
     {
+        // 판이 하나 사라지면 그 판을 벽으로 세던 방의 파공 수가 바뀐다. 아래 어느
+        // 갈래로 빠지든 그 사실은 같으므로 맨 위에서 한 번만 올린다.
+        Ship.BreachVersion++;
+
         // 선체 직속 자식만. Stamp가 도장을 찍는 규칙과 정확히 같아야 한다 - 판에 볼트로
         // 붙은 모듈의 localPosition은 판 기준이라 엉뚱한 칸을 지운다.
         // 정체 모를 신고는 보수적으로 dirty - 드물어서 값이 없다.
@@ -505,7 +509,8 @@ public sealed class HullStructure : MonoBehaviour
         HeatRearAt(cell, Ballistics.HeatFromExposure);
 
         _rear.Remove(cell);
-        RearVersion++;   // 그림이 이걸 보고 칸 마스크를 다시 채운다
+        RearVersion++;      // 그림이 이걸 보고 칸 마스크를 다시 채운다
+        Ship.BreachVersion++;  // 이 칸을 품은 방은 이제 바닥이 뚫렸다
     }
 
     /// <summary>

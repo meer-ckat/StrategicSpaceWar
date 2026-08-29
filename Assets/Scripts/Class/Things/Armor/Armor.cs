@@ -144,6 +144,11 @@ public abstract class Armor : Thing
 
         _dead = 0;
         AnyBreached = false;
+
+        // 복원은 파공을 **없앤다.** 세는 쪽만 무효화하고 이쪽을 빼면, 로드 직후의 방이
+        // 멀쩡한 판을 두고 뚫린 채로 굳는다.
+        Ship.BreachVersion++;
+
         DamageVersion++;
         DirtySubs = ulong.MaxValue;
     }
@@ -551,6 +556,11 @@ public abstract class Armor : Thing
 
         if (!wasAlive || _hp[subIndex] > 0f)
             return;
+
+        // 서지 않았다가 서는 순간만 방의 파공 캐시를 무효화한다. 매번 올리면 전투 중
+        // 매 틱 오르는 것과 같아서 캐시가 있으나 마나다.
+        if (!AnyBreached)
+            Ship.BreachVersion++;
 
         AnyBreached = true;
         _dead++;

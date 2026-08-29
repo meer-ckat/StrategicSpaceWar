@@ -273,6 +273,18 @@ public partial class Ship : Thing
     /// </summary>
     private static readonly Unity.Profiling.ProfilerMarker _mSpawn = new("Ship.Spawn");
 
+    /// <summary>
+    /// 방의 파공 수를 무효화하는 단 하나의 신호. 판이 뚫리거나(<see cref="Armor.AnyBreached"/>가
+    /// 서는 순간), 판이 죽거나(<see cref="HullStructure.ReportPlateLost"/>), 후면 칸이
+    /// 날아갈 때(HullStructure.KillRear) 오른다.
+    ///
+    /// ponytail: 전역 하나다. 배 A가 맞으면 배 B의 캐시까지 같이 죽는다. 피해 사건은
+    /// 초당 60틱에 비해 드물어서 그 낭비가 안 보이고, 배마다 들려면 판 하나가 자기
+    /// 주인을 찾아 올라가야 한다 - 그 GetComponentInParent가 아끼려는 것보다 비싸다.
+    /// 전투 중 파공이 매 틱 나는 것이 프로파일러에 잡히면 그때 배별로 쪼갠다.
+    /// </summary>
+    public static int BreachVersion;
+
     protected override void Awake()
     {
         using var _ = _mSpawn.Auto();
@@ -661,45 +673,60 @@ public partial class Ship : Thing
     }
 
     /// <summary>파공은 우주로 새고, 열린 문은 기압차만큼 옆방과 주고받는다.</summary>
+    
     void Atmosphere()
     {
         float dt = TickManager.TickDeltaTime;
 
         foreach (Room room in rooms)
         {
-            int breaches = 0;
-
-            int standing = 0;
-
-            foreach (Armor wall in room.walls)
-            {
-                if (wall == null)
-                    continue;
-
-                standing++;
-
-                if (wall.AnyBreached)
-                    breaches++;
-            }
-
-            // 맵이 둘러주기로 한 판 중 없어진 만큼은 통째로 구멍이다. 부서져 사라졌든
-            // 선체째 떨어져 나갔든 방 입장에서는 똑같이 우주로 열린 것이다.
-            breaches += room.boundaryPlates - standing;
-
-            // 뒤가 뚫린 칸도 구멍이다. **앞과 세는 방식이 다르다** - 전면 파공은 방을
-            // 둘러싼 판에서 나오지만(옆으로 뚫린 구멍), 후면은 방이 차지한 칸 자체가
-            // 구멍 후보다. 바닥이 없어진 셈이라 벽을 봐도 안 나온다.
+            // 파공 수는 사건으로만 바뀐다. 안 바뀐 틱에는 세지 않고 지난 값을 쓴다 -
+            // 세는 값은 벽 수 + 칸 수라, 아무도 안 맞은 틱에도 배마다 수백 번 돌던 자리다.
             //
-            // leakRate를 앞과 공유한다. 뒤 구멍이 다른 속도로 샐 이유가 없고, 상수를
-            // 하나 더 두면 "왜 뒤가 더 빨리 새지"를 두 곳에서 튜닝하게 된다.
-            for (int i = 0; i < room.cells.Count; i++)
+            // 예전에는 `tick % seed`로 통째로 걸렀는데 그것이 두 가지를 같이 망쳤다:
+            // seed가 1인 배(Ship.All.Count가 짝수일 때)는 매 틱 걸려서 **공기가 영영
+            // 안 샜고**, seed가 2인 배는 두 틱에 한 번 도는데 leakRate는 그대로라
+            // 새는 속도가 조용히 절반이 됐다. 캐시는 매 틱 감쇠를 그대로 두고 세는
+            // 것만 건너뛰므로 그 창이 없다.
+            if (room.breachVersion != BreachVersion)
             {
-                if (_structure.RearBreached(room.cells[i]))
-                    breaches++;
+                room.breachVersion = BreachVersion;
+
+                int breaches = 0;
+                int standing = 0;
+
+                foreach (Armor wall in room.walls)
+                {
+                    if (wall == null)
+                        continue;
+
+                    standing++;
+
+                    if (wall.AnyBreached)
+                        breaches++;
+                }
+
+                // 맵이 둘러주기로 한 판 중 없어진 만큼은 통째로 구멍이다. 부서져 사라졌든
+                // 선체째 떨어져 나갔든 방 입장에서는 똑같이 우주로 열린 것이다.
+                breaches += room.boundaryPlates - standing;
+
+                // 뒤가 뚫린 칸도 구멍이다. **앞과 세는 방식이 다르다** - 전면 파공은 방을
+                // 둘러싼 판에서 나오지만(옆으로 뚫린 구멍), 후면은 방이 차지한 칸 자체가
+                // 구멍 후보다. 바닥이 없어진 셈이라 벽을 봐도 안 나온다.
+                //
+                // leakRate를 앞과 공유한다. 뒤 구멍이 다른 속도로 샐 이유가 없고, 상수를
+                // 하나 더 두면 "왜 뒤가 더 빨리 새지"를 두 곳에서 튜닝하게 된다.
+                for (int i = 0; i < room.cells.Count; i++)
+                {
+                    if (_structure.RearBreached(room.cells[i]))
+                        breaches++;
+                }
+
+                room.breaches = breaches;
             }
 
-            if (breaches > 0)
-                room.air = Mathf.Max(0f, room.air - breaches * leakRate * dt);
+            if (room.breaches > 0)
+                room.air = Mathf.Max(0f, room.air - room.breaches * leakRate * dt);
         }
 
         foreach (KeyValuePair<Door, List<Room>> pair in roomsOfDoor)
@@ -852,6 +879,8 @@ public partial class Ship : Thing
     /// </summary>
     public Vector2 NoseDirection =>
         (Vector2)transform.right * (transform.localScale.x < 0f ? -1f : 1f);
+    public Vector2 PortDirection => //그러게 이건 왜 필요하지
+        (Vector2)transform.up * (transform.localScale.x < 0f ? -1f : 1f);//일단 지금 배들이 전부 오른쪽 생성이라서 port를 위쪽으로 함.
 
     /// <summary>
     /// 뱃머리 왼쪽(횡추력 +y가 미는 쪽). 코를 90도 돌린 것.

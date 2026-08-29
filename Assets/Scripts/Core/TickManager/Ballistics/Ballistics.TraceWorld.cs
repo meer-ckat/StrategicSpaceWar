@@ -45,6 +45,8 @@ public static class TraceWorld
         public bool isArmor;   // 동점 규칙용: 겹친 면에서는 판이 탄을 받는다
     }
 
+    
+
     /// <summary>
     /// 콜라이더에서 한 번만 읽는 로컬 기하. 함선의 이동·회전·반전은 Transform에 남으므로
     /// 매 틱 이 값들을 월드로 변환하기만 하면 현재 OBB가 된다.
@@ -76,6 +78,26 @@ public static class TraceWorld
         public byte isArmor;
     }
 
+    internal struct JobHull
+    {
+        public float2 min;
+        public float2 max;
+        public int start;
+        public int count;
+    }
+
+    private struct HullEntry
+    {
+        public Vector2 min;
+        public Vector2 max;
+        public int start;
+        public int count;
+    }
+
+    private static HullEntry[] _hulls = new HullEntry[64];
+    private static int _hullCount;
+    private static readonly Dictionary<Collider2D, int> _sourceIndex = new();
+
     internal struct JobHit
     {
         public int index;
@@ -95,7 +117,15 @@ public static class TraceWorld
 
     // 몸/콜라이더 탐색과 GetComponent는 생성 직후 한 번만 한다. Source 순서는 등록 순서로
     // 고정되어 같은 입력의 동점 판정도 결정론적이다. 장갑/모듈 동점은 별도 판 우선 규칙.
-    private static readonly List<Source> _sources = new(1024);
+    // **List가 아니라 평범한 배열이다.** List 인덱서는 메서드라 struct를 복사해서 돌려주고,
+    // Source가 44바이트라 틱당 콜라이더 수천 번이면 그 복사만으로 값이 나간다. 배열 원소는
+    // 주소를 가진 변수라 `in` 인자에 그대로 묶인다 - 복사가 없다.
+    //
+    // NativeArray는 여기 못 쓴다. Source가 Collider2D·Transform 참조를 들고 있고
+    // 네이티브 컨테이너는 unmanaged 타입만 받는다. TryBuildEntry가 Transform을
+    // 만져야 하므로 그 참조를 뺄 수도 없다 - 이 배열은 Burst로 갈 수 없는 층이다.
+    private static Source[] _sources = new Source[1024];
+    private static int _sourceCount;
     private static readonly List<Collider2D> _nonBoxes = new();
     // 몸 -> 등록 당시의 콜라이더 수. HashSet이면 "등록했다"만 알고 그 뒤에 붙은
     // 콜라이더를 영영 못 본다.
@@ -145,19 +175,99 @@ public static class TraceWorld
 
         using (_mPose.Auto())
         {
-            for (int i = 0; i < _sources.Count; i++)
-            {
-                Source source = _sources[i];
+            _hullCount = 0;
 
-                if (!TryBuildEntry(source, out Entry entry))
+            for (int h = 0; h < all.Count; h++)
+            {
+                HullStructure hull = all[h];
+
+                if (hull == null || hull.Body == null)
                     continue;
 
-                EnsureSnapshotCapacity();
-                _obb[_count] = entry;
-                _colliders[_count] = source.collider;
-                _count++;
+                Rigidbody2D body = hull.Body;
+
+                int required = body.attachedColliderCount;
+
+                if (required > _attached.Length)
+                {
+                    int capacity = _attached.Length;
+
+                    while (capacity < required)
+                        capacity *= 2;
+
+                    System.Array.Resize(ref _attached, capacity);
+                }
+
+                int attachedCount = body.GetAttachedColliders(_attached);
+
+                int start = _count;
+
+                Vector2 min = new(
+                    float.PositiveInfinity,
+                    float.PositiveInfinity);
+
+                Vector2 max = new(
+                    float.NegativeInfinity,
+                    float.NegativeInfinity);
+
+                for (int c = 0; c < attachedCount; c++)
+                {
+                    Collider2D collider = _attached[c];
+
+                    if (collider == null)
+                        continue;
+
+                    if (!_sourceIndex.TryGetValue(collider, out int sourceIndex))
+                        continue;
+
+                    if (!TryBuildEntry(in _sources[sourceIndex], out Entry entry))
+                        continue;
+
+                    EnsureSnapshotCapacity();
+
+                    _obb[_count] = entry;
+                    _colliders[_count] = collider;
+
+                    // OBB를 감싸는 월드 AABB
+                    float extentX =
+                        Mathf.Abs(entry.axisU.x) * entry.halfU +
+                        Mathf.Abs(entry.axisV.x) * entry.halfV;
+
+                    float extentY =
+                        Mathf.Abs(entry.axisU.y) * entry.halfU +
+                        Mathf.Abs(entry.axisV.y) * entry.halfV;
+
+                    Vector2 extent = new(extentX, extentY);
+
+                    min = Vector2.Min(
+                        min,
+                        entry.centre - extent);
+
+                    max = Vector2.Max(
+                        max,
+                        entry.centre + extent);
+
+                    _count++;
+                }
+
+                int colliderCount = _count - start;
+
+                if (colliderCount <= 0)
+                    continue;
+
+                if (_hullCount >= _hulls.Length)
+                    System.Array.Resize(ref _hulls, _hulls.Length * 2);
+
+                _hulls[_hullCount++] = new HullEntry
+                {
+                    min = min,
+                    max = max,
+                    start = start,
+                    count = colliderCount
+                };
             }
 
+            // 기존 non-box 카운트는 그대로 유지
             for (int i = 0; i < _nonBoxes.Count; i++)
             {
                 Collider2D collider = _nonBoxes[i];
@@ -193,10 +303,16 @@ public static class TraceWorld
 
     private static void RebuildSources(List<HullStructure> all)
     {
-        _sources.Clear();
+        // 참조를 지워서 파괴된 Collider2D/Transform이 배열에 매달려 있지 않게 한다.
+        System.Array.Clear(_sources, 0, _sourceCount);
+        _sourceCount = 0;
+
         _nonBoxes.Clear();
         _registeredBodies.Clear();
         _registeredColliders.Clear();
+
+        _sourceIndex.Clear(); // 추가
+
         RegisterNewBodies(all);
     }
 
@@ -226,9 +342,18 @@ public static class TraceWorld
                 continue;
 
             if (TryCreateSource(collider, out Source source))
-                _sources.Add(source);
+            {
+                if (_sourceCount >= _sources.Length)
+                    System.Array.Resize(ref _sources, _sources.Length * 2);
+
+                _sources[_sourceCount] = source;
+                _sourceIndex.Add(collider, _sourceCount);
+                _sourceCount++;
+            }
             else
+            {
                 _nonBoxes.Add(collider);
+            }
         }
     }
 
@@ -255,17 +380,27 @@ public static class TraceWorld
     private static bool TryBuildEntry(in Source source, out Entry entry)
     {
         entry = default;
-        Collider2D collider = source.collider;
 
-        if (collider == null || !collider.enabled || source.transform == null)
-            return false;
+        // **네이티브 호출은 이제 하나뿐이다.** 여기는 틱마다 콜라이더 4,000개를 도는 자리라
+        // 호출 하나가 곧 밀리초다. 예전에는 여섯이었다 - null 검사, enabled, transform
+        // null 검사, TransformVector 둘, TransformPoint 하나.
+        //
+        // enabled를 여기서 안 본다: 죽은 콜라이더는 **채택할 때** 걸러진다(Trace의 생존
+        // 검사와 GetJobSnapshot의 active 배열). 여기서 한 번 더 보는 것은 같은 답을 두 번
+        // 사는 것이고, 남는 엔트리는 hull AABB를 조금 부풀릴 뿐이라 보수적으로만 틀린다.
+        // transform null 검사도 뺀다 - 살아 있는 콜라이더에 transform이 없을 수 없다.
+        //
+        // 콜라이더 생존 검사도 여기 없다: 부르는 쪽 둘이 이미 보장한다. 자세 루프는
+        // _attached[c]를 검사한 뒤 오고(같은 오브젝트다), 자체 테스트는 방금 만든 것을
+        // 넘긴다. Unity의 == 는 네이티브 생존 확인이라 같은 답을 두 번 사는 것이었다.
 
-        Transform transform = source.transform;
+        // TransformVector/TransformPoint를 따로 부르면 같은 행렬을 세 번 네이티브에서
+        // 받아온다. 한 번 받아 C#에서 곱하면 산술은 같고 마샬링만 사라진다.
+        Matrix4x4 toWorld = source.transform.localToWorldMatrix;
 
-        // TransformVector는 현재 회전·스케일을 먹는다. 캐시 뒤 이동/회전/좌우 반전돼도
-        // OBB는 현재 자세를 따른다.
-        Vector2 u = transform.TransformVector(source.halfU);
-        Vector2 v = transform.TransformVector(source.halfV);
+        // 현재 회전·스케일을 먹는다. 캐시 뒤 이동/회전/좌우 반전돼도 OBB는 현재 자세를 따른다.
+        Vector2 u = toWorld.MultiplyVector(source.halfU);
+        Vector2 v = toWorld.MultiplyVector(source.halfV);
         float hu = u.magnitude;
         float hv = v.magnitude;
 
@@ -274,7 +409,7 @@ public static class TraceWorld
 
         entry = new Entry
         {
-            centre = transform.TransformPoint(source.offset),
+            centre = toWorld.MultiplyPoint3x4(source.offset),
             axisU = u / hu,
             axisV = v / hv,
             halfU = hu,
@@ -496,27 +631,63 @@ public static class TraceWorld
     // 렉이 된다 - 스파이크를 눕히려다 총량을 늘린 자리가 여기였다.
     private static NativeArray<JobEntry> _jobWorld;
     private static NativeArray<byte> _jobActive;
+
+    private static NativeArray<JobHull> _jobHulls;
     private static long _jobWorldTick = -1;
     private static int _jobWorldEpoch = -1;
-
     internal static void GetJobSnapshot(
-        out NativeArray<JobEntry> entries,
-        out NativeArray<byte> active,
-        out int count)
+    out NativeArray<JobEntry> entries,
+    out NativeArray<byte> active,
+    out int count,
+    out NativeArray<JobHull> hulls,
+    out int hullCount)
     {
         BuildIfStale();
 
+        // 세계 배열은 _count까지 쓴다. 이 블록이 없으면 두 배열이 default NativeArray로
+        // 남아 첫 병렬 파면에서 NRE가 난다 - hull 배열만 잡고 이쪽을 지웠던 자리다.
         if (!_jobWorld.IsCreated || _jobWorld.Length < _count)
         {
-            DisposeJobSnapshot();
+            if (_jobWorld.IsCreated)
+                _jobWorld.Dispose();
 
-            int capacity = Mathf.Max(256, Mathf.NextPowerOfTwo(Mathf.Max(1, _count)));
+            if (_jobActive.IsCreated)
+                _jobActive.Dispose();
+
+            int capacity = Mathf.Max(
+                256,
+                Mathf.NextPowerOfTwo(Mathf.Max(1, _count)));
+
             _jobWorld = new NativeArray<JobEntry>(
-                capacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-            _jobActive = new NativeArray<byte>(
-                capacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+                capacity,
+                Allocator.Persistent,
+                NativeArrayOptions.UninitializedMemory);
 
-            _jobWorldTick = -1;   // 새 배열이면 기하를 다시 채워야 한다
+            _jobActive = new NativeArray<byte>(
+                capacity,
+                Allocator.Persistent,
+                NativeArrayOptions.UninitializedMemory);
+
+            // 새 배열이면 기하를 다시 채워야 한다
+            _jobWorldTick = -1;
+        }
+
+        if (!_jobHulls.IsCreated || _jobHulls.Length < _hullCount)
+        {
+            if (_jobHulls.IsCreated)
+                _jobHulls.Dispose();
+
+            int capacity = Mathf.Max(
+                16,
+                Mathf.NextPowerOfTwo(Mathf.Max(1, _hullCount)));
+
+            _jobHulls = new NativeArray<JobHull>(
+                capacity,
+                Allocator.Persistent,
+                NativeArrayOptions.UninitializedMemory);
+
+            // 새 NativeArray이므로 복사 다시 하게
+            _jobWorldTick = -1;
         }
 
         // 기하는 스냅샷이 바뀔 때만. 틱당 최대 두 번이고 파면 수와 무관하다.
@@ -550,10 +721,25 @@ public static class TraceWorld
             Collider2D live = _colliders[i];
             _jobActive[i] = live != null && live.enabled ? (byte)1 : (byte)0;
         }
+        for (int i = 0; i < _hullCount; i++)
+        {
+            HullEntry h = _hulls[i];
+
+            _jobHulls[i] = new JobHull
+            {
+                min = new float2(h.min.x, h.min.y),
+                max = new float2(h.max.x, h.max.y),
+                start = h.start,
+                count = h.count
+            };
+        }
 
         entries = _jobWorld;
         active = _jobActive;
         count = _count;
+
+        hulls = _jobHulls;
+        hullCount = _hullCount;
     }
 
     private static void DisposeJobSnapshot()
@@ -563,6 +749,9 @@ public static class TraceWorld
 
         if (_jobActive.IsCreated)
             _jobActive.Dispose();
+
+        if (_jobHulls.IsCreated)
+            _jobHulls.Dispose();
 
         _jobWorldTick = -1;
         _jobWorldEpoch = -1;
@@ -586,18 +775,66 @@ public static class TraceWorld
     }
 #endif
 
+    private static bool RayIntersectsAabb(
+        float2 origin,
+        float2 dir,
+        float range,
+        float2 min,
+        float2 max)
+    {
+        float tMin = 0f;
+        float tMax = range;
+
+        for (int axis = 0; axis < 2; axis++)
+        {
+            float o = origin[axis];
+            float d = dir[axis];
+            float lo = min[axis];
+            float hi = max[axis];
+
+            if (math.abs(d) < 1e-8f)
+            {
+                if (o < lo || o > hi)
+                    return false;
+
+                continue;
+            }
+
+            float inv = 1f / d;
+
+            float t1 = (lo - o) * inv;
+            float t2 = (hi - o) * inv;
+
+            if (t1 > t2)
+            {
+                float temp = t1;
+                t1 = t2;
+                t2 = temp;
+            }
+
+            tMin = math.max(tMin, t1);
+            tMax = math.min(tMax, t2);
+
+            if (tMin > tMax)
+                return false;
+        }
+
+        return true;
+    }
+
     /// <summary>
     /// Burst Job에서 실행되는 OBB 전수 판정. UnityEngine.Object와 정적 mutable 상태를
     /// 읽지 않으므로 여러 파편이 동시에 호출해도 안전하다.
     /// </summary>
-    internal static JobHit TraceJob(
-        NativeArray<JobEntry> entries,
-        NativeArray<byte> active,
-        int count,
-        float2 start,
-        float2 dir,
-        float range,
-        int layerMask)
+   internal static JobHit TraceJob(
+    NativeArray<JobEntry> entries,
+    NativeArray<byte> active,
+    NativeArray<JobHull> hulls,
+    int hullCount,
+    float2 start,
+    float2 dir,
+    float range,
+    int layerMask)
     {
         JobHit hit = new JobHit { index = -1 };
         float sq = math.lengthsq(dir);
@@ -614,106 +851,130 @@ public static class TraceWorld
         const float TieEpsilon = 1e-3f;
         const float SurfaceSkin = 1e-3f;
 
-        // 배열은 용량대로 잡혀 있고 쓰는 것은 count까지다.
-        for (int i = 0; i < count; i++)
+                for (int h = 0; h < hullCount; h++)
         {
-            JobEntry e = entries[i];
+            JobHull hull = hulls[h];
 
-            if (active[i] == 0 || (layerMask & (1 << e.layer)) == 0)
-                continue;
-
-            float2 rel = start - e.centre;
-            float cull = range + e.radius;
-
-            if (math.lengthsq(rel) > cull * cull)
-                continue;
-
-            float ru = math.dot(rel, e.axisU);
-            float rv = math.dot(rel, e.axisV);
-            float du = math.dot(dir, e.axisU);
-            float dv = math.dot(dir, e.axisV);
-
-            if (math.abs(ru) < e.halfU + SurfaceSkin && math.abs(rv) < e.halfV + SurfaceSkin)
-                continue;
-
-            float tMin = 0f;
-            float tMax = range;
-            int minAxis = 0;
-            float minSign = 0f;
-
-            if (math.abs(du) < 1e-9f)
+            if (!RayIntersectsAabb(
+                    start,
+                    dir,
+                    range,
+                    hull.min,
+                    hull.max))
             {
-                if (math.abs(ru) > e.halfU)
+                continue;
+            }
+
+            int end = hull.start + hull.count;
+
+            for (int i = hull.start; i < end; i++)
+            {
+                JobEntry e = entries[i];
+
+                if (active[i] == 0 ||
+                    (layerMask & (1 << e.layer)) == 0)
                     continue;
-            }
-            else
-            {
-                float inv = 1f / du;
-                float t1 = (-e.halfU - ru) * inv;
-                float t2 = (e.halfU - ru) * inv;
-                float sign = -math.sign(du);
 
-                if (t1 > t2)
-                {
-                    float swap = t1;
-                    t1 = t2;
-                    t2 = swap;
-                }
+                float2 rel = start - e.centre;
+                float cull = range + e.radius;
 
-                if (t1 > tMin)
-                {
-                    tMin = t1;
-                    minAxis = 0;
-                    minSign = sign;
-                }
-
-                tMax = math.min(tMax, t2);
-            }
-
-            if (math.abs(dv) < 1e-9f)
-            {
-                if (math.abs(rv) > e.halfV)
+                if (math.lengthsq(rel) > cull * cull)
                     continue;
-            }
-            else
-            {
-                float inv = 1f / dv;
-                float t1 = (-e.halfV - rv) * inv;
-                float t2 = (e.halfV - rv) * inv;
-                float sign = -math.sign(dv);
 
-                if (t1 > t2)
+                float ru = math.dot(rel, e.axisU);
+                float rv = math.dot(rel, e.axisV);
+                float du = math.dot(dir, e.axisU);
+                float dv = math.dot(dir, e.axisV);
+
+                if (math.abs(ru) < e.halfU + SurfaceSkin &&
+                    math.abs(rv) < e.halfV + SurfaceSkin)
+                    continue;
+
+                float tMin = 0f;
+                float tMax = range;
+                int minAxis = 0;
+                float minSign = 0f;
+
+                if (math.abs(du) < 1e-9f)
                 {
-                    float swap = t1;
-                    t1 = t2;
-                    t2 = swap;
+                    if (math.abs(ru) > e.halfU)
+                        continue;
+                }
+                else
+                {
+                    float inv = 1f / du;
+                    float t1 = (-e.halfU - ru) * inv;
+                    float t2 = ( e.halfU - ru) * inv;
+                    float sign = -math.sign(du);
+
+                    if (t1 > t2)
+                    {
+                        float swap = t1;
+                        t1 = t2;
+                        t2 = swap;
+                    }
+
+                    if (t1 > tMin)
+                    {
+                        tMin = t1;
+                        minAxis = 0;
+                        minSign = sign;
+                    }
+
+                    tMax = math.min(tMax, t2);
                 }
 
-                if (t1 > tMin)
+                if (math.abs(dv) < 1e-9f)
                 {
-                    tMin = t1;
-                    minAxis = 1;
-                    minSign = sign;
+                    if (math.abs(rv) > e.halfV)
+                        continue;
+                }
+                else
+                {
+                    float inv = 1f / dv;
+                    float t1 = (-e.halfV - rv) * inv;
+                    float t2 = ( e.halfV - rv) * inv;
+                    float sign = -math.sign(dv);
+
+                    if (t1 > t2)
+                    {
+                        float swap = t1;
+                        t1 = t2;
+                        t2 = swap;
+                    }
+
+                    if (t1 > tMin)
+                    {
+                        tMin = t1;
+                        minAxis = 1;
+                        minSign = sign;
+                    }
+
+                    tMax = math.min(tMax, t2);
                 }
 
-                tMax = math.min(tMax, t2);
+                if (tMin > tMax || tMin <= 0f)
+                    continue;
+
+                bool tie = math.abs(tMin - best) <= TieEpsilon;
+                bool isArmor = e.isArmor != 0;
+
+                if (tie
+                    ? (bestIsArmor || !isArmor)
+                    : tMin >= best)
+                {
+                    continue;
+                }
+
+                best = tMin;
+                bestIndex = i;
+                bestIsArmor = isArmor;
+                bestNormal =
+                    (minAxis == 0 ? e.axisU : e.axisV) * minSign;
             }
-
-            if (tMin > tMax || tMin <= 0f)
-                continue;
-
-            bool tie = math.abs(tMin - best) <= TieEpsilon;
-            bool isArmor = e.isArmor != 0;
-
-            if (tie ? (bestIsArmor || !isArmor) : tMin >= best)
-                continue;
-
-            best = tMin;
-            bestIndex = i;
-            bestIsArmor = isArmor;
-            bestNormal = (minAxis == 0 ? e.axisU : e.axisV) * minSign;
         }
 
+        // ★ 모든 Hull을 다 검사한 다음 결과 확정
         if (bestIndex < 0)
             return hit;
 
@@ -722,6 +983,7 @@ public static class TraceWorld
         hit.point = start + dir * best;
         hit.normal = bestNormal;
         hit.found = 1;
+
         return hit;
     }
 
