@@ -126,6 +126,7 @@ public sealed class GameManager : MonoBehaviour
 
             PlayerDown = true;
             _downTime = Time.unscaledTime;
+            BeginSilence();
 
             // 사건당 한 줄. "왜 안 꺼지지"의 답이 콘솔에 있어야 한다 - 트리거가
             // 전투 불능(승무원·전원·무장/추진)이라 오너가 보는 "죽음"과 다를 수 있다.
@@ -137,6 +138,7 @@ public sealed class GameManager : MonoBehaviour
         if (player != null && player.IsCombatEffective)
         {
             PlayerDown = false;
+            EndSilence();
             return;
         }
 
@@ -153,6 +155,47 @@ public sealed class GameManager : MonoBehaviour
             _restarting = true;
             Restart();
         }
+    }
+
+    private AudioSource _tinnitus;
+
+    /// <summary>
+    /// 세계가 조용해지고 이명만 남는다. 뮤트는 AudioListener.pause라 재생 중이던
+    /// 소리까지 전부 멎고, 이명 소스만 ignoreListenerPause로 그 정지를 뚫는다 -
+    /// SoundManager 풀을 안 거치는 이유다: 풀 소스들은 같이 멎는 것이 목적이다.
+    /// </summary>
+    private void BeginSilence()
+    {
+        AudioListener.pause = true;
+
+        if (_tinnitus == null)
+        {
+            var clip = Resources.Load<AudioClip>("Sound/Tinnitus");
+
+            if (clip == null)
+            {
+                // 파일이 없어도 시퀀스는 돈다 - 조용한 죽음일 뿐이다.
+                Debug.LogWarning("[GameManager] Resources/Sound/Tinnitus가 없다. 이명 없이 간다.");
+                return;
+            }
+
+            _tinnitus = gameObject.AddComponent<AudioSource>();
+            _tinnitus.clip = clip;
+            _tinnitus.loop = true;
+            _tinnitus.spatialBlend = 0f;
+            _tinnitus.ignoreListenerPause = true;
+        }
+
+        _tinnitus.Play();
+    }
+
+    /// <summary>재시작 직전과 부활에 - 이명이 끊기고 세계 소리가 돌아온다.</summary>
+    private void EndSilence()
+    {
+        AudioListener.pause = false;
+
+        if (_tinnitus != null)
+            _tinnitus.Stop();
     }
 
     /// <summary>t초째의 암전. 붉게 번쩍였다가 검정으로 - 소등 연출과 같은 색, 같은 박자.</summary>
@@ -191,6 +234,8 @@ public sealed class GameManager : MonoBehaviour
     private void Restart()
     {
         Debug.Log("[GameManager] 재시작 - 씬을 처음부터");
+
+        EndSilence();
 
         // 씬을 처음부터. RunState 저장 파일은 안 건드린다 - 죽음은 저장을 만들지도
         // 지우지도 않고, 마지막으로 저장된 상태에서 다시 시작한다.
