@@ -36,10 +36,10 @@ public abstract class Armor : Thing
     public bool sealsRoom = true;
     private int _dead;
 
-    // 고립 서브셀 판정용. 판마다 하나씩 - 한 판을 쓰는 동안 다른 판이 끼어들 수 있다
-    // (파편이 옆 판을 치고, 그 판이 다시 쓸기 시작한다).
-    private readonly bool[] _alive = new bool[SubCount];
-    private readonly bool[] _inLargest = new bool[SubCount];
+    // 살아 있는 서브셀 마스크. ApplyDamage가 칸을 죽이는 그 줄에서 비트 하나를 끄고,
+    // hp를 벌크로 놓는 자리들(Awake·복원·스케일)은 RebuildAliveMask로 다시 짓는다.
+    // KillOrphans가 예전에 하던 36칸 스캔이 이 유지 비용 안으로 접혔다.
+    private ulong _aliveMask;
     private bool _sweeping;
 
     // Destroy는 프레임 끝까지 미뤄진다. 그래서 판을 죽인 ApplyDamageAlong 루프가 계속
@@ -142,6 +142,8 @@ public abstract class Armor : Thing
         for (int i = 0; i < SubCount; i++)
             _hp[i] = MaxHpAt(i) * f;
 
+        RebuildAliveMask();
+
         _dead = 0;
         AnyBreached = false;
 
@@ -164,6 +166,7 @@ public abstract class Armor : Thing
         for (int i = 0; i < SubCount; i++)
             _hp[i] *= f;
 
+        RebuildAliveMask();
         DamageVersion++;
         DirtySubs = ulong.MaxValue;
     }
@@ -197,6 +200,8 @@ public abstract class Armor : Thing
 
         for (int i = 0; i < SubCount; i++)
             _hp[i] = MaxHpAt(i);
+
+        RebuildAliveMask();
     }
 
     /// <summary>
@@ -570,6 +575,8 @@ public abstract class Armor : Thing
         if (!wasAlive || _hp[subIndex] > 0f)
             return;
 
+        _aliveMask &= ~(1UL << subIndex);
+
         // 서지 않았다가 서는 순간만 방의 파공 캐시를 무효화한다. 매번 올리면 전투 중
         // 매 틱 오르는 것과 같아서 캐시가 있으나 마나다.
         if (!AnyBreached)
@@ -778,21 +785,33 @@ public abstract class Armor : Thing
 
         try
         {
-            for (int i = 0; i < SubCount; i++)
-                _alive[i] = _hp[i] > 0f;
+            ulong orphans = _aliveMask & ~Ballistics.LargestLivingComponent(_aliveMask);
 
-            Ballistics.LargestLivingComponent(_alive, _inLargest);
-
-            for (int i = 0; i < SubCount; i++)
+            while (orphans != 0)
             {
-                if (_alive[i] && !_inLargest[i])
-                    ApplyDamage(i, float.MaxValue);
+                int i = Unity.Mathematics.math.tzcnt(orphans);
+                orphans &= orphans - 1;
+
+                ApplyDamage(i, float.MaxValue);
             }
         }
         finally
         {
             _sweeping = false;
         }
+    }
+
+    private void RebuildAliveMask()
+    {
+        ulong mask = 0;
+
+        for (int i = 0; i < SubCount; i++)
+        {
+            if (_hp[i] > 0f)
+                mask |= 1UL << i;
+        }
+
+        _aliveMask = mask;
     }
 
     /// <summary>

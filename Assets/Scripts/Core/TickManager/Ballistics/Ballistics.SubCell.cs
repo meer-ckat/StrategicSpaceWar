@@ -297,91 +297,73 @@ public static partial class Ballistics
     }
 
     // 연결 성분 탐색용 스크래치. 한 스레드에서 한 번에 하나씩만 돈다.
-    private static readonly int[] _stack = new int[SubCount];
-    private static readonly int[] _label = new int[SubCount];
+    /// <summary>36칸 전부. 6×6이 ulong 하나에 들어가는 것이 이 파일 절반의 근거다.</summary>
+    public const ulong SubMaskFull = (1UL << SubCount) - 1;
+
+    // 열 경계 마스크. 왼쪽 시프트(>>1)가 열0을 열5로 감아 올리는 것을 막는다 -
+    // 비트 0,6,12,18,24,30이 열0이고, 열5는 그것을 5칸 민 것이다.
+    private const ulong SubMaskCol0 = 0x41041041UL;
+    private const ulong SubMaskCol5 = SubMaskCol0 << (SubGrid - 1);
 
     /// <summary>
-    /// 살아 있는 서브셀 중 가장 큰 연결 성분을 찾아 inLargest에 표시한다.
-    /// 나머지는 판에 붙어 있지 않은 조각이다 - 아무것도 떠받치지 않는데 혼자 남아
-    /// 화면에 픽셀로 떠 있는 것을 막는다.
+    /// 8방향 한 칸 팽창. 좌우는 열 경계 마스크로 감김을 막고, 상하는 행 폭(6)만큼
+    /// 시프트한 뒤 36비트로 잘라낸다. 대각은 따로 없다 - 좌우로 번진 것을 상하로
+    /// 다시 번지게 하면 그 합성이 대각이다.
+    /// </summary>
+    private static ulong DilateSub8(ulong m)
+    {
+        ulong h = m | ((m & ~SubMaskCol0) >> 1) | ((m & ~SubMaskCol5) << 1);
+        return (h | (h << SubGrid) | (h >> SubGrid)) & SubMaskFull;
+    }
+
+    /// <summary>
+    /// 살아 있는 서브셀 중 가장 큰 연결 성분의 마스크. 나머지는 판에 붙어 있지 않은
+    /// 조각이다 - 아무것도 떠받치지 않는데 혼자 남아 화면에 픽셀로 떠 있는 것을 막는다.
     ///
     /// 8방향이다. CLAUDE.md의 불변식대로 실물은 8방향, 빈 칸은 4방향으로 잇는다 -
     /// 4방향으로 보면 대각으로만 이어진 멀쩡한 판이 두 조각으로 갈린다.
     ///
-    /// 순수 함수. 동점이면 인덱스가 작은 성분이 이긴다(결정론).
+    /// 순수 함수. 성분은 최하위 비트부터 떼고 크기 비교가 strict라, 동점이면 인덱스가
+    /// 작은 성분이 이긴다 - 옛 라벨 BFS와 같은 규칙(결정론).
     /// </summary>
     // ponytail: 근사다. 판이 두 조각 나면 진짜로는 둘 다 남아야 하는데, 여기서는 작은 쪽을
     // 부서진 것으로 처리해 오차를 재료 손실 쪽으로 몰았다. 반반으로 갈리면 인덱스가 낮은
     // 절반(왼쪽아래)이 이기는데, 결정론적일 뿐 물리적 근거는 없다. 제대로 하려면 콜라이더를
     // 쪼개야 하고 그건 잔해 재분할과 같은 크기의 작업이다 - TODOS.md 참고.
     // 실전 빈도는 낮다: 판은 29/36에서 어차피 통째로 무너져서 깔끔한 이등분이 드물다.
-    public static void LargestLivingComponent(bool[] alive, bool[] inLargest)
+    public static ulong LargestLivingComponent(ulong alive)
     {
-        for (int i = 0; i < SubCount; i++)
+        ulong remaining = alive & SubMaskFull;
+        ulong best = 0;
+        int bestCount = 0;
+
+        while (remaining != 0)
         {
-            _label[i] = 0;
-            inLargest[i] = false;
-        }
+            // 최하위 비트에서 시작해 이웃이 안 자랄 때까지 팽창 - 그것이 성분 하나다.
+            ulong component = remaining & (ulong)(-(long)remaining);
 
-        int bestLabel = 0;
-        int bestSize = 0;
-        int label = 0;
-
-        for (int seed = 0; seed < SubCount; seed++)
-        {
-            if (!alive[seed] || _label[seed] != 0)
-                continue;
-
-            label++;
-
-            int top = 0;
-            int size = 0;
-
-            _stack[top++] = seed;
-            _label[seed] = label;
-
-            while (top > 0)
+            while (true)
             {
-                int at = _stack[--top];
-                size++;
+                ulong grown = DilateSub8(component) & remaining;
 
-                int col = at % SubGrid;
-                int row = at / SubGrid;
+                if (grown == component)
+                    break;
 
-                for (int dy = -1; dy <= 1; dy++)
-                for (int dx = -1; dx <= 1; dx++)
-                {
-                    if (dx == 0 && dy == 0)
-                        continue;
-
-                    int nc = col + dx;
-                    int nr = row + dy;
-
-                    if (nc < 0 || nc >= SubGrid || nr < 0 || nr >= SubGrid)
-                        continue;
-
-                    int next = nr * SubGrid + nc;
-
-                    if (!alive[next] || _label[next] != 0)
-                        continue;
-
-                    _label[next] = label;
-                    _stack[top++] = next;
-                }
+                component = grown;
             }
 
-            if (size > bestSize)
+            remaining &= ~component;
+
+            int count = Unity.Mathematics.math.countbits(component);
+
+            if (count > bestCount)
             {
-                bestSize = size;
-                bestLabel = label;
+                bestCount = count;
+                best = component;
             }
         }
 
-        if (bestLabel == 0)
-            return;
-
-        for (int i = 0; i < SubCount; i++)
-            inLargest[i] = _label[i] == bestLabel;
+        return best;
     }
 
     private static float CellExitDistance(Vector2 p, Vector2 d, Vector2 cellSize)

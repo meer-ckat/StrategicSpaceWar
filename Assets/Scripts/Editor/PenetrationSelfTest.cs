@@ -311,47 +311,46 @@ public static class PenetrationSelfTest
         // 이어진 멀쩡한 판이 두 조각으로 갈린다).
         {
             int n = Ballistics.SubGrid;
-            var alive = new bool[Ballistics.SubCount];
-            var largest = new bool[Ballistics.SubCount];
 
             // 1. 멀쩡한 판은 통째로 살아남는다
-            for (int i = 0; i < alive.Length; i++) alive[i] = true;
-            Ballistics.LargestLivingComponent(alive, largest);
-
-            int kept = 0;
-            for (int i = 0; i < largest.Length; i++) if (largest[i]) kept++;
-
-            Check("성분: 멀쩡한 판은 전부 남는다", kept == Ballistics.SubCount, default);
+            Check("성분: 멀쩡한 판은 전부 남는다",
+                Ballistics.LargestLivingComponent(Ballistics.SubMaskFull)
+                    == Ballistics.SubMaskFull,
+                default);
 
             // 2. 큰 덩어리 + 외딴 칸 하나 -> 외딴 칸은 버려진다
-            for (int i = 0; i < alive.Length; i++) alive[i] = false;
-            for (int row = 0; row < 3; row++) alive[row * n] = true;   // 0열 세 칸
-            int lonely = (n - 1) * n + (n - 1);                        // 반대편 구석
-            alive[lonely] = true;
+            ulong column = (1UL << 0) | (1UL << n) | (1UL << (2 * n));  // 0열 세 칸
+            int lonely = (n - 1) * n + (n - 1);                         // 반대편 구석
+            ulong kept = Ballistics.LargestLivingComponent(column | (1UL << lonely));
 
-            Ballistics.LargestLivingComponent(alive, largest);
-
-            Check("성분: 외딴 서브셀은 부서진 것으로 친다",
-                largest[0] && largest[n] && largest[2 * n] && !largest[lonely], default);
+            Check("성분: 외딴 서브셀은 부서진 것으로 친다", kept == column, default);
 
             // 3. 대각으로만 닿은 두 칸은 한 덩어리다 (8방향)
-            for (int i = 0; i < alive.Length; i++) alive[i] = false;
-            alive[0] = true;
-            alive[n + 1] = true;
-
-            Ballistics.LargestLivingComponent(alive, largest);
+            ulong diagonal = (1UL << 0) | (1UL << (n + 1));
 
             Check("성분: 대각 연결은 끊지 않는다",
-                largest[0] && largest[n + 1], default);
+                Ballistics.LargestLivingComponent(diagonal) == diagonal, default);
 
             // 4. 전멸. 아무것도 표시하지 않고 터지지도 않는다
-            for (int i = 0; i < alive.Length; i++) alive[i] = false;
-            Ballistics.LargestLivingComponent(alive, largest);
+            Check("성분: 전멸한 판은 남는 칸이 없다",
+                Ballistics.LargestLivingComponent(0UL) == 0UL, default);
 
-            int any = 0;
-            for (int i = 0; i < largest.Length; i++) if (largest[i]) any++;
+            // 5. 비트 팽창 대 라벨 BFS 무작위 대조. 열 경계 감김(열0->열5) 같은 비트
+            //    실수는 특정 모양에서만 드러나므로, 손으로 짠 케이스 넷으로는 부족하다.
+            //    레퍼런스는 옛 구현의 축약이고 여기 테스트에만 산다.
+            var rng = new System.Random(20260829);
+            bool agree = true;
 
-            Check("성분: 전멸한 판은 남는 칸이 없다", any == 0, default);
+            for (int trial = 0; trial < 512 && agree; trial++)
+            {
+                ulong alive = ((ulong)(uint)rng.Next() << 32 | (uint)rng.Next())
+                    & Ballistics.SubMaskFull;
+
+                agree = Ballistics.LargestLivingComponent(alive)
+                    == ReferenceLargestComponent(alive);
+            }
+
+            Check("성분: 비트보드가 라벨 BFS와 512판 일치한다", agree, default);
         }
 
         // Hit points land exactly on sub-cell boundaries constantly - every shot on a grid
@@ -626,6 +625,67 @@ public static class PenetrationSelfTest
 
     private static void Near(string name, float got, float want)
         => Check($"{name} ({got:0.####} vs {want:0.####})", Mathf.Abs(got - want) < 1e-3f);
+
+    /// <summary>
+    /// 대조용 레퍼런스: 옛 라벨 BFS의 축약. 8방향, 동점이면 먼저 만난(인덱스 낮은)
+    /// 성분 유지 - 제품 코드와 같은 규칙이어야 대조가 대조다.
+    /// </summary>
+    private static ulong ReferenceLargestComponent(ulong alive)
+    {
+        int n = Ballistics.SubGrid;
+        var stack = new System.Collections.Generic.Stack<int>();
+        var seen = new bool[Ballistics.SubCount];
+        ulong best = 0;
+        int bestSize = 0;
+
+        for (int seed = 0; seed < Ballistics.SubCount; seed++)
+        {
+            if (seen[seed] || (alive & (1UL << seed)) == 0)
+                continue;
+
+            ulong component = 0;
+            int size = 0;
+
+            stack.Push(seed);
+            seen[seed] = true;
+
+            while (stack.Count > 0)
+            {
+                int at = stack.Pop();
+                component |= 1UL << at;
+                size++;
+
+                int col = at % n;
+                int row = at / n;
+
+                for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int nc = col + dx;
+                    int nr = row + dy;
+
+                    if ((dx == 0 && dy == 0) || nc < 0 || nc >= n || nr < 0 || nr >= n)
+                        continue;
+
+                    int next = nr * n + nc;
+
+                    if (seen[next] || (alive & (1UL << next)) == 0)
+                        continue;
+
+                    seen[next] = true;
+                    stack.Push(next);
+                }
+            }
+
+            if (size > bestSize)
+            {
+                bestSize = size;
+                best = component;
+            }
+        }
+
+        return best;
+    }
 
     private static void Check(string name, bool ok)
     {
