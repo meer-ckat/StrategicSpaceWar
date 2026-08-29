@@ -151,14 +151,16 @@ public sealed class GameManager : MonoBehaviour
             return;
         }
 
-        // 되살아났다 - 수리로 전투 가능이 돌아온 경우. 시퀀스를 접는다.
-        if (player != null && player.IsCombatEffective)
-        {
-            PlayerDown = false;
-            EndSilence();
-            return;
-        }
-
+        // **PlayerDown은 여기서부터 Restart까지 한 방향이다.** 전투 중 수리 메커니즘이
+        // 없으니(RepairPlates는 구역 사이에만 쓰는 Logistics 몫) IsCombatEffective가
+        // 격파 시퀀스 도중 다시 true로 뒤집힐 정상 경로가 없다 - 그런데도 매 프레임
+        // 다시 물으면, 시뮬레이션이 안 멈춘 채로 계속 돌면서(HullStructure가 계속
+        // 부서지며 질량이 줄어 AvailableDeltaV가 문턱을 넘나드는 것처럼) 잠깐 true로
+        // 튈 때마다 PlayerDown이 풀렸다가 다음 프레임 다시 걸린다 - 그때마다 _downTime이
+        // 새로 찍혀 소등·암전·이명이 처음부터 다시 돈다. "죽었다가 다시 무력화 판정을
+        // 받는" 증상, 그리고 재시작이 그만큼 늦어지는 것이 이것이다. 한 번 걸리면
+        // Restart()가 부르기 전까지 이 값을 다시 안 묻는 것 자체가 고침이자 최적화다 -
+        // 셀 것도 캐시할 것도 없이 계산 자체가 사라진다.
         float blackoutAt = ShipStatusHud.ShutdownSeconds;
         float t = DownSeconds - blackoutAt;
 
