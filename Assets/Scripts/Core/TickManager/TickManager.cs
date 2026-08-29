@@ -46,10 +46,44 @@ namespace Core
 
         // 목록과 나란히 드는 소속 집합. List.Contains는 O(n)이라 탄환·파편이 틱마다
         // 수십 개 등록되는 판에서 등록 비용이 리스너 수에 비례해 버린다.
+        // pending 둘도 같은 이유로 집합을 나란히 든다 - 스폰이 OnTick 안이라(Campaign)
+        // 판 629장 등록이 전부 pending을 지나는데, 리스트만 있으면 등록마다 자라는
+        // 리스트를 앞에서부터 훑어 스폰 틱 한 번에 비교 수십만 회가 된다.
+        // 리스트를 버리지 못하는 이유는 **순서**다: ApplyPendingChanges가 등록 순서대로
+        // 목록에 넣어야 틱 순회 순서가 재현된다 - HashSet 순회는 순서가 정의되지 않는다.
         private readonly HashSet<ITick> _listenerSet = new();
+        private readonly HashSet<ITick> _pendingAddSet = new();
+        private readonly HashSet<ITick> _pendingRemoveSet = new();
+
+        // 마커를 리스너와 나란히 든다. 예전에는 순회마다 MarkerFor(GetType + Dictionary)를
+        // 불렀는데, 마커의 Begin/End는 릴리스에서 no-op이어도 **그 조회는 릴리스에도
+        // 남는다** - 판 전부가 리스너라 초당 수십만 조회였다. 등록 때 한 번만 찾는다.
+        private readonly List<ProfilerMarker> _earlyMarkers = new();
+        private readonly List<ProfilerMarker> _lateMarkers = new();
 
         private List<ITick> ListFor(ITick listener) =>
             listener is ITickLate ? _late : _early;
+
+        private List<ProfilerMarker> MarkersFor(ITick listener) =>
+            listener is ITickLate ? _lateMarkers : _earlyMarkers;
+
+        private void AddNow(ITick listener)
+        {
+            ListFor(listener).Add(listener);
+            MarkersFor(listener).Add(MarkerFor(listener));
+        }
+
+        private void RemoveNow(ITick listener)
+        {
+            List<ITick> list = ListFor(listener);
+            int index = list.IndexOf(listener);
+
+            if (index < 0)
+                return;
+
+            list.RemoveAt(index);
+            MarkersFor(listener).RemoveAt(index);
+        }
 
         private bool _isTicking;
         private float _accumulator;
@@ -119,10 +153,11 @@ namespace Core
         {
             if (_isTicking)
             {
-                _pendingRemove.Remove(listener);
+                if (_pendingRemoveSet.Remove(listener))
+                    _pendingRemove.Remove(listener);
 
                 if (!_listenerSet.Contains(listener) &&
-                    !_pendingAdd.Contains(listener))
+                    _pendingAddSet.Add(listener))
                 {
                     _pendingAdd.Add(listener);
                 }
@@ -131,7 +166,7 @@ namespace Core
             }
 
             if (_listenerSet.Add(listener))
-                ListFor(listener).Add(listener);
+                AddNow(listener);
         }
 
 
@@ -139,16 +174,17 @@ namespace Core
         {
             if (_isTicking)
             {
-                _pendingAdd.Remove(listener);
+                if (_pendingAddSet.Remove(listener))
+                    _pendingAdd.Remove(listener);
 
-                if (!_pendingRemove.Contains(listener))
+                if (_pendingRemoveSet.Add(listener))
                     _pendingRemove.Add(listener);
 
                 return;
             }
 
             if (_listenerSet.Remove(listener))
-                ListFor(listener).Remove(listener);
+                RemoveNow(listener);
         }
 
 
@@ -200,35 +236,41 @@ namespace Core
 
             currentTick++;
 
-            // 0. 지난 틱 파편 예산에 밀린 것부터. 새 파편이 안 날아오는 틱에도 큐가 마르게
-            //    하는 유일한 자리다 - Burst가 부르는 펌프는 새 요청이 있을 때만 돈다.
-            SpallResolver.PumpDeferred();
+            // 리스너 하나가 던져도 _isTicking이 true로 얼어붙으면 등록/해제가 영영 밀린다.
+            // 그러면 죽은 리스너가 다음 틱에도 불려서 원래 예외와 상관없는 자리에서
+            // 두 번째 예외가 나고, 첫 원인이 그 밑에 묻힌다.
+            try
+            {
+                // 0. 지난 틱 파편 예산에 밀린 것부터. 새 파편이 안 날아오는 틱에도 큐가 마르게
+                //    하는 유일한 자리다 - Burst가 부르는 펌프는 새 요청이 있을 때만 돈다.
+                SpallResolver.PumpDeferred();
 
-            // 1. 힘을 거는 것들 (함선 추력, 자세)
-            _earlyMarker.Begin();
-            TickPhase(late: false);
-            _earlyMarker.End();
+                // 1. 힘을 거는 것들 (함선 추력, 자세)
+                using (_earlyMarker.Auto())
+                    TickPhase(late: false);
 
-            // 2. 손으로 옮긴 Transform이 있으면 물리에 반영한 뒤,
-            //    틱당 정확히 한 번 물리를 돌린다. FixedUpdate가 아니라 여기서 도는 덕에
-            //    충돌 해결과 탄 판정이 같은 시계를 쓴다.
-            _physicsMarker.Begin();
-            Physics2D.SyncTransforms();
-            Physics2D.Simulate(TickDeltaTime);
-            _physicsMarker.End();
+                // 2. 손으로 옮긴 Transform이 있으면 물리에 반영한 뒤,
+                //    틱당 정확히 한 번 물리를 돌린다. FixedUpdate가 아니라 여기서 도는 덕에
+                //    충돌 해결과 탄 판정이 같은 시계를 쓴다.
+                using (_physicsMarker.Auto())
+                {
+                    Physics2D.SyncTransforms();
+                    Physics2D.Simulate(TickDeltaTime);
+                }
 
-            // 탄도 스냅샷은 여기서 낡는다. 안 알리면 램 페이즈에 뜬 판 위치를 탄 페이즈가
-            // 읽어서, 배가 이동한 만큼 전부 어긋난다.
-            TraceWorld.Invalidate();
+                // 탄도 스냅샷은 여기서 낡는다. 안 알리면 램 페이즈에 뜬 판 위치를 탄 페이즈가
+                // 읽어서, 배가 이동한 만큼 전부 어긋난다.
+                TraceWorld.Invalidate();
 
-            // 3. projectiles resolve against that settled snapshot
-            _lateMarker.Begin();
-            TickPhase(late: true);
-            _lateMarker.End();
-
-            _isTicking = false;
-
-            ApplyPendingChanges();
+                // 3. projectiles resolve against that settled snapshot
+                using (_lateMarker.Auto())
+                    TickPhase(late: true);
+            }
+            finally
+            {
+                _isTicking = false;
+                ApplyPendingChanges();
+            }
         }
 
 
@@ -240,15 +282,12 @@ namespace Core
             // 시점엔 OnDisable → Unregister가 이미 목록에서 뺀다. 남는 구멍은 활성 오브젝트를
             // 런타임에 DestroyImmediate하는 경우뿐이고, 그런 경로는 없다(스폰 직후 재빌드 제외).
             List<ITick> listeners = late ? _late : _early;
+            List<ProfilerMarker> markers = late ? _lateMarkers : _earlyMarkers;
 
             for (int i = 0; i < listeners.Count; i++)
             {
-                ITick listener = listeners[i];
-                ProfilerMarker marker = MarkerFor(listener);
-
-                marker.Begin();
-                listener.OnTick();
-                marker.End();
+                using (markers[i].Auto())
+                    listeners[i].OnTick();
             }
         }
 
@@ -258,10 +297,11 @@ namespace Core
             for (int i = 0; i < _pendingRemove.Count; i++)
             {
                 if (_listenerSet.Remove(_pendingRemove[i]))
-                    ListFor(_pendingRemove[i]).Remove(_pendingRemove[i]);
+                    RemoveNow(_pendingRemove[i]);
             }
 
             _pendingRemove.Clear();
+            _pendingRemoveSet.Clear();
 
 
             for (int i = 0; i < _pendingAdd.Count; i++)
@@ -272,10 +312,11 @@ namespace Core
                     continue;
 
                 if (_listenerSet.Add(listener))
-                    ListFor(listener).Add(listener);
+                    AddNow(listener);
             }
 
             _pendingAdd.Clear();
+            _pendingAddSet.Clear();
         }
 
 

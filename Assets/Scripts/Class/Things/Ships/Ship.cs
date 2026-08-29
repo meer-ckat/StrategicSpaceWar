@@ -61,25 +61,41 @@ public partial class Ship : Thing
     {
         get
         {
-            for (int i = 0; i < shipCriticals.Count; i++)
-            {
-                CriticalModule module = shipCriticals[i];
+            // NearestHostile과 같은 틱스탬프 캐시. isDriverReady·isGunnerReady·포탑마다
+            // 이 게터를 지나는데 안은 StillAboard(네이티브 IsChildOf) 루프다. 피해가
+            // ITickLate에서 들어오니 판정이 1틱 늦을 수 있는 것도 NearestHostile과 같고,
+            // 그쪽이 이미 수용한 지연이다.
+            if (_powerTick == Core.TickManager.currentTick)
+                return _cachedPower;
 
-                if (module == null || !module.providesPower || !StillAboard(module, this))
-                    continue;
-
-                if (!module.Neutralized)
-                    return true;
-            }
-
-            // **"지금 목록에 없다"를 세면 안 된다.** 터진 원자로는 판과 함께 잔해로 떠나거나
-            // 파괴돼서 목록에서 사라진다. 남은 것을 세는 것으로 판단하면 원자로가 전멸한
-            // 배가 "원자로를 안 단 설계"로 읽혀서 전기가 되살아나고, 다 터졌는데 계속
-            // 조타하고 조준하는 배가 된다.
-            //
-            // 설계에 원자로가 있었는지는 Awake가 적어 둔다. 그 사실은 안 변한다.
-            return !_needsPower;
+            _powerTick = Core.TickManager.currentTick;
+            return _cachedPower = ComputePower();
         }
+    }
+
+    private long _powerTick = -1;
+    private bool _cachedPower;
+
+    private bool ComputePower()
+    {
+        for (int i = 0; i < shipCriticals.Count; i++)
+        {
+            CriticalModule module = shipCriticals[i];
+
+            if (module == null || !module.providesPower || !StillAboard(module, this))
+                continue;
+
+            if (!module.Neutralized)
+                return true;
+        }
+
+        // **"지금 목록에 없다"를 세면 안 된다.** 터진 원자로는 판과 함께 잔해로 떠나거나
+        // 파괴돼서 목록에서 사라진다. 남은 것을 세는 것으로 판단하면 원자로가 전멸한
+        // 배가 "원자로를 안 단 설계"로 읽혀서 전기가 되살아나고, 다 터졌는데 계속
+        // 조타하고 조준하는 배가 된다.
+        //
+        // 설계에 원자로가 있었는지는 Awake가 적어 둔다. 그 사실은 안 변한다.
+        return !_needsPower;
     }
 
     /// <summary>설계에 발전하는 모듈이 하나라도 있었는가. Awake가 한 번 정하고 안 바뀐다.</summary>
@@ -600,22 +616,36 @@ public partial class Ship : Thing
     {
         get
         {
-            // 전기가 없으면 겨누지도 돌리지도 못한다. 포탑이 멀쩡해도 잔해다.
-            if (!CrewAlive || !HasPower)
-                return false;
+            // 틱스탬프 캐시. IsHostileTo가 표적 후보마다 이 값을 물어서, 배 N척이 서로
+            // 스캔하면 N²으로 곱하던 자리다. 안은 모듈 목록 × StillAboard 루프 넷이다.
+            if (_effectiveTick == Core.TickManager.currentTick)
+                return _cachedEffective;
 
-            if (HasUsableGun)
-                return true;
-
-            // 포탑이 다 죽어도 움직일 수 있으면 충각이 남아 있다. 엔진이 살아 있다고
-            // 움직일 수 있는 게 아니다 - 탱크를 단 배는 연료가 없으면 Drive()가 힘을
-            // 0으로 스케일한다. 탱크가 하나도 없는 배는(아직 배치 안 끝난 배) 예전처럼
-            // 엔진만 본다 - Drive()의 하위호환 게이트와 같은 조건이어야 둘이 안 어긋난다.
-            if (shipTanks.Count > 0 && AvailableDeltaV() <= 0f)
-                return false;
-
-            return AvailableThrust(true) > 0f || AvailableThrust(false) > 0f;
+            _effectiveTick = Core.TickManager.currentTick;
+            return _cachedEffective = ComputeCombatEffective();
         }
+    }
+
+    private long _effectiveTick = -1;
+    private bool _cachedEffective;
+
+    private bool ComputeCombatEffective()
+    {
+        // 전기가 없으면 겨누지도 돌리지도 못한다. 포탑이 멀쩡해도 잔해다.
+        if (!CrewAlive || !HasPower)
+            return false;
+
+        if (HasUsableGun)
+            return true;
+
+        // 포탑이 다 죽어도 움직일 수 있으면 충각이 남아 있다. 엔진이 살아 있다고
+        // 움직일 수 있는 게 아니다 - 탱크를 단 배는 연료가 없으면 Drive()가 힘을
+        // 0으로 스케일한다. 탱크가 하나도 없는 배는(아직 배치 안 끝난 배) 예전처럼
+        // 엔진만 본다 - Drive()의 하위호환 게이트와 같은 조건이어야 둘이 안 어긋난다.
+        if (shipTanks.Count > 0 && AvailableDeltaV() <= 0f)
+            return false;
+
+        return AvailableThrust(true) > 0f || AvailableThrust(false) > 0f;
     }
 
     /// <summary>
