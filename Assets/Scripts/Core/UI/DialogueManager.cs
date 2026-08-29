@@ -90,6 +90,11 @@ public class Dialogue
     public string rendered = string.Empty;
     public int renderedAt = -1;
 
+    /// <summary>태어난 실시각(Time.unscaledTime). GameManager.ClearBefore가 이걸로
+    /// "죽기 전 통신"과 "죽은 직후 새로 뜬 유언"을 가른다 - Tick과 Update의 실행
+    /// 순서에 기대지 않는다.</summary>
+    public readonly float spawnRealTime = Time.unscaledTime;
+
     public Dialogue(
         string id,
         string message,
@@ -388,10 +393,11 @@ public class DialogueManager : MonoBehaviour
     {
         float dt = Time.unscaledDeltaTime;
 
-        // 격파 시퀀스 중에는 대사창이 즉시 꺼지고 대사 진행도 멈춘다. Begin 뒤여야
-        // 한다 - 선언만 그만두면 수확이 이번 프레임 위젯을 걷어 화면에서 사라진다.
-        // (수확 자체는 GameManager가 프레임마다 보장한다.)
-        if (GameManager.GuiHidden)
+        // 대사는 격파 중에도 산다 - battle-lost 유언이 죽음 직후에 뜨는 대본이라,
+        // 여기를 GuiHidden(격파 포함)으로 걸면 유언이 뜨자마자 지워진다. 대신 사망
+        // 순간의 기존 대사(교전 중 통신)는 GameManager가 Clear()로 한 번에 지운다.
+        // 부팅 중(새 씬 로드 직후)에만 숨는다 - 다음 구역 잡담이 부팅 위로 끼어드는 것만 막는다.
+        if (GameManager.SceneSeconds < GameManager.GuiBootDelay)
             return;
 
         Advance(dt);
@@ -1028,6 +1034,11 @@ public class DialogueManager : MonoBehaviour
     /// 싶다"가 대본까지 끊는다.
     /// </summary>
     public void Clear() => Texts.Clear();
+
+    /// <summary>realTime 이전에 태어난 줄만 지운다. GameManager가 격파 순간 쓴다 -
+    /// 죽기 전 통신은 지우고 그 순간 막 뜨기 시작한 유언(battle-lost)은 살린다.</summary>
+    public void ClearBefore(float realTime) =>
+        Texts.RemoveAll(line => line.spawnRealTime < realTime);
 
     // =========================================================
     // Presentation

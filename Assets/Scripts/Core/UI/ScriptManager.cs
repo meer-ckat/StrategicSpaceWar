@@ -466,6 +466,11 @@ public class ScriptManager : MonoBehaviour
     /// 연출 전용 줄(대사 없는 줄)에서는 화면이 잠깐 빌 수 있고, 그 순간을 끝으로 읽으면
     /// 컷신이 중간에 걷히고 전투가 시작된다.
     /// </summary>
+    /// <summary>대본 하나가 줄을 아직 넘기는 중인가. GameManager가 격파 뒤 재시작을
+    /// 미룰지 판단하는 데 쓴다 - battle-lost 같은 유언 대본이 다 읽히기 전에
+    /// 씬이 넘어가면 안 된다.</summary>
+    public bool IsRunning => _running > 0;
+
     private int _running;
 
     /// <summary>

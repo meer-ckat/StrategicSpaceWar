@@ -136,6 +136,15 @@ public sealed class GameManager : MonoBehaviour
             _downTime = Time.unscaledTime;
             BeginSilence();
 
+            // 죽는 순간 화면에 있던 대사(교전 중 통신)를 지운다 - 죽은 승무원이
+            // 계속 떠들면 안 된다. ClearBefore(시각 기준)를 쓰는 이유: Battle.Tick도
+            // 같은 조건(player.IsCombatEffective)을 보고 같은 프레임에 battle-lost의
+            // 첫 줄을 이미 띄웠을 수 있다 - TickManager와 이 Update 중 누가 먼저
+            // 도는지는 실행 순서로 정해져 있지 않다. 통째로 Clear하면 그 순서에 따라
+            // 유언의 첫 줄이 뜨자마자 지워질 수 있으므로, "이 시각 이전에 태어난 것"만
+            // 지운다 - 어느 쪽이 먼저 돌든 유언은 항상 산다.
+            DialogueManager.current?.ClearBefore(_downTime);
+
             // 사건당 한 줄. "왜 안 꺼지지"의 답이 콘솔에 있어야 한다 - 트리거가
             // 전투 불능(승무원·전원·무장/추진)이라 오너가 보는 "죽음"과 다를 수 있다.
             Debug.Log($"[GameManager] 격파 - 시퀀스 시작 (player={(player == null ? "파괴됨" : player.name)})");
@@ -158,12 +167,27 @@ public sealed class GameManager : MonoBehaviour
 
         Blackout(t);
 
-        if (!_restarting && t >= ShipStatusHud.DieFlashSeconds + BlackFadeSeconds + HoldBlackSeconds)
-        {
-            _restarting = true;
-            Restart();
-        }
+        float holdElapsed = t - (ShipStatusHud.DieFlashSeconds + BlackFadeSeconds + HoldBlackSeconds);
+
+        if (_restarting || holdElapsed < 0f)
+            return;
+
+        // 검정 화면 위로 battle-lost 유언이 흐르는 동안은 재시작을 미룬다 - 다 읽기도
+        // 전에 씬이 넘어가면 안 된다. 안전장치: 대사가 어떤 이유로든 안 끝나면(버그,
+        // 무한 루프 대본) MaxDialogueWaitSeconds에서 상태와 무관하게 재시작한다 -
+        // 런의 유일한 출구가 잠기면 안 된다. 파편 연쇄 상한과 같은 종류의 방지책이다.
+        if (DialogueStillPlaying() && holdElapsed < MaxDialogueWaitSeconds)
+            return;
+
+        _restarting = true;
+        Restart();
     }
+
+    private const float MaxDialogueWaitSeconds = 30f;
+
+    private static bool DialogueStillPlaying() =>
+        (ScriptManager.current != null && ScriptManager.current.IsRunning) ||
+        (DialogueManager.current != null && DialogueManager.current.Texts.Count > 0);
 
     private AudioSource _tinnitus;
 
