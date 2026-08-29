@@ -107,8 +107,8 @@ public sealed class ShipStatusHud : MonoBehaviour
 
         // 월드 정보는 패널보다 먼저 그린다.
         // 패널이 선에 가려지지 않는다.
-        // 승무원이 죽으면 조준 정보부터 즉시 끊긴다 - 패널은 하나씩 소등된다.
-        if (cam != null && ship.CrewAlive)
+        // 전투 불능이 되면 조준 정보부터 즉시 끊긴다 - 패널은 하나씩 소등된다.
+        if (cam != null && ship.IsCombatEffective)
         {
             DrawVelocityVector(ship, cam);
             DrawGunAimVectors(ship, cam);
@@ -138,8 +138,11 @@ public sealed class ShipStatusHud : MonoBehaviour
     private static Vector2 _sectionShake;
 
     /// <summary>
-    /// 이 섹션을 그릴까. 승무원이 살아 있으면 항상 그리고, 죽으면 order 순서대로
-    /// 하나씩 꺼진다 - 꺼지기 직전 0.15초 동안 섹션 전체가 빨갛게 흔들린다.
+    /// 이 섹션을 그릴까. 소등 트리거는 승무원 사망이 아니라 **전투 불능**이다
+    /// (IsCombatEffective - 쏠 수도 움직일 수도 없는 배가 잔해다. 오너 결정 2026-08-29).
+    /// 승무원이 살아도 원자로가 나가면 계기는 나간다 - 전기가 없으니 오히려 그림이 맞다.
+    /// 전투 불능이면 order 순서대로 하나씩 꺼지고, 꺼지기 직전 0.15초 동안 섹션 전체가
+    /// 빨갛게 흔들린다. 수리로 되살아나면 계기도 돌아온다.
     /// 틴트와 흔들림은 여기서 정하고 Draw* 헬퍼들이 읽는다 - 그리기 코드는 모른다.
     /// </summary>
     private static bool BeginSection(Ship ship, int order)
@@ -147,7 +150,7 @@ public sealed class ShipStatusHud : MonoBehaviour
         _sectionDying = false;
         _sectionShake = Vector2.zero;
 
-        if (ship.CrewAlive)
+        if (ship.IsCombatEffective)
         {
             _deathTime = -1f;
             return true;
