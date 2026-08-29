@@ -30,6 +30,9 @@ public sealed class ShipStatusHud : MonoBehaviour
     private static readonly Color GunAimColor =
         new(0.78f, 0.90f, 1.00f, 0.15f);
 
+    private static readonly Color LeadColor =
+        new(0.78f, 0.90f, 1.00f, 0.60f);
+
     private const float Margin = 16f;
 
     private const float AirframeWidth = 300f;
@@ -50,6 +53,8 @@ public sealed class ShipStatusHud : MonoBehaviour
 
     private const float GunAimLineLength = 120f;
     private const float GunAimLineWidth = 1f;
+
+    private const float LeadMarkerSize = 6f;
 
     private const float MinVisibleSpeed = 0.05f;
 
@@ -106,6 +111,7 @@ public sealed class ShipStatusHud : MonoBehaviour
         {
             DrawVelocityVector(ship, cam);
             DrawGunAimVectors(ship, cam);
+            DrawLeadMarkers(ship, cam);
         }
 
         DrawAirframePanel(ship);
@@ -481,7 +487,8 @@ public sealed class ShipStatusHud : MonoBehaviour
         {
             Gun gun = ship.shipGuns[i];
 
-            if (gun == null)
+            // 잔해로 간 포와 부서진 포는 무장이 아니다.
+            if (gun == null || gun.Neutralized || !Ship.StillAboard(gun, ship))
                 continue;
 
             string projectile =
@@ -579,6 +586,119 @@ public sealed class ShipStatusHud : MonoBehaviour
     }
 
 
+    /// <summary>
+    /// 탄종(muzzleSpeed)별 리드 마커. 마우스를 이 십자에 두면 그 탄이 표적을 요격한다.
+    ///
+    /// 마커 자리는 표적의 미래 위치가 아니라 <c>표적 + 상대속도 × t</c>다 - 탄이 내 배
+    /// 속도를 물려받으므로(Projectile.Launch) 조준 방향은 상대 프레임에서 풀리고, 마우스가
+    /// 정하는 것은 포신 방향이라 마커도 그 방향 선상에 있어야 한다. 표적 미래 위치에 찍으면
+    /// 내 배 속도만큼 어긋난다 - 탄속 1100에 배속 40이면 2도, fireArc(0.7도)보다 크다.
+    ///
+    /// 포구 위치·포탑 회전(w×r) 몫은 배 중심으로 근사한다 - 수백 m 사거리에서 반 함체
+    /// 오차는 마커 픽셀 하나 아래다.
+    /// </summary>
+    private static readonly List<float> _leadSpeeds = new();
+
+    private static void DrawLeadMarkers(
+        Ship ship,
+        Camera cam
+    )
+    {
+        Ship target = ship.NearestHostile();
+
+        if (target == null)
+            return;
+
+        _leadSpeeds.Clear();
+
+        for (int i = 0; i < ship.shipGuns.Count; i++)
+        {
+            Gun gun = ship.shipGuns[i];
+
+            if (gun == null || gun.Neutralized || !Ship.StillAboard(gun, ship))
+                continue;
+
+            if (!_leadSpeeds.Contains(gun.muzzleSpeed))
+                _leadSpeeds.Add(gun.muzzleSpeed);
+        }
+
+        Vector2 d =
+            (Vector2)target.transform.position
+            - (Vector2)ship.transform.position;
+
+        Vector2 relativeVelocity =
+            target.velocity - ship.velocity;
+
+        for (int i = 0; i < _leadSpeeds.Count; i++)
+        {
+            if (!InterceptTime(d, relativeVelocity, _leadSpeeds[i], out float t))
+                continue;
+
+            Vector2 aim =
+                (Vector2)target.transform.position
+                + relativeVelocity * t;
+
+            Vector2 p = WorldToGui(cam, aim);
+
+            DrawLine(
+                p + Vector2.left * LeadMarkerSize,
+                p + Vector2.right * LeadMarkerSize,
+                LeadColor,
+                1f
+            );
+
+            DrawLine(
+                p + Vector2.up * LeadMarkerSize,
+                p + Vector2.down * LeadMarkerSize,
+                LeadColor,
+                1f
+            );
+        }
+    }
+
+
+    /// <summary>|d + v·t| = s·t 를 푼다. 최소 양수 근이 요격 시각. 못 따라잡으면 false.</summary>
+    private static bool InterceptTime(
+        Vector2 d,
+        Vector2 v,
+        float speed,
+        out float t
+    )
+    {
+        float a = v.sqrMagnitude - speed * speed;
+        float b = 2f * Vector2.Dot(d, v);
+        float c = d.sqrMagnitude;
+
+        t = -1f;
+
+        // 탄속과 상대속도가 같은 퇴화: 선형식 bt + c = 0.
+        if (Mathf.Abs(a) < 1e-4f)
+        {
+            if (b >= -1e-6f)
+                return false;
+
+            t = -c / b;
+            return t > 0f;
+        }
+
+        float disc = b * b - 4f * a * c;
+
+        if (disc < 0f)
+            return false;
+
+        float root = Mathf.Sqrt(disc);
+
+        float t0 = (-b - root) / (2f * a);
+        float t1 = (-b + root) / (2f * a);
+
+        if (t0 > t1)
+            (t0, t1) = (t1, t0);
+
+        t = t0 > 0f ? t0 : t1;
+        return t > 0f;
+    }
+
+
     private static void DrawGunAimVectors(
         Ship ship,
         Camera cam
@@ -589,7 +709,8 @@ public sealed class ShipStatusHud : MonoBehaviour
             Gun gun =
                 ship.shipGuns[i];
 
-            if (gun == null)
+            // 잔해로 간 포탑은 null이 아니다 - 소속을 다시 확인해야 남의 조준선을 안 그린다.
+            if (gun == null || !Ship.StillAboard(gun, ship))
                 continue;
 
             Transform turret =
