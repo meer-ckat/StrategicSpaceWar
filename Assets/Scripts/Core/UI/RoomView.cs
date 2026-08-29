@@ -198,6 +198,12 @@ public sealed class RoomView : MonoBehaviour
     /// </summary>
     private const float BlowInterval = 0.45f;
 
+    /// <summary>파공 하나가 뿜는 갈래 수. 1이면 예전처럼 직선 하나로 돌아간다.</summary>
+    private const int VentJetCount = 3;
+
+    /// <summary>바깥 방향에서 갈래가 벌어지는 최대 각도(도).</summary>
+    private const float VentSpreadDegrees = 22f;
+
     private float _nextBlow;
 
     private void Blow(Ship ship, Room room, float venting)
@@ -240,8 +246,22 @@ public sealed class RoomView : MonoBehaviour
             // 세기만큼 길게. 다 빠진 방은 더 이상 뿜지 않으므로 저절로 잦아든다.
             float length = Mathf.Lerp(0.6f, 3.5f, venting);
 
+            // 한 갈래짜리 직선은 레이저지 새는 공기가 아니다. 같은 파공에서 각도를 살짝
+            // 흩어 여러 갈래를 뿜는다 - 그래야 김이 퍼지는 것처럼 읽힌다.
+            // UnityEngine.Random 금지라 결정론 RNG를 쓴다: (판 stableId, 틱, i)가 시드라
+            // 같은 틱에 두 번 그려도(그릴 일은 없지만) 같은 부채꼴이 나온다.
+            var rng = new DeterministicRng(Ballistics.Hash(
+                wall.stableId < 0 ? wall.GetInstanceID() : wall.stableId,
+                Core.TickManager.currentTick,
+                i));
 
-            SpallTrails.Add(from, from + outward * length, SpallTrails.Kind.Miss);
+            for (int jet = 0; jet < VentJetCount; jet++)
+            {
+                Vector2 dir = Ballistics.Rotate(outward, rng.Range(-VentSpreadDegrees, VentSpreadDegrees));
+                float jetLength = length * rng.Range(0.55f, 1f);
+
+                SpallTrails.Add(from, from + dir * jetLength, SpallTrails.Kind.Vent);
+            }
 
             loudest = Mathf.Max(loudest, venting);
             at = from;

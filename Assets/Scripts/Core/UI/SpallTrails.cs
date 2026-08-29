@@ -14,7 +14,7 @@ using UnityEngine;
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public sealed class SpallTrails : MonoBehaviour
 {
-    public enum Kind { Miss = 0, Armor = 1, Module = 2 }
+    public enum Kind { Miss = 0, Armor = 1, Module = 2, Vent = 3 }
 
     /// <summary>
     /// 선분 상한. 한 발이 만드는 파편은 SpallMaxCount x MaxSpallDepth로 막혀 있지만,
@@ -34,6 +34,10 @@ public sealed class SpallTrails : MonoBehaviour
 
     /// <summary>맞은 것만 그리면 부채꼴이 안 보이고 "왜 쟤만 맞았지"가 남는다.</summary>
     [SerializeField] private Color miss = new(0.6f, 0.65f, 0.7f, 0.35f);
+
+    /// <summary>파공에서 새는 공기. 탄과 헷갈리면 안 되니 따뜻한 계열을 다 피한다 - 얼음
+    /// 낀 김 같은 차가운 흰색.</summary>
+    [SerializeField] private Color vent = new(0.85f, 0.95f, 1f, 0.5f);
 
     private static readonly Vector2[] _from = new Vector2[Capacity];
     private static readonly Vector2[] _to = new Vector2[Capacity];
@@ -158,6 +162,7 @@ public sealed class SpallTrails : MonoBehaviour
             {
                 Kind.Armor => armorHit,
                 Kind.Module => moduleHit,
+                Kind.Vent => vent,
                 _ => miss,
             };
 
