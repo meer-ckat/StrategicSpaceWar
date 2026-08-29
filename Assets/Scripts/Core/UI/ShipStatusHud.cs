@@ -105,24 +105,14 @@ public sealed class ShipStatusHud : MonoBehaviour
 
         EnsureStyles();
 
-        // 이 파일은 GUIManager를 거치지 않고 GUI.*를 직접 부른다 - 그 중앙 OnGUI가
-        // 거는 배율 행렬이 여기까지 안 온다(GUI.matrix는 컴포넌트마다 따로 관리해야
-        // 한다, GUIManager.OnGUI의 흔들림 주석 참고). 같은 배율을 여기서 한 번 더
-        // 걸어야 이 파일의 패널·월드 오버레이도 같이 커진다. Repaint에서만 거는
-        // 이유도 같다 - 다른 이벤트에 걸면 이 파일엔 클릭 판정이 없어 무해하지만,
-        // 여기서 매 이벤트 GUI.matrix를 만지는 것 자체가 다음 OnGUI로 새는 값을
-        // 늘릴 이유가 없다.
-        float uiScale = GUIManager.UiScale;
-        Matrix4x4 savedMatrix = GUI.matrix;
-        bool scaling = !Mathf.Approximately(uiScale, 1f);
-
-        if (scaling)
-            GUI.matrix = Matrix4x4.Scale(new Vector3(uiScale, uiScale, 1f));
-
         Camera cam = Camera.main;
 
-        // 월드 정보는 패널보다 먼저 그린다.
-        // 패널이 선에 가려지지 않는다.
+        // 월드에 붙는 조준 정보(속도 벡터·조준선·리드 마커)는 배율 행렬을 걸기 **전에**
+        // 그린다 - 배율 밖에 완전히 둔다. 이건 읽기 편하라고 있는 값이 아니라 조준에
+        // 쓰는 값이다: 리드 마커는 마우스를 그 십자에 정확히 두면 맞는다는 전제고
+        // (DrawLeadMarkers 주석 참고, fireArc 0.7도가 기준), uiScale 슬라이더가 그
+        // 자리를 1픽셀이라도 밀면 조준이 어긋난다. 패널(정보 표시)만 배율을 받는다.
+        //
         // 전투 불능이 되면 조준 정보부터 즉시 끊긴다 - 패널은 하나씩 소등된다.
         if (cam != null && !GameManager.GuiHidden)
         {
@@ -130,6 +120,17 @@ public sealed class ShipStatusHud : MonoBehaviour
             DrawGunAimVectors(ship, cam);
             DrawLeadMarkers(ship, cam);
         }
+
+        // 이 파일은 GUIManager를 거치지 않고 GUI.*를 직접 부른다 - 그 중앙 OnGUI가
+        // 거는 배율 행렬이 여기까지 안 온다(GUI.matrix는 컴포넌트마다 따로 관리해야
+        // 한다, GUIManager.OnGUI의 흔들림 주석 참고). 같은 배율을 여기서 한 번 더
+        // 걸어야 패널이 같이 커진다.
+        float uiScale = GUIManager.UiScale;
+        Matrix4x4 savedMatrix = GUI.matrix;
+        bool scaling = !Mathf.Approximately(uiScale, 1f);
+
+        if (scaling)
+            GUI.matrix = Matrix4x4.Scale(new Vector3(uiScale, uiScale, 1f));
 
         // 소등 순서: 무장 -> 비행 -> 함체. 선체 그림이 마지막 숨이다.
         if (BeginSection(ship, 2)) DrawAirframePanel(ship);
@@ -1096,14 +1097,11 @@ public sealed class ShipStatusHud : MonoBehaviour
         Vector3 screen =
             cam.WorldToScreenPoint(world);
 
-        // WorldToScreenPoint는 실제 화면 픽셀이라 uiScale과 무관하다. 이 값들을 그대로
-        // GUI Rect에 쓰면 OnGUI의 배율 행렬이 다시 곱해서 배가 아닌 자리로 밀린다 -
-        // ContactView.Draw/Status와 같은 이유로 여기서 미리 나눈다.
-        float scale = GUIManager.UiScale;
-
+        // 배율 행렬 밖에서 부르므로(OnGUI 참고) 나눌 것도 없다 - 그대로 실제 화면
+        // 픽셀이다.
         return new Vector2(
-            screen.x / scale,
-            GUIManager.LogicalHeight - screen.y / scale
+            screen.x,
+            Screen.height - screen.y
         );
     }
 
