@@ -1,3 +1,4 @@
+using IMGUI;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
@@ -74,6 +75,12 @@ public sealed class GameManager : MonoBehaviour
 
     private void Update()
     {
+        // ImGui 수확의 주인. 뷰들(Dialogue·Contact)이 격파 게이트로 전부 침묵하면
+        // Begin을 부르는 사람이 없어져 마지막 프레임 위젯이 화면에 박제된다 - 선언과
+        // 무관하게 수확은 프레임마다 돌아야 한다. Begin은 프레임당 1회 가드가 있어
+        // 뷰들이 또 불러도 무해하다.
+        ImGui.Begin();
+
         Ship player = Player();
 
         if (player != null)
@@ -93,6 +100,10 @@ public sealed class GameManager : MonoBehaviour
 
             PlayerDown = true;
             _downTime = Time.unscaledTime;
+
+            // 사건당 한 줄. "왜 안 꺼지지"의 답이 콘솔에 있어야 한다 - 트리거가
+            // 전투 불능(승무원·전원·무장/추진)이라 오너가 보는 "죽음"과 다를 수 있다.
+            Debug.Log($"[GameManager] 격파 - 시퀀스 시작 (player={(player == null ? "파괴됨" : player.name)})");
             return;
         }
 
@@ -153,6 +164,8 @@ public sealed class GameManager : MonoBehaviour
 
     private void Restart()
     {
+        Debug.Log("[GameManager] 재시작 - 씬을 처음부터");
+
         // 씬을 처음부터. RunState 저장 파일은 안 건드린다 - 죽음은 저장을 만들지도
         // 지우지도 않고, 마지막으로 저장된 상태에서 다시 시작한다.
         PlayerDown = false;
