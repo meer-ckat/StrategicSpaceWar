@@ -50,9 +50,11 @@ public sealed class SoundManager : MonoBehaviour
     /// <summary>
     /// 여기서 무음. 교전거리가 200 m라 40으로는 적함에서 나는 소리가 통째로 안 들렸다 -
     /// 유폭을 2D로 우회했던 이유가 그거였는데, 거리를 제대로 잡으면 우회할 이유가 없다.
-    /// 400이면 200 m 적함이 절반 음량이라 거리감이 남으면서도 들린다.
+    /// 1000이면 200 m 적함이 80% 음량이라 여전히 거리감이 남고, 시야 밖 원거리
+    /// 사격이나 조우 전 유폭도 들린다 - ContactView의 SensorRange(1200)에 가깝게
+    /// 맞춘 값이다. minDistance(25)는 그대로라 선형 감쇠 구간만 늘어난다.
     /// </summary>
-    [SerializeField] private float maxDistance = 400f;
+    [SerializeField] private float maxDistance = 1000f;
 
     /// <summary>비워두면 기본 출력으로 나간다. 나중에 SFX/BGM 볼륨을 나눌 때 쓸 자리.</summary>
     [SerializeField] private AudioMixerGroup mixerGroup;
