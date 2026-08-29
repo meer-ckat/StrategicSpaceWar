@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
@@ -32,12 +33,25 @@ public static class RunState
         public int sector;
 
         /// <summary>
-        /// 뜯어 온 판. **전투가 끝났을 때 적 선체에 남아 있던 판 수다.**
-        ///
-        /// 그래서 어떻게 잡았느냐가 곧 보상이다 - 관통으로 승무원만 죽이면 선체가 멀쩡히
-        /// 남아 많이 뜯어오고, 충각으로 갈아버리면 가져올 것이 없다. 규칙을 따로 안 썼다.
+        /// 세 자원. **`salvage` 단일 값을 여기서 끝낸다** - 판 수 하나로 수리·재보급·이동을
+        /// 전부 사려 하면 세 가지 서로 다른 결정("고칠까/재장전할까/떠날까")이 값 하나를
+        /// 두고 경쟁하게 된다. 회수 방식은 <see cref="Campaign"/>의 SalvageResult 계산이
+        /// 정한다 - 여기는 그냥 지갑이다.
         /// </summary>
-        public int salvage;
+        public int materials;
+
+        /// <summary>전략 이동에 쓰는 추진제. 안 터진 탱크의 remaining 합에서 온다.</summary>
+        public int propellant;
+
+        /// <summary>재장전에 쓰는 탄약. 안 터진 탄약고에서 온다.</summary>
+        public int munitions;
+
+        /// <summary>
+        /// 런의 기억. **문자열 집합 하나뿐이다** - 이벤트 체인이 실제로 생기기 전까지는
+        /// 이 이상의 구조(발생 시각, 만료, 카운터)를 미리 짓지 않는다. 값이 필요해지는
+        /// 순간의 이벤트 하나가 그 모양을 정하는 게 낫다.
+        /// </summary>
+        public List<string> flags = new();
 
         /// <summary>
         /// 합류한 아군의 설계도 이름. **런 전체를 따라다닌다** - 구역마다 이 목록대로
@@ -125,17 +139,61 @@ public static class RunState
         }
     }
 
-    /// <summary>쓸 수 있는 노획. 판 한 장어치가 1이다.</summary>
-    public static int Salvage
+    /// <summary>수리·개조에 쓰는 물자. 판 한 장어치가 1이다.</summary>
+    public static int Materials
     {
-        get => Read().salvage;
+        get => Read().materials;
 
         set
         {
             Progress p = Read();
-            p.salvage = Mathf.Max(0, value);
+            p.materials = Mathf.Max(0, value);
             Write(p);
         }
+    }
+
+    /// <summary>전략 이동에 쓰는 추진제.</summary>
+    public static int Propellant
+    {
+        get => Read().propellant;
+
+        set
+        {
+            Progress p = Read();
+            p.propellant = Mathf.Max(0, value);
+            Write(p);
+        }
+    }
+
+    /// <summary>재장전에 쓰는 탄약.</summary>
+    public static int Munitions
+    {
+        get => Read().munitions;
+
+        set
+        {
+            Progress p = Read();
+            p.munitions = Mathf.Max(0, value);
+            Write(p);
+        }
+    }
+
+    /// <summary>이 런에서 그 일이 있었는가.</summary>
+    public static bool HasFlag(string flag) => Read().flags?.Contains(flag) ?? false;
+
+    /// <summary>런의 기억에 한 줄 남긴다. 같은 flag를 두 번 남겨도 한 번만 남는다.</summary>
+    public static void SetFlag(string flag)
+    {
+        if (string.IsNullOrWhiteSpace(flag))
+            return;
+
+        Progress p = Read();
+        p.flags ??= new List<string>();
+
+        if (!p.flags.Contains(flag))
+            p.flags.Add(flag);
+
+        Write(p);
     }
 
     /// <summary>
@@ -222,8 +280,18 @@ public static class RunState
             return new Progress();
 
         string raw = File.ReadAllText(ProgressPath);
-
-        return JsonUtility.FromJson<Progress>(raw) ?? new Progress();
+        try
+        {
+            var v = JsonUtility.FromJson<Progress>(raw) ?? new Progress();
+            return v;
+        }
+        catch(Exception e)
+        {
+            Debug.LogAssertion(e);
+            Clear();
+            return new Progress();
+        }
+       
     }
 
     private static void Write(Progress p)
@@ -408,7 +476,7 @@ public static class RunState
         ShipDef ship = Load();
 
         Debug.Log(
-            $"[RunState] {Sector + 1}구역, 노획 {Salvage}장, " +
+            $"[RunState] {Sector + 1}구역, MTRL {Materials} PROP {Propellant} MUN {Munitions}, " +
             $"배 '{ship?.basedOn ?? "?"}' 판 {ship?.placements.Count ?? 0}장. " +
             Application.persistentDataPath);
     }
