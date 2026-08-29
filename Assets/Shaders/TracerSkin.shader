@@ -9,7 +9,7 @@ Shader "SUPERRADIANCE/TracerSkin"
     Properties
     {
         _MainTex("Sprite", 2D) = "white" {}
-        _Glow("Glow", Float) = 1
+        _Glow("Glow", Float) = 5
 
         [HideInInspector] _Color("Tint", Color) = (1,1,1,1)
         [HideInInspector] _RendererColor("RendererColor", Color) = (1,1,1,1)

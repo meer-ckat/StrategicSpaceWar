@@ -107,16 +107,85 @@ public sealed class ShipStatusHud : MonoBehaviour
 
         // 월드 정보는 패널보다 먼저 그린다.
         // 패널이 선에 가려지지 않는다.
-        if (cam != null)
+        // 승무원이 죽으면 조준 정보부터 즉시 끊긴다 - 패널은 하나씩 소등된다.
+        if (cam != null && ship.CrewAlive)
         {
             DrawVelocityVector(ship, cam);
             DrawGunAimVectors(ship, cam);
             DrawLeadMarkers(ship, cam);
         }
 
-        DrawAirframePanel(ship);
-        DrawFlightPanel(ship);
-        DrawWeaponPanel(ship);
+        // 소등 순서: 무장 -> 비행 -> 함체. 선체 그림이 마지막 숨이다.
+        if (BeginSection(ship, 2)) DrawAirframePanel(ship);
+        if (BeginSection(ship, 1)) DrawFlightPanel(ship);
+        if (BeginSection(ship, 0)) DrawWeaponPanel(ship);
+
+        _sectionDying = false;
+        _sectionShake = Vector2.zero;
+    }
+
+
+    // ------------------------------------------------------------
+    // 사망 소등
+    // ------------------------------------------------------------
+
+    private const float SectionStagger = 0.5f;      // 섹션 사이 간격(초)
+    private const float DieFlashSeconds = 0.15f;    // 빨갛게 흔들리는 시간
+    private const float DieShakePixels = 3f;
+
+    private static float _deathTime = -1f;
+    private static bool _sectionDying;
+    private static Vector2 _sectionShake;
+
+    /// <summary>
+    /// 이 섹션을 그릴까. 승무원이 살아 있으면 항상 그리고, 죽으면 order 순서대로
+    /// 하나씩 꺼진다 - 꺼지기 직전 0.15초 동안 섹션 전체가 빨갛게 흔들린다.
+    /// 틴트와 흔들림은 여기서 정하고 Draw* 헬퍼들이 읽는다 - 그리기 코드는 모른다.
+    /// </summary>
+    private static bool BeginSection(Ship ship, int order)
+    {
+        _sectionDying = false;
+        _sectionShake = Vector2.zero;
+
+        if (ship.CrewAlive)
+        {
+            _deathTime = -1f;
+            return true;
+        }
+
+        // 사망 순간을 첫 호출이 적는다. 부활하면 위에서 -1로 돌아간다.
+        if (_deathTime < 0f)
+            _deathTime = Time.unscaledTime;
+
+        float dieAt = _deathTime + order * SectionStagger;
+        float now = Time.unscaledTime;
+
+        if (now >= dieAt + DieFlashSeconds)
+            return false;
+
+        if (now < dieAt)
+            return true;
+
+        _sectionDying = true;
+
+        // 카메라 Shake와 같은 이유로 UnityEngine.Random을 안 쓴다 - 그림도 결정론이다.
+        var rng = new DeterministicRng(
+            Ballistics.Hash(0, Core.TickManager.currentTick, order));
+
+        _sectionShake = new Vector2(
+            rng.Range(-DieShakePixels, DieShakePixels),
+            rng.Range(-DieShakePixels, DieShakePixels));
+
+        return true;
+    }
+
+    /// <summary>죽어가는 섹션의 색과 자리. 알파는 원본을 지킨다 - 배경 반투명이 유지된다.</summary>
+    private static void ApplySection(ref Rect rect, ref Color color)
+    {
+        if (_sectionDying)
+            color = new Color(Color.red.r, Color.red.g, Color.red.b, color.a);
+
+        rect.position += _sectionShake;
     }
 
 
@@ -841,6 +910,8 @@ public sealed class ShipStatusHud : MonoBehaviour
         Color color
     )
     {
+        ApplySection(ref rect, ref color);
+
         Color old =
             GUI.color;
 
@@ -864,6 +935,8 @@ public sealed class ShipStatusHud : MonoBehaviour
         GUIStyle style
     )
     {
+        ApplySection(ref rect, ref color);
+
         Color old =
             GUI.contentColor;
 
