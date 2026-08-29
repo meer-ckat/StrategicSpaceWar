@@ -162,7 +162,6 @@ public static class RamImpact
         // v + ω x r이고, lance처럼 코가 중심에서 30 m 떨어진 배는 각속도 15도/초에서
         // 접선속도가 7.9 m/s다 - RamMinSpeed보다 큰데 지금까지 0으로 세어졌다.
         float omega = body.angularVelocity * Mathf.Deg2Rad;      // rad/s
-        Vector2 centre = body.worldCenterOfMass;
 
         // 반경은 캐시다. 매 틱 콜라이더 300개의 bounds를 다시 재는 게 잔해 구름의 틱
         // 비용 대부분이었다. 상한이라 스윕이 약간 길 수 있는데, 아래 접점별 점속도 필터가
@@ -174,6 +173,11 @@ public static class RamImpact
 
         if (reach < Ballistics.RamMinSpeed && !pushing)
             return;
+
+        // **여기까지 온 몸만 산다.** worldCenterOfMass는 네이티브 호출이라, 위 조기 리턴
+        // 전에 구해두면 안 밀리는 잔해·정박한 배 전부가 매 틱 쓰지도 않을 값을 낸다 -
+        // 이 함수는 그런 몸에서 초 단위로 도는데, 위 reach 계산은 centre를 안 쓴다.
+        Vector2 centre = body.worldCenterOfMass;
 
         // 서 있으면 진행 방향이 없다. 도는 중이면 제일 먼 점의 접선이 곧 휘두르는 쪽이고,
         // 그것도 없으면 밀고 있는 쪽이 파고드는 쪽이다.
@@ -245,7 +249,8 @@ public static class RamImpact
         _plateBodies.Clear();
         int stamp = ++_punchStamp;
 
-        Vector2 where = body.worldCenterOfMass;
+        // 위에서 이미 잰 값이다 - Punch 안에서 물리 스텝이 안 도는 한 안 움직인다.
+        Vector2 where = centre;
 
         // 첫 접촉까지의 실제 거리. 캐스트는 한 틱 앞을 미리 보므로 접촉점이 내 선체보다
         // 한참 앞에 있을 수 있고, 그때 이 값이 없으면 내 뱃머리를 못 찾는다.
