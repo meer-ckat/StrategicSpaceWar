@@ -244,6 +244,13 @@ public class CameraSystem : MonoBehaviour
         //
         // 부드러움은 마우스 lookAhead 오프셋에만 남는다.
 
+        // 격파 시퀀스: 마우스를 놓고 배를 비춘다. aim을 0으로 두면 SmoothDamp가
+        // 오프셋을 배 중심으로 데려가고(하드락이라 잔해에 그대로 붙는다), 줌은
+        // minZoom으로 당겨 침몰을 가까이 본다. 스피드줌도 끈다 - 표류 잔해의
+        // 속도로 화면이 넓어지면 죽은 배가 점이 된다.
+        if (GameManager.PlayerDown)
+            aim = Vector2.zero;
+
         // 마우스가 중앙에서 멀수록 zoom out
         float mouseZoom =
             Mathf.Lerp(minZoom, maxZoom, aim.magnitude);
@@ -258,7 +265,9 @@ public class CameraSystem : MonoBehaviour
         float speed = _targetRig != null ? _targetRig.linearVelocity.magnitude : 0f;
         float speedZoom = Mathf.Min(maxSpeedZoom, speed * moveSmooth * speedZoomFactor);
 
-        float targetZoom = Mathf.Max(mouseZoom, speedZoom);
+        float targetZoom = GameManager.PlayerDown
+            ? minZoom
+            : Mathf.Max(mouseZoom, speedZoom);
 
         _aimOffset = Vector2.SmoothDamp(
             _aimOffset,
