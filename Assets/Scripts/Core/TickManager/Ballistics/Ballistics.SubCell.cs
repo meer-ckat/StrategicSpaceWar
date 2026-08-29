@@ -10,13 +10,23 @@ public static partial class Ballistics
     public const int SubGrid = 6; //서브셀이 하나당 6x6개 있다는 뜻.
     public const int SubCount = SubGrid * SubGrid; //36
 
-    // ponytail: sample march, not an exact DDA. Count scales with the sub-grid so a
-    // worst-case diagonal (crossing ~1.41 * SubGrid cells) still lands ~5 samples per cell
-    // at any resolution. Swap for a DDA if this ever shows up in a profile.
-    private const int Samples = SubGrid * 8; //해상도, 이게 높을수록 weight 할당이 정확해짐 
+    /// <summary>
+    /// DDA 반복 상한. 한 칸을 가로지르며 지나는 서브셀은 최대 <c>2 * SubGrid</c>개다
+    /// (x 경계 SubGrid번 + y 경계 SubGrid번). 부동소수점이 경계에 정확히 얹혀도 안 도는
+    /// 안전장치이지 알고리즘의 일부가 아니다 - 여기 걸리면 그건 버그다.
+    /// </summary>
+    private const int MaxDdaSteps = SubGrid * 2 + 2;
 
-    /// <summary>Where the first sample sits, as a fraction of the channel length.</summary>
-    private const float FirstSampleOffset = 0.5f / Samples;
+    /// <summary>
+    /// 이 아래는 그 축에 성분이 없는 것으로 친다.
+    ///
+    /// **<see cref="CellExitDistance"/>와 <see cref="March"/>가 같은 값을 써야 한다.**
+    /// 갈라지면 이런 일이 난다: d.x = -1e-8이면 CellExitDistance는 x를 무시하고 y로만
+    /// exit을 잡는데, March가 그걸 유효한 방향으로 읽으면 tMaxX가 0이 나와서 첫 반복에
+    /// 길이 0으로 판 밖으로 나가버린다 - 무게 합이 0이 되고 진입 칸도 채널 밖이 된다.
+    /// 접선에 가까운 입사가 상시라 반드시 걸린다.
+    /// </summary>
+    private const float AxisEpsilon = 1e-6f;
 
     /// <summary>
     /// 탄은 선이 아니라 굵기가 있다. 6x6 격자에서 서브셀 하나가 1/6 m인데 400mm 탄은
@@ -89,7 +99,132 @@ public static partial class Ballistics
         if (exit <= 1e-4f)
             return SubIndex(localEntry, cellSize);
 
-        return SubIndex(localEntry + d * (exit * FirstSampleOffset), cellSize);
+        // **채널과 같은 순회를 쓴다.** 예전에는 "첫 샘플 위치"로 따로 구했는데, 그러면
+        // 샘플 간격을 바꿀 때마다 이 정의도 같이 움직인다. DDA의 첫 유효 칸은 간격이라는
+        // 개념 자체가 없으므로 둘이 어긋날 자리가 없다.
+        March(localEntry, d, cellSize, exit, null, 0f, out int entry);
+        return entry;
+    }
+
+    /// <summary>
+    /// 서브셀 격자를 실제로 가로지른다(Amanatides-Woo DDA). 지나는 칸마다 **실제 통과
+    /// 길이**를 알므로 무게가 근사가 아니라 정확하다.
+    ///
+    /// <paramref name="weights"/>가 null이면 아무것도 안 쓰고 <paramref name="firstCell"/>만
+    /// 낸다 - <see cref="EntrySubIndex"/>가 그 길로 들어와서, 진입 칸과 채널이 같은
+    /// 순회에서 나온다.
+    ///
+    /// **경계에 정확히 얹힌 진입점이 저절로 풀린다.** 히트 지점이 격자선에 걸리는 일은
+    /// 상시인데(모서리 명중, 격자선 명중), 그때 <c>floor</c>는 탄이 *떠나는* 칸을 고른다.
+    /// 여기서는 그 칸의 통과 길이가 0이라 무게를 못 받고 firstCell도 안 된다 - 특수 처리가
+    /// 아니라 길이가 0이라는 사실 하나로 걸러진다.
+    /// </summary>
+    private static void March(
+        Vector2 start,
+        Vector2 d,
+        Vector2 cellSize,
+        float exit,
+        float[] weights,
+        float laneWeight,
+        out int firstCell)
+    {
+        float subW = cellSize.x / SubGrid;
+        float subH = cellSize.y / SubGrid;
+
+        // 칸 중심 기준 -> 좌하단 기준. 격자 좌표가 [0, SubGrid) 범위로 들어온다.
+        float px = start.x + cellSize.x * 0.5f;
+        float py = start.y + cellSize.y * 0.5f;
+
+        int ix = Mathf.Clamp(Mathf.FloorToInt(px / subW), 0, SubGrid - 1);
+        int iy = Mathf.Clamp(Mathf.FloorToInt(py / subH), 0, SubGrid - 1);
+
+        firstCell = iy * SubGrid + ix;
+        bool foundFirst = false;
+
+        // **문턱이 CellExitDistance와 같아야 한다.** 위 AxisEpsilon 주석 참고.
+        int stepX = d.x > AxisEpsilon ? 1 : (d.x < -AxisEpsilon ? -1 : 0);
+        int stepY = d.y > AxisEpsilon ? 1 : (d.y < -AxisEpsilon ? -1 : 0);
+
+        // 다음 경계까지의 거리, 그리고 한 칸을 건너는 데 드는 거리. 축 성분이 0이면
+        // 그 축 경계는 영영 안 오므로 무한대로 둔다.
+        float tMaxX = stepX == 0 ? float.PositiveInfinity
+            : ((stepX > 0 ? (ix + 1) * subW : ix * subW) - px) / d.x;
+
+        float tMaxY = stepY == 0 ? float.PositiveInfinity
+            : ((stepY > 0 ? (iy + 1) * subH : iy * subH) - py) / d.y;
+
+        float tDeltaX = stepX == 0 ? float.PositiveInfinity : Mathf.Abs(subW / d.x);
+        float tDeltaY = stepY == 0 ? float.PositiveInfinity : Mathf.Abs(subH / d.y);
+
+        float t = 0f;
+        float inv = laneWeight / exit;   // 길이 -> 무게. 합이 정확히 laneWeight가 된다
+
+        for (int guard = 0; guard < MaxDdaSteps; guard++)
+        {
+            float tNext = Mathf.Min(tMaxX, tMaxY);
+            bool last = tNext >= exit;
+
+            if (last)
+                tNext = exit;
+
+            float length = tNext - t;
+
+            if (length > 0f)
+            {
+                if (!foundFirst)
+                {
+                    firstCell = iy * SubGrid + ix;
+                    foundFirst = true;
+                }
+
+                if (weights != null)
+                    weights[iy * SubGrid + ix] += length * inv;
+            }
+
+            if (last)
+                return;
+
+            // 더 가까운 경계를 넘는다. 동률(정확한 대각선)이면 x를 먼저 - 결정론이다.
+            if (tMaxX <= tMaxY)
+            {
+                ix += stepX;
+                tMaxX += tDeltaX;
+            }
+            else
+            {
+                iy += stepY;
+                tMaxY += tDeltaY;
+            }
+
+            // 판 밖으로 나갔다. exit가 판 가장자리라 정상적으로는 위의 last에서 끝나야
+            // 하고, 여기 오는 것은 부동소수점 오차뿐이다.
+            //
+            // **그래도 남은 길이를 버리지 않는다.** 무게의 합이 1이라는 것이
+            // "멀쩡한 판은 명목 RHA를 그대로 읽는다"의 근거라(CLAUDE.md), 조금이라도
+            // 새면 그 판이 이유 없이 약해진다. 잔여분은 방금까지 있던 칸의 몫이다.
+            if (ix < 0 || ix >= SubGrid || iy < 0 || iy >= SubGrid)
+            {
+                if (exit > tNext)
+                {
+                    int back = (iy < 0 || iy >= SubGrid ? iy - stepY : iy) * SubGrid
+                             + (ix < 0 || ix >= SubGrid ? ix - stepX : ix);
+
+                    // 무게를 받는 칸과 진입 칸이 갈리면 안 된다 - 검사가 정확히 그걸 본다.
+                    if (!foundFirst)
+                    {
+                        firstCell = back;
+                        foundFirst = true;
+                    }
+
+                    if (weights != null)
+                        weights[back] += (exit - tNext) * inv;
+                }
+
+                return;
+            }
+
+            t = tNext;
+        }
     }
 
     /// <summary>
@@ -155,101 +290,80 @@ public static partial class Ballistics
 
             crossed = true;
 
-            float step = laneWeight / Samples;
-
-            for (int i = 0; i < Samples; i++)
-                weights[SubIndex(start + d * (exit * (i + 0.5f) / Samples), cellSize)] += step;
+            March(start, d, cellSize, exit, weights, laneWeight, out _);
         }
 
         return crossed;
     }
 
     // 연결 성분 탐색용 스크래치. 한 스레드에서 한 번에 하나씩만 돈다.
-    private static readonly int[] _stack = new int[SubCount];
-    private static readonly int[] _label = new int[SubCount];
+    /// <summary>36칸 전부. 6×6이 ulong 하나에 들어가는 것이 이 파일 절반의 근거다.</summary>
+    public const ulong SubMaskFull = (1UL << SubCount) - 1;
+
+    // 열 경계 마스크. 왼쪽 시프트(>>1)가 열0을 열5로 감아 올리는 것을 막는다 -
+    // 비트 0,6,12,18,24,30이 열0이고, 열5는 그것을 5칸 민 것이다.
+    private const ulong SubMaskCol0 = 0x41041041UL;
+    private const ulong SubMaskCol5 = SubMaskCol0 << (SubGrid - 1);
 
     /// <summary>
-    /// 살아 있는 서브셀 중 가장 큰 연결 성분을 찾아 inLargest에 표시한다.
-    /// 나머지는 판에 붙어 있지 않은 조각이다 - 아무것도 떠받치지 않는데 혼자 남아
-    /// 화면에 픽셀로 떠 있는 것을 막는다.
+    /// 8방향 한 칸 팽창. 좌우는 열 경계 마스크로 감김을 막고, 상하는 행 폭(6)만큼
+    /// 시프트한 뒤 36비트로 잘라낸다. 대각은 따로 없다 - 좌우로 번진 것을 상하로
+    /// 다시 번지게 하면 그 합성이 대각이다.
+    /// </summary>
+    private static ulong DilateSub8(ulong m)
+    {
+        ulong h = m | ((m & ~SubMaskCol0) >> 1) | ((m & ~SubMaskCol5) << 1);
+        return (h | (h << SubGrid) | (h >> SubGrid)) & SubMaskFull;
+    }
+
+    /// <summary>
+    /// 살아 있는 서브셀 중 가장 큰 연결 성분의 마스크. 나머지는 판에 붙어 있지 않은
+    /// 조각이다 - 아무것도 떠받치지 않는데 혼자 남아 화면에 픽셀로 떠 있는 것을 막는다.
     ///
     /// 8방향이다. CLAUDE.md의 불변식대로 실물은 8방향, 빈 칸은 4방향으로 잇는다 -
     /// 4방향으로 보면 대각으로만 이어진 멀쩡한 판이 두 조각으로 갈린다.
     ///
-    /// 순수 함수. 동점이면 인덱스가 작은 성분이 이긴다(결정론).
+    /// 순수 함수. 성분은 최하위 비트부터 떼고 크기 비교가 strict라, 동점이면 인덱스가
+    /// 작은 성분이 이긴다 - 옛 라벨 BFS와 같은 규칙(결정론).
     /// </summary>
     // ponytail: 근사다. 판이 두 조각 나면 진짜로는 둘 다 남아야 하는데, 여기서는 작은 쪽을
     // 부서진 것으로 처리해 오차를 재료 손실 쪽으로 몰았다. 반반으로 갈리면 인덱스가 낮은
     // 절반(왼쪽아래)이 이기는데, 결정론적일 뿐 물리적 근거는 없다. 제대로 하려면 콜라이더를
     // 쪼개야 하고 그건 잔해 재분할과 같은 크기의 작업이다 - TODOS.md 참고.
     // 실전 빈도는 낮다: 판은 29/36에서 어차피 통째로 무너져서 깔끔한 이등분이 드물다.
-    public static void LargestLivingComponent(bool[] alive, bool[] inLargest)
+    public static ulong LargestLivingComponent(ulong alive)
     {
-        for (int i = 0; i < SubCount; i++)
+        ulong remaining = alive & SubMaskFull;
+        ulong best = 0;
+        int bestCount = 0;
+
+        while (remaining != 0)
         {
-            _label[i] = 0;
-            inLargest[i] = false;
-        }
+            // 최하위 비트에서 시작해 이웃이 안 자랄 때까지 팽창 - 그것이 성분 하나다.
+            ulong component = remaining & (ulong)(-(long)remaining);
 
-        int bestLabel = 0;
-        int bestSize = 0;
-        int label = 0;
-
-        for (int seed = 0; seed < SubCount; seed++)
-        {
-            if (!alive[seed] || _label[seed] != 0)
-                continue;
-
-            label++;
-
-            int top = 0;
-            int size = 0;
-
-            _stack[top++] = seed;
-            _label[seed] = label;
-
-            while (top > 0)
+            while (true)
             {
-                int at = _stack[--top];
-                size++;
+                ulong grown = DilateSub8(component) & remaining;
 
-                int col = at % SubGrid;
-                int row = at / SubGrid;
+                if (grown == component)
+                    break;
 
-                for (int dy = -1; dy <= 1; dy++)
-                for (int dx = -1; dx <= 1; dx++)
-                {
-                    if (dx == 0 && dy == 0)
-                        continue;
-
-                    int nc = col + dx;
-                    int nr = row + dy;
-
-                    if (nc < 0 || nc >= SubGrid || nr < 0 || nr >= SubGrid)
-                        continue;
-
-                    int next = nr * SubGrid + nc;
-
-                    if (!alive[next] || _label[next] != 0)
-                        continue;
-
-                    _label[next] = label;
-                    _stack[top++] = next;
-                }
+                component = grown;
             }
 
-            if (size > bestSize)
+            remaining &= ~component;
+
+            int count = Unity.Mathematics.math.countbits(component);
+
+            if (count > bestCount)
             {
-                bestSize = size;
-                bestLabel = label;
+                bestCount = count;
+                best = component;
             }
         }
 
-        if (bestLabel == 0)
-            return;
-
-        for (int i = 0; i < SubCount; i++)
-            inLargest[i] = _label[i] == bestLabel;
+        return best;
     }
 
     private static float CellExitDistance(Vector2 p, Vector2 d, Vector2 cellSize)
@@ -257,10 +371,11 @@ public static partial class Ballistics
         Vector2 half = cellSize * 0.5f;
         float t = float.MaxValue;
 
-        if (Mathf.Abs(d.x) > 1e-6f)
+        // 문턱은 March와 공유한다 - 갈라지면 접선 입사에서 채널이 통째로 사라진다.
+        if (Mathf.Abs(d.x) > AxisEpsilon)
             t = Mathf.Min(t, ((d.x > 0f ? half.x : -half.x) - p.x) / d.x);
 
-        if (Mathf.Abs(d.y) > 1e-6f)
+        if (Mathf.Abs(d.y) > AxisEpsilon)
             t = Mathf.Min(t, ((d.y > 0f ? half.y : -half.y) - p.y) / d.y);
 
         return t == float.MaxValue ? 0f : Mathf.Max(0f, t);

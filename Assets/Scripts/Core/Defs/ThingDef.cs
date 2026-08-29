@@ -31,6 +31,7 @@ public class ThingDef
 
     /// <summary>레이어 **이름**. 번호는 프로젝트 설정을 건드리면 밀리지만 이름은 안 밀린다.</summary>
     public string layer;
+    public bool sealsRoom = true;
 
     public ColliderDef collider = new();
 
@@ -67,15 +68,24 @@ public class ThingDef
     /// 부르는데, 그러면 stats가 들어가기 전에 Armor.Awake가 돌아서 판이 기본값 체력으로
     /// 태어난다. 위치까지 다 잡은 뒤에 한 번에 켜는 것이 유일하게 안전한 순서다.
     /// </summary>
+    /// <summary>
+    /// 물건 하나가 태어나는 값. **판 한 장마다 지난다** - destroyer가 629칸, lance가
+    /// 306칸이라 배 한 척의 소환 비용은 사실상 이 마커의 합이다.
+    /// </summary>
+    private static readonly Unity.Profiling.ProfilerMarker _mSpawn = new("ThingDef.Spawn");
+
     public Thing Spawn(
         Transform parent,
         Vector2 localPosition,
         float rotationZ,
         Vector2 sizeOverride = default,
-        Vector2 offsetShift = default)
+        Vector2 offsetShift = default,
+        Vector2[] shapeOverride = null)
     {
         if (_mainType == null)
             return null;
+
+        using var _ = _mSpawn.Auto();
 
         var go = new GameObject(defName);
         go.SetActive(false);
@@ -134,6 +144,14 @@ public class ThingDef
 
         foreach (Type comp in _compTypes)
             JsonUtility.FromJsonOverwrite(raw, go.AddComponent(comp));
+
+        // **주 컴포넌트를 붙인 뒤, 켜기 전.** 두 경계 사이가 유일한 자리다 - 앞이면
+        // Armor가 아직 없어서 TryGetComponent가 조용히 실패하고(증상: 게임에서만
+        // 사각형), 뒤면 Awake의 BakeShape가 이미 사각형 기준으로 구운 뒤다.
+        //
+        // 배치가 준 모양이 def의 모양을 이긴다. Placement.size와 같은 규약이다.
+        if (shapeOverride != null && shapeOverride.Length >= 3 && thing is Armor armour)
+            armour.PrepareShape(shapeOverride);
 
         go.SetActive(true);
         return thing;

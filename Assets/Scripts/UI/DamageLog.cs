@@ -161,22 +161,31 @@ public static class DamageLog
         });
     }
 
+    // RemoveAll 람다는 cutoff를 캡처해 호출마다 클로저를 할당하는데, 이 함수는 피격이
+    // 없어도 매 프레임 불린다. 역방향 for면 할당 0에 순서(오래된 것이 앞)도 유지된다 -
+    // Capacity 초과 시 RemoveAt(0)이 그 순서를 전제하므로 swap-remove는 안 된다.
     public static void PruneArmors(float maxAge)
     {
         float cutoff = Time.time - maxAge;
 
         // armor가 파괴돼도 holdSeconds 동안 피격점은 남겨둔다.
         // anchor가 죽으면 ArmorMark.CurrentWorldPoint가 worldPoint를 쓴다.
-        Armors.RemoveAll(mark => mark.time < cutoff);
+        for (int i = Armors.Count - 1; i >= 0; i--)
+        {
+            if (Armors[i].time < cutoff)
+                Armors.RemoveAt(i);
+        }
     }
 
     public static void PruneModules(float maxAge)
     {
         float cutoff = Time.time - maxAge;
 
-        Modules.RemoveAll(mark =>
-            mark.at == null ||
-            mark.time < cutoff);
+        for (int i = Modules.Count - 1; i >= 0; i--)
+        {
+            if (Modules[i].at == null || Modules[i].time < cutoff)
+                Modules.RemoveAt(i);
+        }
     }
 
     public static void Prune(float maxAge)

@@ -53,6 +53,17 @@ public static partial class Ballistics
     /// </summary>
     public const float DamageScale = 1e-4f;
 
+    /// <summary>
+    /// 반동 배수. **1이 실제 운동량이다** - 탄 질량 x 포구속도가 그대로 배를 민다.
+    ///
+    /// 등급 차이가 여기서 저절로 나온다. 구축함(100 t) 기준 한 발당 pd20이 0.005°/s,
+    /// rail이 2.96°/s로 **595배**다. 근접방어는 안 보이고 주포는 느껴지고 레일건은
+    /// 한 발마다 배를 걷어찬다 - 포마다 반동 값을 손으로 적었으면 이 비율이 안 나온다.
+    ///
+    /// 0으로 두면 기능이 통째로 사라진다. 실험이 개축이 아니라는 뜻이다.
+    /// </summary>
+    public const float RecoilScale = 1f;
+
     // --- 파편 ---
     public const float SpallEnergyFraction = 0.35f;
     public const float SpallEnergyPerFragment = 20f;
@@ -104,6 +115,36 @@ public static partial class Ballistics
     /// 상한이 없으면 한 발이 함선을 지운다.
     /// </summary>
     public const int MaxSpallDepth = 2;
+
+    /// <summary>
+    /// 한 틱에 처리할 파편 수 상한. **총량이 아니라 스파이크를 눕히는 손잡이다** - 넘친
+    /// 파편은 사라지지 않고 다음 틱으로 밀린다. 판 한 장이 무너지면 파편이 서브셀 18개 x
+    /// CollapseFragmentCount 6 = 100발 넘게 나오고, 유폭이 판 수십 장을 한 틱에 죽이면
+    /// 그 곱이 한 프레임에 통째로 떨어진다.
+    ///
+    /// 파편 한 발의 값이 판정 + 채널 + 서브셀 피해 적용으로 대략 15us라, 256이면 틱당
+    /// 4ms 근처다. 2,000발짜리 폭발은 8틱(0.13초)에 걸쳐 들어온다 - 눈에는 거의 안 보이고
+    /// 프레임에는 확실히 보인다.
+    ///
+    /// 올리면 즉발에 가까워지고 스파이크가 돌아온다. 내리면 평탄해지는 대신 큰 폭발의
+    /// 피해가 눈에 띄게 번져 들어온다.
+    /// </summary>
+    /// <remarks>0이면 예산을 끈다 - 예전처럼 한 틱에 다 처리한다.</remarks>
+    public const int MaxFragmentsPerPump = 256;
+
+    /// <summary>
+    /// 파편이 밀릴 수 있는 최대 틱 수. 이보다 오래 기다린 요청이 있으면 그 틱은 예산을
+    /// 무시하고 따라잡는다.
+    ///
+    /// **빚은 개수가 아니라 시간으로 재야 한다.** 처음엔 "밀린 파편이 예산의 4배를
+    /// 넘으면"으로 했는데, 큰 폭발 하나가 그 문턱을 즉시 넘겨서 정작 눕히려던 그 순간에
+    /// 예산이 꺼졌다 - 안전장치가 기능을 무력화한 것이다. 시간으로 재면 폭발이 아무리
+    /// 커도 이 틱 수에 걸쳐 퍼지고, 지속적인 초과 생산만 따라잡기로 넘어간다.
+    ///
+    /// 8이면 0.13초. 피해가 그만큼 늦게 들어오는 것은 눈에 거의 안 보이고, 프레임에는
+    /// 확실히 보인다.
+    /// </summary>
+    public const int SpallMaxLagTicks = 8;
 
     // --- 모듈 직격 ---
 
@@ -191,6 +232,13 @@ public static partial class Ballistics
     /// 배치해 둔 운석·폐위성은 Hulk.lifeTick을 0으로 두어 이 규칙에서 빠진다.
     /// </summary>
     public const int DebrisLifeTick = 3600;
+
+    /// <summary>
+    /// 이 판 수 이하의 조각은 시각 전용 잔해다 - 구조·충각 스크립트 없이, 콜라이더 없이,
+    /// 관성으로만 날아가다 사라진다. 못 쏘고 못 갈고 배를 못 민다. 그라인딩 잔해의
+    /// 대부분이 한 장짜리라 이 문턱 하나가 잔해 구름의 물리·틱 비용을 정한다. 0이면 끔.
+    /// </summary>
+    public const int VisualDebrisMaxPlates = 1;
 
     /// <summary>
     /// 갓 떨어져 나온 조각의 속도 상한(m/s). MaxSpallDepth와 같은 종류의 안전장치다.
@@ -281,6 +329,29 @@ public static partial class Ballistics
     public const float RearMassShare = 0.2f;
 
     /// <summary>
+    /// 선체에서 뜯겨 나간 조각의 판이 들고 가는 구조 비율. **뜯긴 판은 온전할 수 없다** -
+    /// 이 값이 1이면 조각이 본체와 똑같이 단단해서, 판 세 장짜리 파편이 선체에 붙어
+    /// 매 틱 갉는 동안 자기는 하나도 안 상한다. 충각은 매 틱 도는 규칙이라 10 m/s짜리
+    /// 접촉도 붙어만 있으면 결국 뚫는다 - 한 방이 세서가 아니라 갉는 쪽이 안 죽어서다.
+    ///
+    /// 낮출수록 잔해가 빨리 부서져 접촉이 스스로 끝난다. 0에 가까우면 뜯기는 순간
+    /// 조각이 증발하고, 1이면 지금의 그 증상으로 돌아온다.
+    /// </summary>
+    public const float DebrisHpFraction = 0.35f;
+
+    /// <summary>
+    /// 판이 통째로 받는 충격(충각·유폭) 중 그 판에 볼트로 붙은 모듈이 같이 받는 몫.
+    ///
+    /// **모듈은 스윕에 안 잡힌다.** `RamImpact.Punch`도 `Radiate`도 Armor만 고르므로,
+    /// 이 값이 없으면 포탑을 정면으로 들이받아도 포탑은 흠집 하나 안 난다 - 판만 부서지고
+    /// 그 위의 주포는 멀쩡히 계속 쏜다.
+    ///
+    /// 1이 아닌 이유: 모듈 체력(40쯤)이 판(400쯤)보다 훨씬 작아서, 같은 값을 주면 스치기만
+    /// 해도 전부 즉사한다. 큰 충각은 죽이고 작은 접촉은 안 죽이는 선이다.
+    /// </summary>
+    public const float ModuleShockFraction = 0.15f;
+
+    /// <summary>
     /// 후면의 유효 RHA = 그 자리 판 RHA x 이 값.
     ///
     /// 체력을 그 자리 판에서 뽑는 것(<c>HullStructure.RearHealthAt</c>)과 같은 규칙이다.
@@ -352,5 +423,12 @@ public static partial class Ballistics
     public const float HeatFromExposure = 1.6f;
 
     /// <summary>열이 절반으로 식는 데 걸리는 시간(초). 2~5초 사이가 보기 좋다.</summary>
-    public const float HeatHalfLife = 1.4f;
+    public const float HeatHalfLife = 5f;
+
+    // 후면 열에 상수를 따로 두지 않는다. 후면이 달궈지는 두 사건이 앞판의 그것과 같은
+    // 사건이라 같은 값을 쓴다 - 맞으면 HeatFromDamage, 뚫리면 HeatFromExposure.
+    //
+    // 한때 "살아 있는 판이 매 틱 자기 뒤를 데운다"는 전도 경로가 있었고 상수도 둘 더
+    // 있었는데, 내 배의 후면은 판 뒤(sortingOrder -10)에 어둡게 깔려서 판이 성한 자리는
+    // 화면에 아무것도 안 나온다. 안 보이는 것을 매 틱 계산하고 있었다.
 }

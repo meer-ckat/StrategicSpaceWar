@@ -25,6 +25,7 @@ public partial class Ship : Thing
     [Header("구성")]
     public List<Armor> shipArmors = new();
     public List<Engine> shipEngines = new();
+    public List<Tank> shipTanks = new();
     public List<Gun> shipGuns = new();
     public List<CriticalModule> shipCriticals = new();
 
@@ -60,25 +61,41 @@ public partial class Ship : Thing
     {
         get
         {
-            for (int i = 0; i < shipCriticals.Count; i++)
-            {
-                CriticalModule module = shipCriticals[i];
+            // NearestHostile과 같은 틱스탬프 캐시. isDriverReady·isGunnerReady·포탑마다
+            // 이 게터를 지나는데 안은 StillAboard(네이티브 IsChildOf) 루프다. 피해가
+            // ITickLate에서 들어오니 판정이 1틱 늦을 수 있는 것도 NearestHostile과 같고,
+            // 그쪽이 이미 수용한 지연이다.
+            if (_powerTick == Core.TickManager.currentTick)
+                return _cachedPower;
 
-                if (module == null || !module.providesPower || !StillAboard(module, this))
-                    continue;
-
-                if (!module.Neutralized)
-                    return true;
-            }
-
-            // **"지금 목록에 없다"를 세면 안 된다.** 터진 원자로는 판과 함께 잔해로 떠나거나
-            // 파괴돼서 목록에서 사라진다. 남은 것을 세는 것으로 판단하면 원자로가 전멸한
-            // 배가 "원자로를 안 단 설계"로 읽혀서 전기가 되살아나고, 다 터졌는데 계속
-            // 조타하고 조준하는 배가 된다.
-            //
-            // 설계에 원자로가 있었는지는 Awake가 적어 둔다. 그 사실은 안 변한다.
-            return !_needsPower;
+            _powerTick = Core.TickManager.currentTick;
+            return _cachedPower = ComputePower();
         }
+    }
+
+    private long _powerTick = -1;
+    private bool _cachedPower;
+
+    private bool ComputePower()
+    {
+        for (int i = 0; i < shipCriticals.Count; i++)
+        {
+            CriticalModule module = shipCriticals[i];
+
+            if (module == null || !module.providesPower || !StillAboard(module, this))
+                continue;
+
+            if (!module.Neutralized)
+                return true;
+        }
+
+        // **"지금 목록에 없다"를 세면 안 된다.** 터진 원자로는 판과 함께 잔해로 떠나거나
+        // 파괴돼서 목록에서 사라진다. 남은 것을 세는 것으로 판단하면 원자로가 전멸한
+        // 배가 "원자로를 안 단 설계"로 읽혀서 전기가 되살아나고, 다 터졌는데 계속
+        // 조타하고 조준하는 배가 된다.
+        //
+        // 설계에 원자로가 있었는지는 Awake가 적어 둔다. 그 사실은 안 변한다.
+        return !_needsPower;
     }
 
     /// <summary>설계에 발전하는 모듈이 하나라도 있었는가. Awake가 한 번 정하고 안 바뀐다.</summary>
@@ -97,8 +114,26 @@ public partial class Ship : Thing
 
     /// <summary>수리는 사람이 한다. 전기가 나가도 손으로 때운다.</summary>
     public bool isEngineerReady => CrewAlive;
+    public bool HasLiveEngine => AnyModuleInLivingRoom(this, shipEngines); 
+    public bool HasLiveGun => AnyModuleInLivingRoom(this, shipGuns);
+    private bool _engineerLost, _gunnerLost;
 
     
+    /// <summary>
+    /// 승무원의 자리. **개별 승무원이 아니다** - 이 배에 그 일을 할 사람이 아직 있느냐다.
+    ///
+    /// 여기에 대사 화자 이름("기관")을 안 적는 것이 요점이다. Ship은 대본을 모른다.
+    /// enum -> 화자 이름 대응은 대사 쪽에 한 번만 둔다.
+    /// </summary>
+    public enum ShipRole
+    {
+        /// <summary>기관. 살아 있는 조건은 <see cref="HasLiveEngine"/>.</summary>
+        Engineer,
+
+        /// <summary>전술. 살아 있는 조건은 <see cref="HasLiveGun"/>.</summary>
+        Gunner,
+    }
+
     public enum Team
     {
         Neutral,
@@ -132,21 +167,144 @@ public partial class Ship : Thing
     public float angleRate => rig != null ? rig.angularVelocity : 0f;   // 도/초
 
     // 입력은 저장만 한다. 계산은 전부 틱 안에서.
-    protected Vector2 thrustInput;  // x: 이탈 -1 .. +1 접근, y: 회피
+    //
+    // **월드 축이다.** 함체 각도가 이 값에 하나도 안 섞인다 - Drive()가 그대로 힘으로 쓴다.
+    // 배를 180도 돌려도 같은 입력이 같은 월드 방향으로 민다. 실제 우주선의 RCS와 같은
+    // 구조이고, 그래서 옆으로 미끄러지면서 등을 보일 수 있다.
+    //
+    // ShipAi도 월드 방향을 그대로 넣는다. **둘이 같은 좌표계여야 한다** - 한쪽만 함체
+    // 기준으로 바꾸면 AI가 플레이어와 다른 물리를 타고, 증상이 "AI만 이상하게 움직인다"라
+    // 원인이 안 보인다.
+    protected Vector2 thrustInput;
     protected float angleInput;     // -1..1
 
     /// <summary>
-    /// 접근(+x)이 월드의 어느 쪽인가. 왼쪽에서 오른쪽을 보는 플레이어가 +1이고,
-    /// 반대편 함선은 ShipAi가 매 틱 -1로 뒤집는다. Drive()만 이 값을 읽는다.
+    /// 컷신이 이 배의 포탑을 겨누게 하는 점. **null이면 아무 일도 안 일어난다** - 포탑은
+    /// 평소대로 가장 가까운 적을 잡는다. 컷신 전용이지만 `Gun`은 그 사실을 모른다:
+    /// `IsManual`이 `owner.IsPlayerControlled`를 읽는 것과 같은 방향이고, 그래서 포탑에
+    /// 컷신용 분기가 안 생긴다.
     /// </summary>
-    public float engagementSign = 1f;
+    [NonSerialized] public Vector2? cutsceneAimAt;
+
+    /// <summary>
+    /// 켜면 포탑이 **조준은 계속하되 안 쏜다.** 조준과 격발이 `Gun`에서 이미 다른 축
+    /// (`TryGetTarget` / `WantsToFire`)이라 이 둘을 따로 줄 수 있다 - 겨눈 채 멈춰 있는
+    /// 그림이 컷신에서 제일 자주 필요하다.
+    /// </summary>
+    [NonSerialized] public bool cutsceneHoldFire;
+
+    /// <summary>
+    /// 켜면 포탑이 **방아쇠 없이 쏜다.** 수동 주포(플레이어 배)는 평소 마우스를 눌러야
+    /// 쏘는데, 컷신에는 누를 사람이 없다. <see cref="cutsceneHoldFire"/>가 이것보다 세다 -
+    /// 둘 다 켜면 안 쏜다.
+    /// </summary>
+    [NonSerialized] public bool cutsceneForceFire;
+
+    /// <summary>
+    /// 컷신이 켜는 부스터. <see cref="Boosting"/>은 매 프레임 입력에서 다시 읽히므로
+    /// 밖에서 대입해 봐야 그 자리에서 지워진다 - 그래서 따로 든다.
+    /// </summary>
+    [NonSerialized] public bool cutsceneBoost;
+
+    /// <summary>
+    /// AI가 켜는 부스터. <see cref="ShipAi"/>가 매 틱 다시 쓴다 - 사람이 키를 누르는 것과
+    /// 같은 문으로 들어가므로 BoosterComp는 누가 켰는지 몰라도 된다.
+    ///
+    /// 컷신의 것과 따로 두는 이유: 컷신이 켜 둔 부스터를 AI가 매 틱 꺼 버리면 연출이
+    /// 안 먹고, 반대로 한 필드를 나눠 쓰면 컷신이 끝날 때 AI 것까지 꺼진다. 주인이
+    /// 둘이면 언젠가 서로를 덮어쓴다.
+    /// </summary>
+    [NonSerialized] public bool pilotBoost;
+
+    /// <summary>
+    /// 원자로를 터뜨린다. 연출이 "저 배가 지금 폭발한다"를 말할 수 있어야 하고, 그것이
+    /// 시뮬레이션의 유폭과 **같은 길**이어야 한다 - 컷신 전용 폭발을 따로 만들면 화면에
+    /// 나오는 그림이 실제 전투와 달라진다.
+    ///
+    /// 원자로가 없으면 탄약고라도 터뜨린다. 둘 다 없으면 아무 일도 안 일어난다.
+    /// </summary>
+    public void DetonateReactor()
+    {
+        CriticalModule pick = null;
+
+        for (int i = 0; i < shipCriticals.Count; i++)
+        {
+            CriticalModule critical = shipCriticals[i];
+
+            if (critical == null || critical.Neutralized || !StillAboard(critical, this))
+                continue;
+
+            // 원자로가 있으면 그것부터. 없으면 처음 만난 탄약고로 떨어진다.
+            if (critical.providesPower)
+            {
+                pick = critical;
+                break;
+            }
+
+            pick ??= critical;
+        }
+
+        // TakeDamage가 0으로 떨어지는 순간 Detonate를 부른다. 그 길을 그대로 탄다.
+        pick?.TakeDamage(float.MaxValue);
+    }
 
     Rigidbody2D rig;
     [NonSerialized] private Texture2D shipHullPng;
     public Texture2D ShipHullPng => shipHullPng;
 
+    /// <summary>
+    /// 배 그림의 픽셀 사본. ArmorSkin이 판마다 굽는 자리에서 GetPixelBilinear를 픽셀당
+    /// 한 번씩 부르면 그것만으로 소환 스파이크가 난다 - 함선당 한 번만 뽑아 두고 나눠 쓴다.
+    /// 사본은 **텍스처 단위 정적 공유다** - destroyer급 사본이 ~37MB라, 같은 그림을 쓰는
+    /// 배 두 척이 각자 뽑으면 그 메가바이트가 소환 프레임에 두 번 할당된다.
+    /// </summary>
+    [NonSerialized] private Color32[] _hullPixels;
+    private static readonly Dictionary<Texture2D, Color32[]> _hullPixelsShared = new();
+
+    public Color32[] HullPixels
+    {
+        get
+        {
+            if (_hullPixels == null && shipHullPng != null)
+            {
+                if (!_hullPixelsShared.TryGetValue(shipHullPng, out _hullPixels) || _hullPixels == null)
+                    _hullPixelsShared[shipHullPng] = _hullPixels = shipHullPng.GetPixels32();
+            }
+
+            return _hullPixels;
+        }
+    }
+
+    /// <summary>
+    /// 그림 파일명 -> 디코드된 텍스처. PNG 동기 디코드(수십 ms)가 함선 소환마다 나가던 것을
+    /// 그림당 한 번으로 줄인다. 설계도 그림은 런타임 불변이라 안 썩고, 종류가 몇 개 안 돼서
+    /// 런 끝까지 들고 있어도 된다 - 그래서 개별 함선이 OnDestroy에서 지우면 **안 된다**.
+    /// </summary>
+    private static readonly Dictionary<string, Texture2D> _hullSkinShared = new();
+
+    /// <summary>
+    /// 배 한 척이 태어나는 값. 소환 스파이크를 "몇 ms"가 아니라 "어디서"로 보려면
+    /// 이 마커와 ShipBuilder·ThingDef·ShipDef.Load의 것이 같이 있어야 한다 - 합계만
+    /// 보고 다중틱으로 쪼개면 정작 고정비는 그대로 남는다. 릴리스에선 no-op.
+    /// </summary>
+    private static readonly Unity.Profiling.ProfilerMarker _mSpawn = new("Ship.Spawn");
+
+    /// <summary>
+    /// 방의 파공 수를 무효화하는 단 하나의 신호. 판이 뚫리거나(<see cref="Armor.AnyBreached"/>가
+    /// 서는 순간), 판이 죽거나(<see cref="HullStructure.ReportPlateLost"/>), 후면 칸이
+    /// 날아갈 때(HullStructure.KillRear) 오른다.
+    ///
+    /// ponytail: 전역 하나다. 배 A가 맞으면 배 B의 캐시까지 같이 죽는다. 피해 사건은
+    /// 초당 60틱에 비해 드물어서 그 낭비가 안 보이고, 배마다 들려면 판 하나가 자기
+    /// 주인을 찾아 올라가야 한다 - 그 GetComponentInParent가 아끼려는 것보다 비싸다.
+    /// 전투 중 파공이 매 틱 나는 것이 프로파일러에 잡히면 그때 배별로 쪼갠다.
+    /// </summary>
+    public static int BreachVersion;
+
     protected override void Awake()
     {
+        using var _ = _mSpawn.Auto();
+
         base.Awake();
         rig = GetComponent<Rigidbody2D>();
 
@@ -179,6 +337,7 @@ public partial class Ship : Thing
             // 인스펙터에 남아 있던 목록은 방금 지운 자식을 가리킨다.
             shipArmors.Clear();
             shipEngines.Clear();
+            shipTanks.Clear();
             shipGuns.Clear();
             shipCriticals.Clear();
         }
@@ -187,17 +346,36 @@ public partial class Ship : Thing
         if(design!=null&&!string.IsNullOrEmpty(design.hullSkin))
         {
             try{
-                
-                byte[] bytes = File.ReadAllBytes(ShipDef.SkinPathOf(design.hullSkin));
-                shipHullPng = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-                bool ok = shipHullPng.LoadImage(bytes);
-                if(!ok)
+
+                // 같은 그림은 한 번만 디코드한다. 아군·적군이 같은 급이면 소환 프레임에
+                // 같은 PNG를 두 번 디코드하고 있었다.
+                if (_hullSkinShared.TryGetValue(design.hullSkin, out Texture2D shared) && shared != null)
                 {
-                    Destroy(shipHullPng);
-                    shipHullPng = null;
-                    Debug.LogAssertion("I'm not fucking ok. IM NOT FUCKING OK. FIX. I couldnt load the image, and i fired from cpu. fuck it.");
+                    shipHullPng = shared;
                 }
-                
+                else
+                {
+                    byte[] bytes = File.ReadAllBytes(ShipDef.SkinPathOf(design.hullSkin));
+                    shipHullPng = new Texture2D(2, 2, TextureFormat.RGBA32, false)
+                    {
+                        // 기본 Repeat면 최외곽 판의 가장자리 샘플이 반대편 색과 섞인다.
+                        // ArmorSkin의 수제 쌍선형과 BackPlateView의 GetPixelBilinear가 같은
+                        // 가장자리 규칙(clamp)을 쓰게 여기서 못 박는다.
+                        wrapMode = TextureWrapMode.Clamp,
+                    };
+                    bool ok = shipHullPng.LoadImage(bytes);
+                    if(!ok)
+                    {
+                        Destroy(shipHullPng);
+                        shipHullPng = null;
+                        Debug.LogAssertion("I'm not fucking ok. IM NOT FUCKING OK. FIX. I couldnt load the image, and i fired from cpu. fuck it.");
+                    }
+                    else
+                    {
+                        _hullSkinShared[design.hullSkin] = shipHullPng;
+                    }
+                }
+
             }
             catch(Exception e)
             {
@@ -224,6 +402,7 @@ public partial class Ship : Thing
 
         if (shipArmors.Count == 0) shipArmors = new List<Armor>(GetComponentsInChildren<Armor>());
         if (shipEngines.Count == 0) shipEngines = new List<Engine>(GetComponentsInChildren<Engine>());
+        if (shipTanks.Count == 0) shipTanks = new List<Tank>(GetComponentsInChildren<Tank>());
         if (shipGuns.Count == 0) shipGuns = new List<Gun>(GetComponentsInChildren<Gun>());
         if (shipCriticals.Count == 0)
             shipCriticals = new List<CriticalModule>(GetComponentsInChildren<CriticalModule>());
@@ -233,6 +412,14 @@ public partial class Ship : Thing
         // "원자로를 아예 안 단 설계"와 글자 그대로 같아 보인다. 설계 사실은 안 변하므로
         // 여기서 한 번만 적어 둔다.
         _needsPower = false;
+
+        // **설계에 그 역할이 있었는가.** 위와 같은 질문이고 답이 갈리는 자리도 같다.
+        // 걸쇠를 처음부터 올려두면 WatchForRoles가 아예 안 본다 - 무장이 없는 dart도,
+        // 엔진도 포탑도 없는 asteroid/derelict/mirror도 첫 틱에 "상실"을 기록하지 않는다.
+        // 잃은 적이 없는 것을 잃었다고 적으면 로그가 사건 넷으로 시작하고, 거기에
+        // 붙는 것들(tension, UI)이 전부 그 거짓말 위에 선다.
+        _engineerLost = shipEngines.Count == 0;
+        _gunnerLost = shipGuns.Count == 0;
 
         for (int i = 0; i < shipCriticals.Count; i++)
         {
@@ -250,6 +437,15 @@ public partial class Ship : Thing
         rig.mass = Mathf.Max(1f, shipArmors.Count * massPerPlate);
 
         _wasEffective = IsCombatEffective;
+
+        // **소환 연출은 여기 하나다.** 배가 태어나는 길이 셋인데(Campaign의 적, 동료,
+        // 컷신) 셋 다 결국 Ship.Awake를 지나므로, 부르는 자리를 여기 두면 새 소환 경로가
+        // 생겨도 저절로 따라온다. 잔해(Hulk)는 Ship이 아니라서 안 걸린다 - 뜯겨 나온
+        // 조각이 워프해 들어올 이유가 없다.
+        //
+        // 크기는 안 준다. 그래프가 자기 반경을 들고 있고, 배마다 맞추기 시작하면
+        // 그 규칙이 코드와 그래프 두 군데로 갈린다.
+        VfxOneShot.Play("ShipIncoming", transform.position);
     }
 
     /// <summary>
@@ -268,19 +464,57 @@ public partial class Ship : Thing
         return saved ?? design;
     }
 
+    // Tick.Ship이 self로 뭉쳐 보여서 안을 가르는 마커. 릴리스에선 no-op.
+    private static readonly Unity.Profiling.ProfilerMarker _mSplit = new("Ship.Split");
+    private static readonly Unity.Profiling.ProfilerMarker _mRam = new("Ship.Ram");
+    private static readonly Unity.Profiling.ProfilerMarker _mDrive = new("Ship.Drive");
+    private static readonly Unity.Profiling.ProfilerMarker _mAim = new("Ship.Aim");
+    private static readonly Unity.Profiling.ProfilerMarker _mAtmosphere = new("Ship.Atmosphere");
+    private static readonly Unity.Profiling.ProfilerMarker _mWatch = new("Ship.Watch");
+
     public override void OnTick()
     {
         // 물리 콜백 밖에서, 이번 틱의 힘을 걸기 전에. 재부모화가 안전한 유일한 자리다.
+        _mSplit.Begin();
         SplitIfBroken();
+        _mSplit.End();
 
         // 지난 틱에 닿은 곳을 지금 부순다. Simulate보다 앞이라, 솔버는 살아남은 판만 본다.
+        _mRam.Begin();
         Ram();
+        _mRam.End();
 
+        _mDrive.Begin();
         if (isDriverReady) { Angle(); Drive(); }
+        _mDrive.End();
+
+        _mAim.Begin();
         if (isGunnerReady) AimGun();
+        _mAim.End();
+
+        _mAtmosphere.Begin();
         Atmosphere();
+        _mAtmosphere.End();
+
+        _mWatch.Begin();
         Crew();
         WatchForCritical();
+        WatchForRoles();
+        _mWatch.End();
+    }
+
+    void WatchForRoles()
+    {
+        if(!_engineerLost && !HasLiveEngine)
+        {
+            _engineerLost = true;
+            RunLog.RoleLost(this, ShipRole.Engineer);
+        }
+        if(!_gunnerLost && !HasLiveGun)
+        {
+            _gunnerLost = true;
+            RunLog.RoleLost(this, ShipRole.Gunner);
+        }
     }
 
     /// <summary>
@@ -382,16 +616,36 @@ public partial class Ship : Thing
     {
         get
         {
-            // 전기가 없으면 겨누지도 돌리지도 못한다. 포탑이 멀쩡해도 잔해다.
-            if (!CrewAlive || !HasPower)
-                return false;
+            // 틱스탬프 캐시. IsHostileTo가 표적 후보마다 이 값을 물어서, 배 N척이 서로
+            // 스캔하면 N²으로 곱하던 자리다. 안은 모듈 목록 × StillAboard 루프 넷이다.
+            if (_effectiveTick == Core.TickManager.currentTick)
+                return _cachedEffective;
 
-            if (HasUsableGun)
-                return true;
-
-            // 포탑이 다 죽어도 움직일 수 있으면 충각이 남아 있다.
-            return AvailableThrust(true) > 0f || AvailableThrust(false) > 0f;
+            _effectiveTick = Core.TickManager.currentTick;
+            return _cachedEffective = ComputeCombatEffective();
         }
+    }
+
+    private long _effectiveTick = -1;
+    private bool _cachedEffective;
+
+    private bool ComputeCombatEffective()
+    {
+        // 전기가 없으면 겨누지도 돌리지도 못한다. 포탑이 멀쩡해도 잔해다.
+        if (!CrewAlive || !HasPower)
+            return false;
+
+        if (HasUsableGun)
+            return true;
+
+        // 포탑이 다 죽어도 움직일 수 있으면 충각이 남아 있다. 엔진이 살아 있다고
+        // 움직일 수 있는 게 아니다 - 탱크를 단 배는 연료가 없으면 Drive()가 힘을
+        // 0으로 스케일한다. 탱크가 하나도 없는 배는(아직 배치 안 끝난 배) 예전처럼
+        // 엔진만 본다 - Drive()의 하위호환 게이트와 같은 조건이어야 둘이 안 어긋난다.
+        if (shipTanks.Count > 0 && AvailableDeltaV() <= 0f)
+            return false;
+
+        return AvailableThrust(true) > 0f || AvailableThrust(false) > 0f;
     }
 
     /// <summary>
@@ -419,6 +673,17 @@ public partial class Ship : Thing
             return;
         }
 
+        // 선체 직속 자식으로 남은 모듈을 발밑 판에 매단다. **JSON 경로에는 이미 있던
+        // 규칙이고 씬 경로에만 없었다** - ShipBuilder.Spawn은 mountCol/mountRow로 판 밑에
+        // 넣는데, shipDefName이 빈 배(= export 원본)는 그 단계를 안 거친다. 매달리지 않은
+        // 모듈은 판이 죽어도 안 죽고 잔해로도 안 따라가는 불사가 된다.
+        //
+        // Stamp가 아니라 여기서 부르는 이유: Stamp는 순수 질의라 export와 self-test도
+        // 부르고, 거기서 계층이 바뀌면 저작 중인 씬이 조용히 변한다.
+        //
+        // 파단으로 다시 부를 때는 이미 다 매달려 있어 아무 일도 안 한다.
+        ShipBuilder.MountLooseModules(transform, _map, armorAt, doorAt);
+
         rooms = ShipGrid.BuildRooms(_map, armorAt, doorAt);
 
         // 파단으로 다시 지은 것이면 진공은 진공으로 남아야 한다.
@@ -438,45 +703,60 @@ public partial class Ship : Thing
     }
 
     /// <summary>파공은 우주로 새고, 열린 문은 기압차만큼 옆방과 주고받는다.</summary>
+    
     void Atmosphere()
     {
         float dt = TickManager.TickDeltaTime;
 
         foreach (Room room in rooms)
         {
-            int breaches = 0;
-
-            int standing = 0;
-
-            foreach (Armor wall in room.walls)
-            {
-                if (wall == null)
-                    continue;
-
-                standing++;
-
-                if (wall.AnyBreached)
-                    breaches++;
-            }
-
-            // 맵이 둘러주기로 한 판 중 없어진 만큼은 통째로 구멍이다. 부서져 사라졌든
-            // 선체째 떨어져 나갔든 방 입장에서는 똑같이 우주로 열린 것이다.
-            breaches += room.boundaryPlates - standing;
-
-            // 뒤가 뚫린 칸도 구멍이다. **앞과 세는 방식이 다르다** - 전면 파공은 방을
-            // 둘러싼 판에서 나오지만(옆으로 뚫린 구멍), 후면은 방이 차지한 칸 자체가
-            // 구멍 후보다. 바닥이 없어진 셈이라 벽을 봐도 안 나온다.
+            // 파공 수는 사건으로만 바뀐다. 안 바뀐 틱에는 세지 않고 지난 값을 쓴다 -
+            // 세는 값은 벽 수 + 칸 수라, 아무도 안 맞은 틱에도 배마다 수백 번 돌던 자리다.
             //
-            // leakRate를 앞과 공유한다. 뒤 구멍이 다른 속도로 샐 이유가 없고, 상수를
-            // 하나 더 두면 "왜 뒤가 더 빨리 새지"를 두 곳에서 튜닝하게 된다.
-            for (int i = 0; i < room.cells.Count; i++)
+            // 예전에는 `tick % seed`로 통째로 걸렀는데 그것이 두 가지를 같이 망쳤다:
+            // seed가 1인 배(Ship.All.Count가 짝수일 때)는 매 틱 걸려서 **공기가 영영
+            // 안 샜고**, seed가 2인 배는 두 틱에 한 번 도는데 leakRate는 그대로라
+            // 새는 속도가 조용히 절반이 됐다. 캐시는 매 틱 감쇠를 그대로 두고 세는
+            // 것만 건너뛰므로 그 창이 없다.
+            if (room.breachVersion != BreachVersion)
             {
-                if (_structure.RearBreached(room.cells[i]))
-                    breaches++;
+                room.breachVersion = BreachVersion;
+
+                int breaches = 0;
+                int standing = 0;
+
+                foreach (Armor wall in room.walls)
+                {
+                    if (wall == null)
+                        continue;
+
+                    standing++;
+
+                    if (wall.AnyBreached)
+                        breaches++;
+                }
+
+                // 맵이 둘러주기로 한 판 중 없어진 만큼은 통째로 구멍이다. 부서져 사라졌든
+                // 선체째 떨어져 나갔든 방 입장에서는 똑같이 우주로 열린 것이다.
+                breaches += room.boundaryPlates - standing;
+
+                // 뒤가 뚫린 칸도 구멍이다. **앞과 세는 방식이 다르다** - 전면 파공은 방을
+                // 둘러싼 판에서 나오지만(옆으로 뚫린 구멍), 후면은 방이 차지한 칸 자체가
+                // 구멍 후보다. 바닥이 없어진 셈이라 벽을 봐도 안 나온다.
+                //
+                // leakRate를 앞과 공유한다. 뒤 구멍이 다른 속도로 샐 이유가 없고, 상수를
+                // 하나 더 두면 "왜 뒤가 더 빨리 새지"를 두 곳에서 튜닝하게 된다.
+                for (int i = 0; i < room.cells.Count; i++)
+                {
+                    if (_structure.RearBreached(room.cells[i]))
+                        breaches++;
+                }
+
+                room.breaches = breaches;
             }
 
-            if (breaches > 0)
-                room.air = Mathf.Max(0f, room.air - breaches * leakRate * dt);
+            if (room.breaches > 0)
+                room.air = Mathf.Max(0f, room.air - room.breaches * leakRate * dt);
         }
 
         foreach (KeyValuePair<Door, List<Room>> pair in roomsOfDoor)
@@ -516,36 +796,174 @@ public partial class Ship : Thing
     }
 
     /// <summary>
+    /// 남은 탱크 잔량의 합(kN·s). <see cref="Drive"/>가 쓰는 예산이고, <see cref="AvailableDeltaV"/>가
+    /// 이걸 질량으로 나눠 속도로 바꾼다.
+    /// </summary>
+    public float RemainingImpulse()
+    {
+        float total = 0f;
+
+        foreach (Tank tank in shipTanks)
+        {
+            if (!StillAboard(tank, this) || tank.Neutralized)
+                continue;
+
+            total += tank.remaining;
+        }
+
+        return total;
+    }
+
+    /// <summary>
+    /// 남은 기동력. 탱크 잔량 합을 지금 질량으로 나눈다 - 판을 잃어 질량이 줄면 같은
+    /// 연료로도 이 값이 오른다. 실용 최고속도는 이 값의 절반이다: 전부 밀고 나면
+    /// 같은 만큼 되밀어야 멈추기 때문이다.
+    /// </summary>
+    public float AvailableDeltaV() => RemainingImpulse() * 1000f / rig.mass;
+
+    /// <summary>
+    /// request(kN·s)만큼 탱크에서 뺀다. 앞에서부터 순서대로 비운다 - 어느 탱크가
+    /// 먼저 마르는지는 지금 안 정한다, 배치에 따라 자연히 갈릴 값이다.
+    /// </summary>
+    private void ConsumeFuel(float request)
+    {
+        foreach (Tank tank in shipTanks)
+        {
+            if (request <= 0f)
+                break;
+
+            if (!StillAboard(tank, this) || tank.Neutralized)
+                continue;
+
+            request -= tank.Consume(request);
+        }
+    }
+
+    /// <summary>
     /// 이 부품이 아직 이 배의 것인가.
     ///
     /// null 검사로는 안 된다. 모듈은 자기가 올라앉은 판과 함께 잔해로 재부모화되는데,
     /// Awake에 캐시해 둔 Ship 참조도 shipEngines 목록도 그대로 살아 있다. 그냥 두면
     /// 배가 100m 뒤에 떠 있는 엔진으로 계속 가속하고, 날아간 포탑이 본체 포수의 명령을 받는다.
     /// </summary>
+    // IsChildOf는 네이티브 한 번이다. GetComponentInParent<Ship>였을 때 이 한 줄이
+    // 매 틱 × (엔진+포탑+원자로+판) 만큼 관리 계층 탐색을 냈다. 잔해는 루트가 다른
+    // 오브젝트라 "아직 이 트리 소속"과 "아직 이 배 소속"이 동치다.
     public static bool StillAboard(Component part, Ship ship)
-        => part != null && ship != null && part.GetComponentInParent<Ship>() == ship;
+        => part != null && ship != null && part.transform.IsChildOf(ship.transform);
+
+    public static bool AnyModuleInLivingRoom(Ship ship, IEnumerable<Component> comps)
+    {
+        if(ship == null) return false;
+        if(ship.rooms.Count <= 0) return true;
+
+        foreach(Component comp in comps)
+        {
+            if(ModuleInLivingRoom(comp, ship, ship.rooms))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static bool ModuleInLivingRoom(Component part, Ship ship, List<Room> rooms)
+    {
+        if(StillAboard(part, ship))
+        {
+            if(rooms.Count <= 0)
+                return true;
+
+            //먼저 벽에 붙어있는지 검사
+            var armor = (part.transform.parent != null)? part.transform.parent.GetComponent<Armor>() : null;
+            if(armor == null) return false;
+                
+            //해당 cell이 기압 있는 room에 있는지 검사
+            foreach(Room room in rooms)
+            {
+                if(room.Pressure < Ballistics.CrewMinPressure)
+                    continue;
+
+                if(room.walls.Contains(armor))
+                {
+                    return true;
+                }
+            
+            }
+        }
+        return false;
+    }
 
     /// <summary>
-    /// 추력은 함체 방향과 무관하게 월드 축으로 작용한다. 자세는 Angle()이 따로 제어한다.
-    /// 실제 우주선의 RCS와 같은 구조 - 옆으로 미끄러지면서 등을 보일 수 있다.
-    /// x는 적과의 거리, y는 사선에서 비켜나는 회피축이다.
+    /// 뱃머리가 향하는 월드 방향. 배는 격자에서 col 축으로 길게 그려지므로(destroyer가
+    /// 69x23) 코는 로컬 +X, 즉 <c>transform.right</c>다 - 포신이 transform.up인 것과
+    /// 다르고, 그래서 Gun.Slew의 -90도가 여기엔 없다.
+    ///
+    /// **localScale.x가 -1이면 뒤집는다.** 반대쪽에서 온 배는 렌더링이 거울상이라 코가
+    /// 반대편에 보이는데, transform.right는 rotation만 읽어서 scale을 모른다. ShipAi.Turn이
+    /// 목표 각도에 180도를 더하는 것과 같은 보정이고, 같은 규칙이라야 조준한 쪽으로 민다.
+    ///
+    /// **지금 부르는 데가 없다.** 추력은 월드 축이라 이 값을 안 읽는다 - 이건 포탑 사격각
+    /// (함체 기준 사각·블라인드 아크)을 넣을 때 쓰려고 남긴다. 그때 Gun이 "포신이 함체
+    /// 기준 몇 도인가"를 물어야 하고, 거울상 보정이 이미 여기 들어 있어야 두 벌이 안 생긴다.
+    /// </summary>
+    public Vector2 NoseDirection =>
+        (Vector2)transform.right * (transform.localScale.x < 0f ? -1f : 1f);
+    public Vector2 PortDirection => //그러게 이건 왜 필요하지
+        (Vector2)transform.up * (transform.localScale.x < 0f ? -1f : 1f);//일단 지금 배들이 전부 오른쪽 생성이라서 port를 위쪽으로 함.
+
+    /// <summary>
+    /// 뱃머리 왼쪽(횡추력 +y가 미는 쪽). 코를 90도 돌린 것.
+    /// </summary>
+    public Vector2 LateralDirection
+    {
+        get
+        {
+            Vector2 nose = NoseDirection;
+            return new Vector2(-nose.y, nose.x);
+        }
+    }
+
+    /// <summary>
+    /// 추력은 **월드 축**이다. 함체 각도가 한 방울도 안 섞인다 - RCS가 사방에 붙어 있어서
+    /// 어느 쪽으로든 같은 세기로 민다. 자세는 <see cref="Angle"/>이 따로 제어한다.
+    ///
+    /// **그래서 자세와 속도가 완전히 분리된다.** 옆으로 미끄러지면서 등을 보일 수 있고,
+    /// 코를 어디로 돌리든 미는 방향은 안 바뀐다. 코를 돌릴 이유는 이동이 아니라 장갑
+    /// 각도와 사격각이다.
+    ///
+    /// 예전에는 같은 월드 x축을 쓰면서 좌우만 `engagementSign` 1비트로 복원했다. 그
+    /// 1비트에 25 m 데드밴드가 걸려 있어서 짧은 이동에서는 부호가 얼어붙었고, 컷신의
+    /// 15 m짜리 moveTo가 정확히 그 자리였다 - 축이 문제가 아니라 **압축이 문제였다.**
+    /// 벡터를 그대로 들고 가면 그 왕복 자체가 없다.
     /// </summary>
     protected void Drive()
     {
         float main = AvailableThrust(true);
-        float aux = AvailableThrust(false);
+        
+        Vector2 force = thrustInput * main * 1000f;   // kN -> N
 
-        // thrustInput.x는 월드 축이 아니라 '접근/이탈'이다. 적이 왼쪽에 있는 함선은
-        // 접근이 월드 -x라, engagementSign 없이 그냥 밀면 주기관으로 도망가고
-        // 보조추진기로 다가간다. 플레이어(왼쪽, +1)는 예전과 완전히 동일하다.
-        float along = thrustInput.x * engagementSign;
+        // 탱크가 하나도 없는 배는 예산 없이 예전처럼 무제한이다 - 배치를 아직 안 끝낸
+        // 배가 갑자기 못 움직이면 안 된다. 탱크를 한 장이라도 달면 그때부터 예산이 걸린다.
+        if (shipTanks.Count > 0)
+        {
+            float dt = TickManager.TickDeltaTime;
+            float wantImpulse = force.magnitude * dt / 1000f;   // N·s -> kN·s
 
-        // 회피는 보조추진기로만 한다 - 접근보다 약한 것이 의도다.
-        Vector2 force = new Vector2(
-            (thrustInput.x >= 0f ? main : aux) * along,
-            aux * thrustInput.y) * 1000f;   // kN -> N
+            if (wantImpulse > 0f)
+            {
+                float available = RemainingImpulse();
+
+                // 남은 것보다 많이 밀려 하면 있는 만큼만 나간다 - 뚝 끊기지 않고 힘이 준다.
+                if (wantImpulse > available)
+                    force *= available / wantImpulse;
+
+                ConsumeFuel(Mathf.Min(wantImpulse, available));
+            }
+        }
 
         // 충각이 읽는다. 유리에 대고 가속하는 것도 충각이라, 속도가 아니라 힘이 예산이 된다.
+        // 예산으로 깎인 뒤의 값이다 - 연료가 없으면 충각도 약해진다.
         _thrust = force;
 
         // 적분도 항력도 물리가 한다. 이 틱 끝의 Simulate에서 한꺼번에 처리된다.
@@ -566,7 +984,24 @@ public partial class Ship : Thing
         float rate = rig.angularVelocity;
 
         rate += angleInput * angleAccel * dt;
-        rate *= 1 - (angleInput == 0f ? angleBrake : angleDrag) * dt;
+
+        // **제동도 RCS가 하는 일이라 같은 토크 상한을 받는다.** 예전에는 비율로만 깎아서
+        // (rate *= 1 - brake*dt) RCS에 무한한 토크가 있었다 - 2 도/초든 300 도/초든 똑같이
+        // 0.3초면 멎었고, 그래서 충각으로 배를 팽이처럼 돌려도 아무 일도 없었던 것처럼
+        // 즉시 자세가 잡혔다. 반동을 넣어도 태어나자마자 지워지는 것도 같은 이유다.
+        //
+        // 조종감은 한 톨도 안 바뀐다. 입력 중 종단 각속도가 angleAccel / angleDrag이고,
+        // **바로 그 지점에서 깎는 양이 정확히 angleAccel * dt가 된다** - 클램프 경계와
+        // 종단이 같은 값이라 종단 아래에서는 클램프가 아예 안 걸린다. 걸리는 것은 종단을
+        // 넘는 회전(충각, 반동, 유폭)뿐이다.
+        //
+        // 이 클램프가 손잡이 둘을 갈라 놓는다. 큰 회전에서 되잡는 시간은 angleAccel 혼자
+        // 정하고(300 도/초 / 20 도/초² = 15초), angleBrake는 경계 아래에서 마무리를 얼마나
+        // 야무지게 하느냐만 정한다. 예전에는 둘이 같은 것을 두 번 말하고 있었다.
+        float damp = rate * (angleInput == 0f ? angleBrake : angleDrag) * dt;
+        float limit = angleAccel * dt;
+
+        rate -= Mathf.Clamp(damp, -limit, limit);
 
         rig.angularVelocity = rate;
     }
@@ -583,7 +1018,6 @@ public partial class Ship : Thing
     // AI 함선은 컴포넌트가 없으므로 두 필드를 직접 세팅하면 된다.
     public void OnMove(InputValue v)  => thrustInput = v.Get<Vector2>();
     public void OnAngle(InputValue v) => angleInput  = v.Get<float>();
-    public void OnFlip(InputValue v)  { if (v.isPressed) TryFlipFacing(); }
 
     /// <summary>
     /// 부스터 방아쇠. <see cref="BoosterComp"/>가 매 프레임 읽어서 자기 엔진의 추력을
@@ -624,49 +1058,10 @@ public partial class Ship : Thing
 
     private void Update()
     {
-        Boosting = _boostAction != null && _boostAction.IsPressed();
-    }
-
-    /// <summary>이 틱이 지나야 다시 뒤집을 수 있다. 연타로 판을 계속 순간이동시키지 못하게.</summary>
-    private long _flipReadyTick;
-
-    private const int FlipCooldownTicks = 60;
-
-    /// <summary>
-    /// 배가 바라보는 쪽을 좌우로 뒤집는다. 성공하면 true.
-    ///
-    /// **격자·방·이웃은 하나도 안 건드린다.** 전부 로컬 위상이고 반전은 월드에만 있다 -
-    /// 반대쪽에서 소환된 배가 이미 localScale.x = -1로 멀쩡히 도는 이유가 그것이다.
-    /// 여기서 하는 일은 그 값을 런타임에 한 번 더 뒤집는 것뿐이다.
-    ///
-    /// **닿아 있으면 거부한다.** 뒤집기는 연속 운동이 아니라 순간이동이라, 56칸짜리 배면
-    /// 뱃머리 판이 한 프레임에 수십 미터를 건너뛴다. 그때 다른 몸과 겹쳐 있으면 솔버가
-    /// 그 겹침을 폭발적으로 밀어내서 두 배가 서로를 쏘아 보낸다. 접촉이 없을 때만 하면
-    /// 그 상황이 아예 안 생긴다.
-    ///
-    /// <see cref="Physics2D.SyncTransforms"/>가 필수다. TickManager가 simulationMode를
-    /// Script로 잡아 두어서, 안 부르면 이번 틱의 탄과 레이캐스트가 **옛 자리의 판**을 본다.
-    ///
-    /// 남는 구멍 하나: 이미 날아오고 있던 탄은 표면을 건너뛰어 그냥 빗나간다. 크래시가
-    /// 아니라 "가끔 안 맞는다"이고, 접촉 검사로는 못 잡는다 - 탄은 콜라이더로 닿는 것이
-    /// 아니라 매 틱 레이캐스트이기 때문이다.
-    /// </summary>
-    public bool TryFlipFacing()
-    {
-        if (Core.TickManager.currentTick < _flipReadyTick)
-            return false;
-
-        if (rig == null || rig.IsTouchingLayers())
-            return false;
-
-        Vector3 scale = transform.localScale;
-        scale.x = -scale.x;
-        transform.localScale = scale;
-
-        Physics2D.SyncTransforms();
-
-        _flipReadyTick = Core.TickManager.currentTick + FlipCooldownTicks;
-        return true;
+        // 컷신이 켜면 입력과 무관하게 켜진다. 사람이 누르는 것과 같은 값을 쓰므로
+        // BoosterComp는 누가 켰는지 몰라도 된다.
+        Boosting = cutsceneBoost || pilotBoost
+            || (_boostAction != null && _boostAction.IsPressed());
     }
 
     /// <summary>
@@ -697,7 +1092,8 @@ public partial class Ship : Thing
     protected override void OnDestroy()
     {
         base.OnDestroy();
-        Destroy(shipHullPng);
+        // shipHullPng는 안 지운다 - _hullSkinShared가 같은 그림의 다른 배와 공유하는
+        // 텍스처라, 지우면 살아 있는 배의 판 굽기가 죽은 텍스처를 읽는다.
     }
 
     /// <summary>
@@ -712,9 +1108,20 @@ public partial class Ship : Thing
         && team != other.team
         && other.IsCombatEffective;   // 잔해는 표적이 아니다
 
+    // 틱스탬프 캐시. 자동 포탑 N문 + AI가 같은 틱에 같은 답을 각자 전수 스캔으로 다시
+    // 구하고 있었다. 틱 안에서는 입력(All 목록·위치·전투력)이 불변이라 언제 계산해도
+    // 같은 답이다 - 피해는 다음 틱의 Simulate/ITickLate에서 들어온다.
+    private long _hostileTick = -1;
+    private Ship _cachedHostile;
+
     /// <summary>DetectionDistance 안에서 가장 가까운 적. 없으면 null.</summary>
     public Ship NearestHostile()
     {
+        if (_hostileTick == Core.TickManager.currentTick)
+            return _cachedHostile;
+
+        _hostileTick = Core.TickManager.currentTick;
+
         Ship best = null;
         float bestSqr = DetectionDistance * DetectionDistance;
 
@@ -735,8 +1142,11 @@ public partial class Ship : Thing
             best = other;
         }
 
+        _cachedHostile = best;
         return best;
     }
+
+    public void RecalcMass() => rig.mass = Mathf.Max(1f, shipArmors.Count * massPerPlate);
 
     protected void AimGun()
     {

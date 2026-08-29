@@ -59,6 +59,15 @@ public class Placement
     /// </summary>
     public Vector2 offset;
 
+    /// <summary>
+    /// 판의 실물 모양. 칸 로컬(콜라이더 중심 기준) 좌표이고, 비면 콜라이더 사각형이다.
+    ///
+    /// **def가 아니라 배치에 있다.** 세 방향이 만나는 이음매 칸은 같은 def라도 모양이
+    /// 자리마다 다르다 - 그것이 다각형을 넣은 이유 자체다. def에 두면 이음매마다
+    /// 새 def를 만들어야 하고, 그러면 판 종류가 배 모양을 따라 늘어난다.
+    /// </summary>
+    public Vector2[] shape;
+
     /// <summary>이 모듈이 볼트로 붙은 판의 칸. -1이면 선체 직속(= 판이 죽어도 안 죽는다).</summary>
     public int mountCol = -1;
     public int mountRow = -1;
@@ -176,8 +185,42 @@ public class ShipDef
 
     // ponytail: File 직접 읽기. 데스크톱 전용이다 - 안드로이드나 웹으로 가면 StreamingAssets가
     // 아카이브 안에 들어가서 UnityWebRequest로 바꿔야 한다.
+    /// <summary>
+    /// **호출 횟수가 값이다.** 스폰 하나가 이 문을 몇 번 지나는지 프로파일러에서 세어
+    /// 보라 - 같은 파일을 읽고 파싱하고 검증하는 일이 배 한 척에 두세 번 일어난다.
+    /// </summary>
+    private static readonly Unity.Profiling.ProfilerMarker _mLoad = new("ShipDef.Load");
+
+    /// <summary>
+    /// 이름 -> 이미 읽은 설계도. **배 한 척을 소환하는 데 이 문을 두세 번 지난다**
+    /// (Ship.Awake, ShipBuilder.SpawnFrom, basedOn이 있으면 한 번 더). 캐시가 없으면
+    /// 그때마다 파일을 읽고 JSON을 파싱하고 그림 규격까지 다시 검사한다 - 구역이 바뀔
+    /// 때마다, 컷신에서 배가 뜰 때마다.
+    ///
+    /// **읽은 뒤 변형하지 않는다는 것이 캐시의 근거다.** Apply는 Ship에 값을 붓고,
+    /// 내보내기는 JSON 문자열을 갈아끼우지(DefKeys.ReplaceTopLevelValue) 이 객체를
+    /// 안 건드린다. 그 규칙이 깨지는 자리가 생기면 캐시부터 의심할 것.
+    /// </summary>
+    private static readonly Dictionary<string, ShipDef> _cache = new();
+
+    /// <summary>
+    /// 캐시를 비운다. <c>Tools > Defs > Reload</c>가 부른다 - 파일을 고치고 메뉴를
+    /// 눌렀는데 옛 값이 나오면 데이터 주도 설계의 값어치가 절반 사라진다.
+    /// </summary>
+    public static void ClearCache() => _cache.Clear();
+
     public static ShipDef Load(string defName)
     {
+        using var _ = _mLoad.Auto();
+
+        // **저작 중에는 캐시를 안 쓴다.** ShipPainter는 읽은 설계도를 직접 편집하므로,
+        // 그 인스턴스를 캐시가 들고 있으면 편집이 다음 소환에 새어 나간다. 플레이 중에는
+        // 저작 도구가 안 돌아서 그 창이 없다.
+        bool useCache = Application.isPlaying;
+
+        if (useCache && _cache.TryGetValue(defName, out ShipDef cached))
+            return cached;
+
         string path = PathOf(defName);
 
         if (!File.Exists(path))
@@ -189,7 +232,14 @@ public class ShipDef
         ShipDef def = Parse(File.ReadAllText(path), Path.GetFileName(path));
 
         // 그림 규격은 설계도를 읽는 이 자리에서만 본다. 이유는 SkinIsValid 주석에.
-        return SkinIsValid(def) ? def : null;
+        def = SkinIsValid(def) ? def : null;
+
+        // 실패도 캐시한다. 없는 설계도를 부르는 대본은 매 줄마다 부르므로, 안 캐시하면
+        // 그 오타 하나가 파일 시스템 접근을 계속 만든다.
+        if (useCache)
+            _cache[defName] = def;
+
+        return def;
     }
 
     /// <summary>

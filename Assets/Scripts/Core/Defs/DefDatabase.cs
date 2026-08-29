@@ -56,7 +56,8 @@ public static class DefDatabase
         Vector2 localPosition,
         float rotationZ,
         Vector2 sizeOverride = default,
-        Vector2 offsetShift = default)
+        Vector2 offsetShift = default,
+        Vector2[] shapeOverride = null)
     {
         Load();
 
@@ -64,8 +65,22 @@ public static class DefDatabase
             return null;
 
         return _defs.TryGetValue(defName, out ThingDef def)
-            ? def.Spawn(parent, localPosition, rotationZ, sizeOverride, offsetShift)
+            ? def.Spawn(parent, localPosition, rotationZ, sizeOverride, offsetShift, shapeOverride)
             : null;
+    }
+
+    /// <summary>
+    /// 실린 def 전부. 이름을 모르는 채로 도는 유일한 경우가 에디터 도구라 여기만 쓴다 -
+    /// 게임 쪽은 항상 이름으로 하나를 집는다.
+    /// </summary>
+    public static IEnumerable<ThingDef> All
+    {
+        get
+        {
+            Load();
+
+            return _defs.Values;
+        }
     }
 
     private static void Load()
@@ -124,6 +139,10 @@ public static class DefDatabase
     private static void ReloadMenu()
     {
         Reload();
+
+        // 설계도도 같이. 두 캐시가 따로 놀면 def는 새 값인데 배치는 옛 값이 된다.
+        ShipDef.ClearCache();
+
         Debug.Log("[DefDatabase] 다시 읽었다. 플레이 중이면 배를 다시 지어야 반영된다.");
     }
 

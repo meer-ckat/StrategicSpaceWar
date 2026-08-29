@@ -19,6 +19,30 @@ public static class PenetrationSelfTest
         _pass = 0;
         _fail = 0;
 
+        PolygonTests();
+        Check("spall trace IJobParallelFor", SpallResolver.TraceJobSelfTest());
+        Check("spall budget defers but always drains", SpallResolver.FragmentBudgetSelfTest());
+        Check("trace world cached source follows transform", TraceWorld.CachedSourceSelfTest());
+        Check("ram sweep capsule keeps contacts, drops the rear", RamImpact.SweptCircleSelfTest());
+
+        {
+            const float shellMass = 5f;
+            Vector2 incoming = Vector2.right * 900f;
+            Vector2 fastExit = Ballistics.ImpactImpulse(
+                shellMass, incoming, Vector2.right * 800f);
+            Vector2 slowExit = Ballistics.ImpactImpulse(
+                shellMass, incoming, Vector2.right * 400f);
+            Vector2 blocked = Ballistics.ImpactImpulse(
+                shellMass, incoming, Vector2.zero);
+
+            Check("impact impulse is projectile momentum loss",
+                Mathf.Approximately(fastExit.x, 500f)
+                && Mathf.Approximately(slowExit.x, 2500f)
+                && Mathf.Approximately(blocked.x, 4500f)
+                && blocked.x > slowExit.x && slowExit.x > fastExit.x,
+                default);
+        }
+
         Vector2 head = Vector2.down;   // straight into an upward-facing plate
 
         // 0deg, 3x penetration -> clean pass-through
@@ -287,47 +311,46 @@ public static class PenetrationSelfTest
         // 이어진 멀쩡한 판이 두 조각으로 갈린다).
         {
             int n = Ballistics.SubGrid;
-            var alive = new bool[Ballistics.SubCount];
-            var largest = new bool[Ballistics.SubCount];
 
             // 1. 멀쩡한 판은 통째로 살아남는다
-            for (int i = 0; i < alive.Length; i++) alive[i] = true;
-            Ballistics.LargestLivingComponent(alive, largest);
-
-            int kept = 0;
-            for (int i = 0; i < largest.Length; i++) if (largest[i]) kept++;
-
-            Check("성분: 멀쩡한 판은 전부 남는다", kept == Ballistics.SubCount, default);
+            Check("성분: 멀쩡한 판은 전부 남는다",
+                Ballistics.LargestLivingComponent(Ballistics.SubMaskFull)
+                    == Ballistics.SubMaskFull,
+                default);
 
             // 2. 큰 덩어리 + 외딴 칸 하나 -> 외딴 칸은 버려진다
-            for (int i = 0; i < alive.Length; i++) alive[i] = false;
-            for (int row = 0; row < 3; row++) alive[row * n] = true;   // 0열 세 칸
-            int lonely = (n - 1) * n + (n - 1);                        // 반대편 구석
-            alive[lonely] = true;
+            ulong column = (1UL << 0) | (1UL << n) | (1UL << (2 * n));  // 0열 세 칸
+            int lonely = (n - 1) * n + (n - 1);                         // 반대편 구석
+            ulong kept = Ballistics.LargestLivingComponent(column | (1UL << lonely));
 
-            Ballistics.LargestLivingComponent(alive, largest);
-
-            Check("성분: 외딴 서브셀은 부서진 것으로 친다",
-                largest[0] && largest[n] && largest[2 * n] && !largest[lonely], default);
+            Check("성분: 외딴 서브셀은 부서진 것으로 친다", kept == column, default);
 
             // 3. 대각으로만 닿은 두 칸은 한 덩어리다 (8방향)
-            for (int i = 0; i < alive.Length; i++) alive[i] = false;
-            alive[0] = true;
-            alive[n + 1] = true;
-
-            Ballistics.LargestLivingComponent(alive, largest);
+            ulong diagonal = (1UL << 0) | (1UL << (n + 1));
 
             Check("성분: 대각 연결은 끊지 않는다",
-                largest[0] && largest[n + 1], default);
+                Ballistics.LargestLivingComponent(diagonal) == diagonal, default);
 
             // 4. 전멸. 아무것도 표시하지 않고 터지지도 않는다
-            for (int i = 0; i < alive.Length; i++) alive[i] = false;
-            Ballistics.LargestLivingComponent(alive, largest);
+            Check("성분: 전멸한 판은 남는 칸이 없다",
+                Ballistics.LargestLivingComponent(0UL) == 0UL, default);
 
-            int any = 0;
-            for (int i = 0; i < largest.Length; i++) if (largest[i]) any++;
+            // 5. 비트 팽창 대 라벨 BFS 무작위 대조. 열 경계 감김(열0->열5) 같은 비트
+            //    실수는 특정 모양에서만 드러나므로, 손으로 짠 케이스 넷으로는 부족하다.
+            //    레퍼런스는 옛 구현의 축약이고 여기 테스트에만 산다.
+            var rng = new System.Random(20260829);
+            bool agree = true;
 
-            Check("성분: 전멸한 판은 남는 칸이 없다", any == 0, default);
+            for (int trial = 0; trial < 512 && agree; trial++)
+            {
+                ulong alive = ((ulong)(uint)rng.Next() << 32 | (uint)rng.Next())
+                    & Ballistics.SubMaskFull;
+
+                agree = Ballistics.LargestLivingComponent(alive)
+                    == ReferenceLargestComponent(alive);
+            }
+
+            Check("성분: 비트보드가 라벨 BFS와 512판 일치한다", agree, default);
         }
 
         // Hit points land exactly on sub-cell boundaries constantly - every shot on a grid
@@ -522,6 +545,158 @@ public static class PenetrationSelfTest
         s.normal[0] = n0; s.rha[0] = rha0;
         s.normal[1] = n1; s.rha[1] = rha1;
         return s;
+    }
+
+    /// <summary>
+    /// 폴리곤 넓이 클리핑. **오목한 모양이 핵심이다** - Sutherland-Hodgman은 볼록 창으로
+    /// 자르지만 원본이 오목하면 잘린 결과에 잇는 변이 생긴다. 신발끈 공식이 그 겹침을
+    /// 부호로 상쇄한다는 것이 이 검사가 지키는 전제이고, 그게 깨지면 증상은 "이 판이
+    /// 왜 이렇게 약하지"다 - 서브셀 잠김 비율이 조용히 틀린다.
+    /// </summary>
+    private static void PolygonTests()
+    {
+        // 2x2에서 오른쪽 위 1x1을 도려낸 L자. 넓이 3.
+        var l = new[]
+        {
+            new Vector2(0f, 0f), new Vector2(2f, 0f), new Vector2(2f, 1f),
+            new Vector2(1f, 1f), new Vector2(1f, 2f), new Vector2(0f, 2f),
+        };
+
+        Near("L 전체 넓이", Ballistics.PolygonArea(l), 3f);
+
+        // 칸별로 자른 합이 전체와 같아야 한다. 직선을 칸마다 조각내는 저작 도구가
+        // 기대는 성질이 정확히 이것이다 - 조각의 합집합이 원본과 같다.
+        float total = 0f;
+
+        for (int x = 0; x < 2; x++)
+        for (int y = 0; y < 2; y++)
+            total += Ballistics.ClippedArea(l, new Vector2(x, y), new Vector2(x + 1f, y + 1f));
+
+        Near("L 칸별 합", total, 3f);
+
+        // 창이 오목한 노치를 정통으로 가로지르는 경우.
+        Near("L 노치 가로지르기",
+            Ballistics.ClippedArea(l, new Vector2(0.5f, 0.5f), new Vector2(1.5f, 1.5f)), 0.75f);
+
+        // U자. 창이 **떨어진 두 팔**을 동시에 걸치는 것이 최악의 경우다 - 잘린 결과가
+        // 두 덩어리라 잇는 변이 반드시 생긴다.
+        var u = new[]
+        {
+            new Vector2(0f, 0f), new Vector2(3f, 0f), new Vector2(3f, 3f), new Vector2(2f, 3f),
+            new Vector2(2f, 1f), new Vector2(1f, 1f), new Vector2(1f, 3f), new Vector2(0f, 3f),
+        };
+
+        Near("U 전체 넓이", Ballistics.PolygonArea(u), 7f);
+        Near("U 두 팔 걸치기",
+            Ballistics.ClippedArea(u, new Vector2(0f, 2f), new Vector2(3f, 3f)), 2f);
+
+        // 감기 방향이 반대여도 같은 값이어야 한다. 대칭 복사가 감기를 뒤집는다.
+        System.Array.Reverse(l);
+        Near("감기 반대", Ballistics.PolygonArea(l), 3f);
+
+        // 볼록 껍질. **입출력이 같은 배열인 채로** 부른다 - 호출자들이 실제로 그렇게
+        // 쓰고, 모노톤 체인의 중간 출력이 2*count까지 부푸는 것을 내부 버퍼가 받아야
+        // 한다. 이게 깨졌을 때 증상은 껍질이 틀리는 게 아니라 IndexOutOfRange로
+        // 도구가 통째로 죽는 것이었다.
+        var sq = new[]
+        {
+            new Vector2(0f, 0f), new Vector2(1f, 0f),
+            new Vector2(1f, 1f), new Vector2(0f, 1f),
+        };
+
+        int hullCount = Ballistics.ConvexHull(sq, 4, sq);
+        Check($"정사각형 껍질 점 4 ({hullCount})", hullCount == 4);
+        Near("정사각형 껍질 넓이", Ballistics.PolygonArea(sq), 1f);
+
+        // 안쪽 점은 껍질에서 빠져야 한다.
+        var withInner = new[]
+        {
+            new Vector2(0f, 0f), new Vector2(2f, 0f), new Vector2(0.9f, 0.3f),
+            new Vector2(2f, 2f), new Vector2(0f, 2f), new Vector2(1f, 1f),
+        };
+
+        int hull2 = Ballistics.ConvexHull(withInner, 6, withInner);
+        Check($"안쪽 점 제거 ({hull2})", hull2 == 4);
+
+        // 점 포함 판정. 노치 안쪽은 밖이다.
+        Check("L 노치는 바깥", !Ballistics.PolygonContains(l, new Vector2(1.5f, 1.5f)));
+        Check("L 밑동은 안쪽", Ballistics.PolygonContains(l, new Vector2(0.5f, 0.5f)));
+    }
+
+    private static void Near(string name, float got, float want)
+        => Check($"{name} ({got:0.####} vs {want:0.####})", Mathf.Abs(got - want) < 1e-3f);
+
+    /// <summary>
+    /// 대조용 레퍼런스: 옛 라벨 BFS의 축약. 8방향, 동점이면 먼저 만난(인덱스 낮은)
+    /// 성분 유지 - 제품 코드와 같은 규칙이어야 대조가 대조다.
+    /// </summary>
+    private static ulong ReferenceLargestComponent(ulong alive)
+    {
+        int n = Ballistics.SubGrid;
+        var stack = new System.Collections.Generic.Stack<int>();
+        var seen = new bool[Ballistics.SubCount];
+        ulong best = 0;
+        int bestSize = 0;
+
+        for (int seed = 0; seed < Ballistics.SubCount; seed++)
+        {
+            if (seen[seed] || (alive & (1UL << seed)) == 0)
+                continue;
+
+            ulong component = 0;
+            int size = 0;
+
+            stack.Push(seed);
+            seen[seed] = true;
+
+            while (stack.Count > 0)
+            {
+                int at = stack.Pop();
+                component |= 1UL << at;
+                size++;
+
+                int col = at % n;
+                int row = at / n;
+
+                for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int nc = col + dx;
+                    int nr = row + dy;
+
+                    if ((dx == 0 && dy == 0) || nc < 0 || nc >= n || nr < 0 || nr >= n)
+                        continue;
+
+                    int next = nr * n + nc;
+
+                    if (seen[next] || (alive & (1UL << next)) == 0)
+                        continue;
+
+                    seen[next] = true;
+                    stack.Push(next);
+                }
+            }
+
+            if (size > bestSize)
+            {
+                bestSize = size;
+                best = component;
+            }
+        }
+
+        return best;
+    }
+
+    private static void Check(string name, bool ok)
+    {
+        if (ok)
+        {
+            _pass++;
+            return;
+        }
+
+        _fail++;
+        Debug.LogError($"[Ballistics] FAIL {name}");
     }
 
     private static void Check(string name, bool ok, in HitResult r)

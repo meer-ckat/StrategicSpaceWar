@@ -13,57 +13,57 @@
       "name": "감시소 19",
       "script": "sector-02",
       "spawns": [
-        { "ship": "scout", "team": "Enemy", "x": 320, "y": 20, "facing": -1 },
-        { "ship": "scout", "team": "Enemy", "x": 360, "y": -20, "facing": -1 }
+        { "ship": "scout", "team": "Enemy", "x": 1820, "y": 20, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 1860, "y": -20, "facing": -1 }
       ]
     },
     {
       "name": "감시소 22",
       "script": "sector-03",
       "spawns": [
-        { "ship": "frigate", "team": "Enemy", "x": 340, "y": 0, "facing": -1 },
-        { "ship": "derelict", "team": "Neutral", "x": 120, "y": 60, "facing": 1 }
+        { "ship": "frigate", "team": "Enemy", "x": 3340, "y": 0, "facing": -1 },
+        { "ship": "derelict", "team": "Neutral", "x": 3120, "y": 60, "facing": 1 }
       ]
     },
     {
       "name": "왕정군 초계선",
       "script": "sector-04",
       "spawns": [
-        { "ship": "frigate", "team": "Enemy", "x": 340, "y": 25, "facing": -1 },
-        { "ship": "frigate", "team": "Enemy", "x": 380, "y": -25, "facing": -1 }
+        { "ship": "frigate", "team": "Enemy", "x": 4840, "y": 25, "facing": -1 },
+        { "ship": "frigate", "team": "Enemy", "x": 4880, "y": -25, "facing": -1 }
       ]
     },
     {
       "name": "호위대",
       "script": "sector-05",
       "spawns": [
-        { "ship": "destroyer", "team": "Enemy", "x": 360, "y": 0, "facing": -1 },
-        { "ship": "scout", "team": "Enemy", "x": 300, "y": 40, "facing": -1 }
+        { "ship": "destroyer", "team": "Enemy", "x": 6360, "y": 0, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 6300, "y": 40, "facing": -1 }
       ]
     },
     {
       "name": "봉쇄선",
       "script": "sector-06",
       "spawns": [
-        { "ship": "destroyer", "team": "Enemy", "x": 350, "y": 30, "facing": -1 },
-        { "ship": "destroyer", "team": "Enemy", "x": 390, "y": -30, "facing": -1 }
+        { "ship": "destroyer", "team": "Enemy", "x": 7850, "y": 30, "facing": -1 },
+        { "ship": "destroyer", "team": "Enemy", "x": 7890, "y": -30, "facing": -1 }
       ]
     },
     {
       "name": "기함 전대",
       "script": "sector-07",
       "spawns": [
-        { "ship": "cruiser", "team": "Enemy", "x": 380, "y": 0, "facing": -1 },
-        { "ship": "frigate", "team": "Enemy", "x": 310, "y": 45, "facing": -1 }
+        { "ship": "cruiser", "team": "Enemy", "x": 9380, "y": 0, "facing": -1 },
+        { "ship": "frigate", "team": "Enemy", "x": 9310, "y": 45, "facing": -1 }
       ]
     },
     {
       "name": "초복사 시설",
       "script": "sector-08",
       "spawns": [
-        { "ship": "mirror", "hulk": true, "target": true, "x": 520, "y": 0, "facing": 1 },
-        { "ship": "cruiser", "team": "Enemy", "x": 340, "y": 0, "facing": -1 },
-        { "ship": "destroyer", "team": "Enemy", "x": 300, "y": 50, "facing": -1 }
+        { "ship": "mirror", "hulk": true, "target": true, "x": 11020, "y": 0, "facing": 1 },
+        { "ship": "cruiser", "team": "Enemy", "x": 10840, "y": 0, "facing": -1 },
+        { "ship": "destroyer", "team": "Enemy", "x": 10800, "y": 50, "facing": -1 }
       ]
     }
   ]

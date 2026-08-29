@@ -15,6 +15,17 @@ public class Room
     /// </summary>
     public int boundaryPlates;
 
+    /// <summary>
+    /// 마지막으로 센 파공 수와, 그때의 <see cref="Ship.BreachVersion"/>.
+    ///
+    /// 파공 수는 판이 뚫리거나·죽거나·후면이 날아갈 때만 바뀌는데, 세는 비용은 방의
+    /// 벽 수 + 칸 수라 안 캐시하면 아무 일도 안 일어나는 틱에도 배마다 수백 번 돈다.
+    /// -1로 시작하는 것이 요점이다 - 버전이 0에서 시작하므로 기본값 0이면 "이미 셌다"가
+    /// 되어 갓 지어진 방이 파공 0으로 굳는다.
+    /// </summary>
+    public int breaches;
+    public int breachVersion = -1;
+
     public Room(List<Vector2Int> cells)
     {
         this.cells = cells;

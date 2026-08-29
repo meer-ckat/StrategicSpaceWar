@@ -1,0 +1,9 @@
+{
+  "defName": "chitchat-knees",
+  "cooldown": 240,
+  "lines": [
+    { "message": "함장님. 펭귄도 무릎이 있습니까?", "author": "전술", "duration": 3, "intensity": 0.3, "style": "crew" },
+    { "message": "있다.", "author": "함장", "duration": 2.5, "intensity": 0.3, "style": "crew" },
+    { "message": "…있군요.", "author": "전술", "duration": 3, "intensity": 0.3, "style": "crew" }
+  ]
+}

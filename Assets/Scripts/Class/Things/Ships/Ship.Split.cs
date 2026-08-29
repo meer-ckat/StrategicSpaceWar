@@ -21,14 +21,13 @@ public partial class Ship
         if (_structure == null || !_structure.TrySplitIfBroken())
             return;
 
-        shipArmors.Clear();
-        shipEngines.Clear();
-        shipGuns.Clear();
-        shipCriticals.Clear();
-        shipArmors.AddRange(GetComponentsInChildren<Armor>());
-        shipEngines.AddRange(GetComponentsInChildren<Engine>());
-        shipGuns.AddRange(GetComponentsInChildren<Gun>());
-        shipCriticals.AddRange(GetComponentsInChildren<CriticalModule>());
+        // **List 오버로드다.** 배열을 돌려주는 쪽은 호출마다 새 배열을 만들고, 판 300장짜리
+        // 배가 갈라지는 틱에 네 번 나가면 그것만으로 GC.Collect가 프레임에 걸린다 -
+        // 파단은 연쇄로 오므로 그 틱이 제일 바쁜 틱이다. 이 오버로드는 목록을 비우고 채운다.
+        GetComponentsInChildren(shipArmors);
+        GetComponentsInChildren(shipEngines);
+        GetComponentsInChildren(shipGuns);
+        GetComponentsInChildren(shipCriticals);
 
         BuildRooms();
 

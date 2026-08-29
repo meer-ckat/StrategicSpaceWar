@@ -44,7 +44,9 @@ public static class RamImpact
     /// </summary>
     private static readonly List<Rigidbody2D> _plateBodies = new();
 
-    private static readonly HashSet<Armor> _seen = new();
+    // 같은 판이 여러 번 들어오는 것을 거르는 도장. HashSet이면 스윕 결과(최대 512개)마다
+    // 해싱하는데, 충각은 몸마다 매 틱 돈다.
+    private static int _punchStamp;
 
     /// <summary>
     /// <see cref="FarthestReach"/>가 이 몸의 콜라이더를 받아 오는 자리. 함선 한 척이 판
@@ -55,8 +57,54 @@ public static class RamImpact
 
     // 접점마다 새로 만들면 한 번 부딪힐 때 최대 16쌍이 쓰레기가 된다. 충각은 난전에서
     // 매 틱 들어온다.
-    private static readonly Queue<Armor> _wave = new();
-    private static readonly HashSet<Armor> _reached = new();
+    // 평면 배열 + head/tail. 파면은 판마다 최대 한 번 입큐라 되감기가 필요 없고,
+    // Queue<T>의 버전 검사·용량 조정이 통째로 빠진다. 도달 표시는 Armor.ConductStamp
+    // 도장이라 집합 자체가 없어졌다 - 간선마다 해싱하던 것이 int 비교 하나가 된다.
+    private static Armor[] _wave = new Armor[1024];
+    private static int _conductStamp;
+
+    // **재진입 버퍼는 깊이별로 살려 둔다.** 유폭 연쇄는 한 번 터질 때마다 안쪽으로
+    // 다시 들어오는데, 그때마다 새 배열을 만들면(파면 버퍼 + 질의 버퍼 1,152칸 = 9 KB)
+    // 폭발 하나가 수십 KB를 남긴다. 깊이는 MaxDetonationChain으로 막혀 있으니
+    // 깊이마다 한 벌씩만 있으면 된다.
+    private static readonly List<Armor[]> _nestedWave = new();
+    private static readonly List<HashSet<Armor>> _nestedReached = new();
+    private static readonly List<Collider2D[]> _nestedNearby = new();
+
+    private static Armor[] NestedWave(int depth, int minimum)
+    {
+        while (_nestedWave.Count <= depth)
+            _nestedWave.Add(new Armor[1024]);
+
+        if (_nestedWave[depth].Length < minimum)
+            _nestedWave[depth] = new Armor[Mathf.NextPowerOfTwo(minimum)];
+
+        return _nestedWave[depth];
+    }
+
+    private static HashSet<Armor> NestedReached(int depth)
+    {
+        while (_nestedReached.Count <= depth)
+            _nestedReached.Add(new HashSet<Armor>());
+
+        HashSet<Armor> set = _nestedReached[depth];
+        set.Clear();
+        return set;
+    }
+
+    private static Collider2D[] NestedNearby(int depth)
+    {
+        while (_nestedNearby.Count <= depth)
+            _nestedNearby.Add(new Collider2D[NearbyCapacity]);
+
+        return _nestedNearby[depth];
+    }
+
+
+    // Ship.Ram self가 뭉쳐 보여서 가르는 마커. 릴리스에선 no-op.
+    private static readonly Unity.Profiling.ProfilerMarker _mGather = new("Ram.Gather");
+    private static readonly Unity.Profiling.ProfilerMarker _mSweep = new("Ram.Sweep");
+    private static readonly Unity.Profiling.ProfilerMarker _mConduct = new("Ram.Conduct");
 
     /// <summary>
     /// 지금 <see cref="Conduct"/> 안인가. 0보다 크면 재진입이고, 그때만 지역 버퍼를 만든다.
@@ -115,7 +163,11 @@ public static class RamImpact
         // 접선속도가 7.9 m/s다 - RamMinSpeed보다 큰데 지금까지 0으로 세어졌다.
         float omega = body.angularVelocity * Mathf.Deg2Rad;      // rad/s
         Vector2 centre = body.worldCenterOfMass;
-        float rMax = FarthestReach(body, centre, out Vector2 farPoint);
+
+        // 반경은 캐시다. 매 틱 콜라이더 300개의 bounds를 다시 재는 게 잔해 구름의 틱
+        // 비용 대부분이었다. 상한이라 스윕이 약간 길 수 있는데, 아래 접점별 점속도 필터가
+        // 초과분을 걸러내므로 부술 판은 같다.
+        float rMax = CachedRadius(body);
 
         // 이번 틱에 이 몸의 **어느 점이든** 나아갈 수 있는 최대 거리. 스윕 길이의 상한이다.
         float reach = speed + Mathf.Abs(omega) * rMax;
@@ -130,7 +182,12 @@ public static class RamImpact
         if (speed > 1e-3f)
             dir = velocity / speed;
         else if (Mathf.Abs(omega) * rMax > 1e-3f)
+        {
+            // 제자리 회전일 때만 정확한 최원점이 필요하다. 이 분기는 희귀해서 여기서만
+            // 전체 콜라이더를 돈다.
+            FarthestReach(body, centre, out Vector2 farPoint);
             dir = (Ballistics.Rotate(farPoint - centre, 90f) * Mathf.Sign(omega)).normalized;
+        }
         else
             dir = thrust.normalized;
 
@@ -153,7 +210,22 @@ public static class RamImpact
         // 다 못 치운 나머지가 동시 접촉으로 배를 튕겨낸다.
         float lead = dt * Ballistics.RamLookahead;
         float step = reach * lead + Ballistics.RamSkin;
-        int n = body.Cast(dir, _punch, step);
+
+        // 사거리 안에 남의 몸이 없으면 스윕할 것도 없다. 부술 수 있는 것(Armor)은 전부
+        // HullStructure의 몸에 붙어 있으므로 후보는 All 목록뿐이다 - 포격전 거리에서는
+        // 충각이 이 float 비교 몇 번으로 끝난다.
+        if (!GatherNearBodies(body, centre, rMax + step))
+            return;
+
+        // body.Cast는 내 콜라이더 300개를 **전부** 스윕한다(ColliderCastAll). 이번 틱에
+        // 닿을 수 있는 건 남의 몸 반경 + step 안에 있는 앞면 몇 장뿐이라, 그것만 골라
+        // 하나씩 캐스트하고 거리순으로 합친다 - 아래 루프의 "거리순으로 온다" 가정이
+        // 이 정렬로 유지된다.
+        // 회전으로 쓸리는 거리. capsule 검사가 이만큼 반경을 부풀려서, 도는 몸이 옆구리로
+        // 후려치는 판을 안 놓친다. 병진만 있으면 0이라 순수 capsule이다.
+        float swing = Mathf.Abs(omega) * rMax * lead;
+
+        int n = SweepNearColliders(body, dir, step, swing);
 
         if (n == 0)
             return;
@@ -171,7 +243,7 @@ public static class RamImpact
 
         _plates.Clear();
         _plateBodies.Clear();
-        _seen.Clear();
+        int stamp = ++_punchStamp;
 
         Vector2 where = body.worldCenterOfMass;
 
@@ -187,8 +259,10 @@ public static class RamImpact
             if (probe == null || !probe.TryGetComponent(out Armor plate) || plate == null)
                 continue;
 
-            if (!_seen.Add(plate))
+            if (plate.PunchStamp == stamp)
                 continue;
+
+            plate.PunchStamp = stamp;
 
             // **스윕 거리는 상한이지 이 점의 거리가 아니다.** step은 제일 빠른 점(회전이면
             // 제일 먼 점) 기준이라, 중심 근처의 판까지 그만큼 앞을 지운다. 예전에 반폭짜리
@@ -217,6 +291,11 @@ public static class RamImpact
 
         if (contacts == 0)
             return;
+
+        // 같은 충각 틱이 낳는 붕괴 파편은 한 물리 사건이다. 판/서브셀마다 즉시 Pump하면
+        // 작은 Job 184개가 되고 더 느려진다. 이 스코프 끝에서 요청을 한 wave로 묶어
+        // 큰 IJobParallelFor 하나로 보낸다. 직접 충각 피해 순서는 아래 코드 그대로다.
+        using var spallBatch = SpallResolver.DeferPump();
 
         // **회전 운동에너지도 예산이다.** 여기서만 진짜 관성 모멘트를 쓴다 - Ship.Angle은
         // 각속도를 직접 대입하고 관성 모멘트를 angleAccel에 녹여 두었지만, 그건 조종 모델의
@@ -359,6 +438,336 @@ public static class RamImpact
     }
 
     /// <summary>
+    /// 몸의 도달 반경 캐시. 값은 콜라이더마다 "피벗까지 거리 + 피벗에서 AABB 중심까지 +
+    /// AABB 반대각"의 최대 - 진짜 도달거리의 **자세 불변 상한**이다. 세 항 모두 어느
+    /// 자세에서 재도 상한이 유지된다: 피벗(콜라이더 transform)은 몸에 강체로 붙어 있어
+    /// 중심거리가 불변이고, AABB 중심-피벗 거리는 콜라이더 offset의 크기라 불변이고,
+    /// AABB 반대각은 정렬 상태가 최소다. **bounds.center-질량중심으로 재면 안 된다** -
+    /// 포탑은 매 틱 자기 피벗 중심으로 도는데 offset이 있어서 bounds.center가 움직이고,
+    /// 콜라이더 수는 그대로라 캐시가 상한 노릇을 못 하게 된다.
+    ///
+    /// 콜라이더 **수**가 변하면(판 사망·파단·잔해 입양) 다시 잰다. 수리는 HP만 돌리고
+    /// 콜라이더를 안 만드니 수가 안 변하고, 그래서 캐시가 안 썩는다.
+    /// </summary>
+    private static readonly Dictionary<Rigidbody2D, (int count, float radius)> _reachCache = new();
+    private static readonly List<Rigidbody2D> _pruneScratch = new();
+    private static long _pruneTick = -1;
+
+    /// <summary>
+    /// 죽은(Destroy된) Object 키만 걷어낸다. <see cref="_reachCache"/>와 <see cref="_colCache"/>
+    /// 둘 다 같은 모양(넘칠 때만, 틱당 1회, 죽은 키만)이라 여기 하나로 합친다.
+    /// </summary>
+    private static void PruneDeadKeys<TKey, TValue>(
+        Dictionary<TKey, TValue> cache, List<TKey> scratch, int threshold, ref long lastPruneTick)
+        where TKey : UnityEngine.Object
+    {
+        if (cache.Count <= threshold || lastPruneTick == Core.TickManager.currentTick)
+            return;
+
+        lastPruneTick = Core.TickManager.currentTick;
+        scratch.Clear();
+
+        foreach (KeyValuePair<TKey, TValue> pair in cache)
+        {
+            if (pair.Key == null)
+                scratch.Add(pair.Key);
+        }
+
+        for (int i = 0; i < scratch.Count; i++)
+            cache.Remove(scratch[i]);
+    }
+
+    private static float CachedRadius(Rigidbody2D body)
+    {
+        int count = body.attachedColliderCount;
+
+        if (_reachCache.TryGetValue(body, out (int count, float radius) hit))
+        {
+            if (hit.count == count)
+                return hit.radius;
+
+            // 콜라이더가 **줄었으면** 재측정하지 않는다. 판 사망·파단은 반경을 늘리지
+            // 못하므로 기존 값이 여전히 유효한 상한이고, 그라인딩 중에는 거의 매 틱
+            // 판이 죽어서 여기서 재측정하면 캐시가 캐시 노릇을 못 한다. 실제 판정은
+            // 접점별 점속도 필터가 하니 헐거운 상한은 스윕만 약간 길게 할 뿐이다.
+            if (hit.count > count)
+            {
+                _reachCache[body] = (count, hit.radius);
+                return hit.radius;
+            }
+        }
+
+        // 죽은 몸의 항목은 넘칠 때만, 죽은 키만 걷어낸다. 통째로 Clear하면 잔해가 512개를
+        // 넘는 구름(정확히 이 캐시가 겨냥한 장면)에서 미스마다 전원 재측정하는 스래싱이 된다.
+        // 걷어내기는 틱당 1회 - 산 몸이 진짜로 상한을 넘으면 사전이 자라게 두는 쪽이 싸다.
+        PruneDeadKeys(_reachCache, _pruneScratch, 1024, ref _pruneTick);
+
+        Vector2 centre = body.worldCenterOfMass;
+        int n = body.GetAttachedColliders(_attached);
+        float best = 0f;
+
+        for (int i = 0; i < n; i++)
+        {
+            Collider2D c = _attached[i];
+
+            if (c == null || !c.enabled)
+                continue;
+
+            Bounds b = c.bounds;
+            Vector2 pivot = c.transform.position;
+
+            float r = (pivot - centre).magnitude
+                + ((Vector2)b.center - pivot).magnitude
+                + ((Vector2)b.extents).magnitude;
+
+            if (r > best)
+                best = r;
+        }
+
+        _reachCache[body] = (count, best);
+        return best;
+    }
+
+    /// <summary>
+    /// 이번 틱의 (몸, 중심, 반경) 스냅샷. Punch는 몸마다 매 틱 도는데, 각자
+    /// HullStructure.All 전체에 worldCenterOfMass·CachedRadius(네이티브)를 물으면
+    /// 잔해 N개 구름에서 O(N²) 네이티브 호출이 된다 - 그라인딩 지속 렉의 최대 단일 원인.
+    /// 틱 안에서는 Simulate가 한 번뿐이라 위치가 안 변하므로 첫 호출자가 지은 것을
+    /// 전원이 재사용해도 결과가 같다. 같은 틱에 태어난 잔해가 다음 틱까지 안 보이는
+    /// 창이 생기지만, 그 창은 지금도 OnTick 순회 순서로 이미 존재한다.
+    /// </summary>
+    private static readonly List<(Rigidbody2D body, Vector2 centre, float radius)> _bodySnapshot = new();
+    private static long _snapshotTick = -1;
+
+    private static void RefreshBodySnapshot()
+    {
+        if (_snapshotTick == Core.TickManager.currentTick)
+            return;
+
+        _snapshotTick = Core.TickManager.currentTick;
+        _bodySnapshot.Clear();
+
+        List<HullStructure> all = HullStructure.All;
+
+        for (int i = 0; i < all.Count; i++)
+        {
+            HullStructure other = all[i];
+
+            if (other == null)
+                continue;
+
+            Rigidbody2D otherBody = other.Body;
+
+            if (otherBody == null)
+                continue;
+
+            _bodySnapshot.Add((otherBody, otherBody.worldCenterOfMass, CachedRadius(otherBody)));
+        }
+    }
+
+    /// <summary>
+    /// 내 사거리 + 상대 반경 안의 남의 몸을 모아 둔다. Cast의 브로드페이즈이자,
+    /// <see cref="SweepNearColliders"/>가 콜라이더를 고르는 기준이다. 비었으면 false.
+    /// </summary>
+    private static readonly List<(Vector2 centre, float radius)> _nearBodies = new();
+
+    private static bool GatherNearBodies(Rigidbody2D self, Vector2 centre, float range)
+    {
+        using var _ = _mGather.Auto();
+
+        RefreshBodySnapshot();
+
+        _nearBodies.Clear();
+
+        for (int i = 0; i < _bodySnapshot.Count; i++)
+        {
+            (Rigidbody2D otherBody, Vector2 at, float radius) = _bodySnapshot[i];
+
+            if (otherBody == self)
+                continue;
+
+            float r = range + radius;
+
+            if ((at - centre).sqrMagnitude <= r * r)
+                _nearBodies.Add((at, radius));
+        }
+
+        return _nearBodies.Count > 0;
+    }
+
+    private static readonly RaycastHit2D[] _castHits = new RaycastHit2D[128];
+
+    private sealed class HitDistance : System.Collections.Generic.IComparer<RaycastHit2D>
+    {
+        public int Compare(RaycastHit2D a, RaycastHit2D b) => a.distance.CompareTo(b.distance);
+    }
+
+    private static readonly HitDistance _byDistance = new();
+
+    /// <summary>
+    /// 콜라이더의 몸 로컬 피벗 + 자세 불변 도달 반경. 콜라이더는 몸 안에서 강체로 붙어
+    /// 있어서(포탑도 피벗은 고정, 회전만 한다) 한 번 재면 영원히 맞다 - 선별 루프가
+    /// 콜라이더마다 bounds(네이티브)를 읽던 것을 순수 산술로 바꾼다.
+    /// 반경은 CachedRadius와 같은 상한 공식: |AABB중심-피벗| + 반대각.
+    /// </summary>
+    private static readonly Dictionary<Collider2D, (Vector2 pivotLocal, float reach)> _colCache = new();
+    private static readonly List<Collider2D> _colPrune = new();
+    private static long _colPruneTick = -1;
+
+    private static (Vector2 pivotLocal, float reach) ColliderLocal(Transform bodyT, Collider2D c)
+    {
+        if (_colCache.TryGetValue(c, out (Vector2 pivotLocal, float reach) hit))
+            return hit;
+
+        PruneDeadKeys(_colCache, _colPrune, 4096, ref _colPruneTick);
+
+        Vector2 pivot = c.transform.position;
+        Bounds b = c.bounds;
+
+        var entry = (
+            (Vector2)bodyT.InverseTransformPoint(pivot),
+            ((Vector2)b.center - pivot).magnitude + ((Vector2)b.extents).magnitude);
+
+        _colCache[c] = entry;
+        return entry;
+    }
+
+    private static readonly List<Vector2> _nearLocal = new();
+
+    /// <summary>
+    /// 반경 <paramref name="radius"/>짜리 원을 <paramref name="from"/>에서 <paramref name="dir"/>
+    /// 방향으로 <paramref name="step"/>만큼 밀었을 때 <paramref name="target"/>을 스칠 수 있나.
+    ///
+    /// **원 검사를 캡슐로 좁히는 것이 요점이다.** 예전에는 `거리 <= reach + step`이라
+    /// 뒤·옆에 있는 콜라이더까지 후보가 됐다 - 이번 틱에 절대 안 닿는 자리인데도 비싼
+    /// Cast를 한 번씩 냈다.
+    ///
+    /// **보수적으로만 틀려야 한다.** true를 잘못 내면 헛Cast 한 번이고, false를 잘못 내면
+    /// 충각이 통째로 사라진다(시뮬 버그). 그래서 시작점 **뒤로도** radius만큼은 남긴다 -
+    /// 이미 겹쳐 있는 접촉이 그 자리다.
+    /// </summary>
+    private static bool SweptCircleMayHit(
+        Vector2 from, Vector2 target, Vector2 dir, float step, float radius)
+    {
+        Vector2 rel = target - from;
+        float along = Vector2.Dot(rel, dir);
+
+        if (along < -radius || along > step + radius)
+            return false;
+
+        float sideSq = rel.sqrMagnitude - along * along;
+
+        return sideSq <= radius * radius;
+    }
+
+    /// <summary>
+    /// 남의 몸 근처에 있는 콜라이더만 골라 스윕한다. 판 300장짜리 배가 갈고 있어도
+    /// 실제로 캐스트되는 건 접촉면의 몇십 장이다. 결과는 거리순 - body.Cast가 주던
+    /// 순서를 정렬로 복원한다.
+    /// </summary>
+    /// <param name="swing">
+    /// 이번 틱에 회전으로 쓸리는 거리(m). **capsule을 안전하게 만드는 항이다** - step에는
+    /// 회전 몫이 이미 들어 있는데 capsule은 직선 dir 하나로 자르므로, 제자리 회전으로
+    /// 옆구리를 후려치는 판이 통째로 빠진다. 이만큼 반경을 부풀리면 병진만 있을 때는 0이라
+    /// 순수 capsule이고, 회전이 지배하면 원으로 되돌아간다 - 그때는 실제로 전방향이다.
+    /// </param>
+#if UNITY_EDITOR
+    /// <summary>
+    /// capsule 검사는 **보수적으로만 틀려야 한다.** true를 잘못 내면 헛Cast 한 번이지만,
+    /// false를 잘못 내면 그 틱의 충각이 통째로 사라진다 - 링 검사(RemovalMightSplit)와
+    /// 같은 비대칭이라 같은 방식으로 못 박는다.
+    /// </summary>
+    internal static bool SweptCircleSelfTest()
+    {
+        Vector2 from = Vector2.zero;
+        Vector2 dir = Vector2.right;
+
+        // 진행 방향 정면, 사거리 안 - 반드시 잡는다.
+        bool ahead = SweptCircleMayHit(from, new Vector2(5f, 0f), dir, 10f, 1f);
+
+        // 바로 뒤 - 예전 원 검사는 잡았고 capsule은 버린다. 그것이 이 최적화의 전부다.
+        bool behind = SweptCircleMayHit(from, new Vector2(-5f, 0f), dir, 10f, 1f);
+
+        // 이미 겹쳐 있는 접촉은 시작점보다 뒤에 있어도 살아야 한다.
+        bool touching = SweptCircleMayHit(from, new Vector2(-0.5f, 0f), dir, 10f, 1f);
+
+        // 옆으로 반경 밖 - 아무리 멀리 가도 안 스친다.
+        bool aside = SweptCircleMayHit(from, new Vector2(5f, 3f), dir, 10f, 1f);
+
+        // 옆이지만 반경 안 - 스친다.
+        bool grazing = SweptCircleMayHit(from, new Vector2(5f, 0.9f), dir, 10f, 1f);
+
+        // 사거리 너머 - 이번 틱에는 못 닿는다.
+        bool far = SweptCircleMayHit(from, new Vector2(20f, 0f), dir, 10f, 1f);
+
+        // 반경을 그만큼 부풀리면(= swing) 뒤쪽도 도로 들어온다. 제자리 회전이 그 경우다.
+        bool swung = SweptCircleMayHit(from, new Vector2(-5f, 0f), dir, 10f, 6f);
+
+        return ahead && !behind && touching && !aside && grazing && !far && swung;
+    }
+#endif
+
+    private static int SweepNearColliders(Rigidbody2D body, Vector2 dir, float step, float swing)
+    {
+        using var _ = _mSweep.Auto();
+        int attached = body.GetAttachedColliders(_attached);
+        int n = 0;
+
+        // 남의 몸 중심을 내 몸 로컬로 한 번만 옮긴다(몸 몇 개 = 네이티브 몇 번).
+        // 그 뒤로 콜라이더 선별 루프는 캐시된 로컬 피벗과의 float 비교뿐이다 -
+        // 콜라이더 300개 x bounds 네이티브가 여기서 사라졌다.
+        Transform bodyT = body.transform;
+        _nearLocal.Clear();
+
+        for (int k = 0; k < _nearBodies.Count; k++)
+            _nearLocal.Add(bodyT.InverseTransformPoint(_nearBodies[k].centre));
+
+        // **부호를 손으로 마저 뒤집는다.** InverseTransformDirection은 scale을 무시하는데
+        // 위의 InverseTransformPoint는 안 무시한다 - 반전 함선(localScale.x = -1)에서 둘을
+        // 그냥 섞으면 방향만 거울이 아니라서 capsule이 엉뚱한 쪽을 본다. Conduct의 axisL과
+        // 같은 자리다.
+        Vector2 dirLocal = bodyT.InverseTransformDirection(dir);
+        Vector3 ls = bodyT.lossyScale;
+        dirLocal = new Vector2(dirLocal.x * Mathf.Sign(ls.x), dirLocal.y * Mathf.Sign(ls.y));
+
+        for (int i = 0; i < attached; i++)
+        {
+            Collider2D c = _attached[i];
+
+            if (c == null || !c.enabled)
+                continue;
+
+            (Vector2 pivotLocal, float reach) col = ColliderLocal(bodyT, c);
+            float mine = col.reach + swing;
+            bool near = false;
+
+            for (int k = 0; k < _nearBodies.Count; k++)
+            {
+                float r = _nearBodies[k].radius + mine;
+
+                if (SweptCircleMayHit(col.pivotLocal, _nearLocal[k], dirLocal, step, r))
+                {
+                    near = true;
+                    break;
+                }
+            }
+
+            if (!near)
+                continue;
+
+            int hits = c.Cast(dir, _castHits, step, ignoreSiblingColliders: true);
+
+            for (int h = 0; h < hits && n < _punch.Length; h++)
+                _punch[n++] = _castHits[h];
+        }
+
+        if (n > 1)
+            System.Array.Sort(_punch, 0, n, _byDistance);
+
+        return n;
+    }
+
+    /// <summary>
     /// 중심에서 이 몸의 제일 먼 점까지의 거리. 회전이 한 틱에 닿을 수 있는 범위를 정한다.
     ///
     /// 콜라이더 bounds의 네 모서리를 본다. AABB라 회전한 판에서는 살짝 크게 나오는데,
@@ -470,30 +879,55 @@ public static class RamImpact
         //
         // MaxDetonationChain은 깊이만 막지 이 공유 상태는 못 막는다. 흔한 길이 아니므로
         // 재진입일 때만 할당한다 - 평시 경로는 예전 그대로 무할당이다.
-        bool nested = _conducting > 0;
-        Queue<Armor> wave = nested ? new Queue<Armor>() : _wave;
-        HashSet<Armor> reached = nested ? new HashSet<Armor>() : _reached;
+        using var _ = _mConduct.Auto();
 
-        if (!nested)
+        bool nested = _conducting > 0;
+        Armor[] wave = nested ? NestedWave(_conducting, maxPlates + 8) : _wave;
+        HashSet<Armor> reached = nested ? NestedReached(_conducting) : null;
+        int head = 0, tail = 0, reachedCount = 0;
+
+        // 이번 파면의 도장 번호. 안 겹치면 지울 일이 없다.
+        int stamp = ++_conductStamp;
+
+        wave[tail++] = origin;
+        reachedCount++;
+
+        if (nested)
+            reached.Add(origin);
+        else
+            origin.ConductStamp = stamp;
+
+        // **간선 계산을 전부 배 로컬로.** 판의 CellLocal은 캐시(재부모화에도 불변)라
+        // 간선마다 나가던 transform.position 네이티브 호출이 0이 된다. 축만 한 번
+        // 로컬로 돌린다 - InverseTransformDirection은 scale을 무시하므로 반전 함선
+        // (localScale.x = -1)의 부호를 손으로 마저 적용해야 한다. 안 하면 거울상 배에서
+        // 감쇠 띠가 거울상이 아니라 엉뚱한 축으로 돈다.
+        Transform bodyT = origin.CachedBody;
+        Vector2 axisL = axis;
+
+        if (bodyT != null)
         {
-            _wave.Clear();
-            _reached.Clear();
+            axisL = bodyT.InverseTransformDirection(axis);
+            Vector3 ls = bodyT.lossyScale;
+            axisL = new Vector2(axisL.x * Mathf.Sign(ls.x), axisL.y * Mathf.Sign(ls.y));
         }
 
-        wave.Enqueue(origin);
-        reached.Add(origin);
+        Vector2 acrossAxis = new(-axisL.y, axisL.x);
+        Vector2 pivot = origin.CellLocal;
+        // 컷오프를 지수 쪽으로 옮겨 둔 것. 루프에서 Exp를 돌리기 **전에** 이 값과 비교한다.
+        float lnCutoff = Mathf.Log(Mathf.Max(1e-6f, cutoff01));
 
-        Vector2 pivot = origin.transform.position;
-        Vector2 acrossAxis = new(-axis.y, axis.x);
-        float cutoff = damage * cutoff01;
+        // Pow 두 번을 Exp 한 번으로: a^x * b^y = exp(x ln a + y ln b). 감쇠 공식 결과는 동일.
+        float lnAlong = Mathf.Log(Mathf.Max(1e-6f, along));
+        float lnAcross = Mathf.Log(Mathf.Max(1e-6f, across));
 
         _conducting++;
 
         try
         {
-            while (wave.Count > 0 && reached.Count < maxPlates)
+            while (head < tail && reachedCount < maxPlates)
             {
-                Armor at = wave.Dequeue();
+                Armor at = wave[head++];
 
                 if (at == null)
                     continue;
@@ -502,24 +936,49 @@ public static class RamImpact
                 {
                     // == null: 이미 부서진 판. 부서진 자리로는 충격이 안 지나간다.
                     // SameBodyAs: 잔해로 갈라진 조각. 참조는 살아 있어도 이제 남의 몸이다.
-                    if (neighbour == null || !at.SameBodyAs(neighbour) || reached.Contains(neighbour))
+                    if (neighbour == null || !at.SameBodyAs(neighbour))
                         continue;
 
-                    Vector2 offset = (Vector2)neighbour.transform.position - pivot;
+                    if (nested ? reached.Contains(neighbour) : neighbour.ConductStamp == stamp)
+                        continue;
+
+                    Vector2 offset = neighbour.CellLocal - pivot;
 
                     // 칸이 1 m라 거리가 그대로 미터다. Abs인 이유: Unity의 접촉면 법선 부호는
                     // 콜백을 받는 쪽에 따라 뒤집힌다. 어차피 축의 양쪽으로 똑같이 번지면 된다.
-                    float share = damage
-                        * Mathf.Pow(along, Mathf.Abs(Vector2.Dot(offset, axis)))
-                        * Mathf.Pow(across, Mathf.Abs(Vector2.Dot(offset, acrossAxis)));
+                    float exponent =
+                        Mathf.Abs(Vector2.Dot(offset, axisL)) * lnAlong
+                        + Mathf.Abs(Vector2.Dot(offset, acrossAxis)) * lnAcross;
 
-                    // 더 멀리는 더 작다. 여기서 끊어도 놓치는 판이 없다.
-                    if (share < cutoff)
+                    // **컷오프를 지수에서 본다.** damage > 0이므로
+                    //   damage*exp(e) < damage*cutoff01  <=>  e < ln(cutoff01)
+                    // 이라 결과가 글자 그대로 같고, 버릴 판에는 Exp 자체를 안 돈다.
+                    // 유폭 한 번이 BlastMaxPlates(96)장을 도는데 대부분은 여기서 걸린다 -
+                    // 이 BFS는 끝을 확인하려고 항상 경계 밖까지 한 겹 더 본다.
+                    if (exponent < lnCutoff)
                         continue;
 
-                    reached.Add(neighbour);
+                    float share = damage * Mathf.Exp(exponent);
+
+                    if (nested)
+                        reached.Add(neighbour);
+                    else
+                        neighbour.ConductStamp = stamp;
+
+                    reachedCount++;
+
+                    // 파면은 판마다 한 번씩만 들어오지만, 상한을 넘어서까지 자라지는
+                    // 않게 정적 버퍼는 넉넉히 키운다.
+                    if (tail == wave.Length)
+                    {
+                        System.Array.Resize(ref wave, wave.Length * 2);
+
+                        if (!nested)
+                            _wave = wave;
+                    }
+
+                    wave[tail++] = neighbour;
                     neighbour.ApplyDamageEvenly(share);
-                    wave.Enqueue(neighbour);
                 }
             }
         }
@@ -542,6 +1001,9 @@ public static class RamImpact
     /// </summary>
     public static void Detonate(Armor origin, float damage)
     {
+        // 한 폭발이 구조 전도와 자유 공간에 낳는 파편도 같은 순간의 한 wave다.
+        using var spallBatch = SpallResolver.DeferPump();
+
         origin.ApplyDamageEvenly(damage);
 
         Conduct(origin, Vector2.up, damage,
@@ -585,7 +1047,7 @@ public static class RamImpact
         // Conduct와 같은 재진입 방어. 아래 ApplyDamageEvenly가 다른 탄약고를 터뜨리면
         // 안쪽 Radiate가 같은 버퍼에 질의를 다시 써서, 바깥 루프가 읽던 목록이 통째로 바뀐다.
         bool nested = _radiating > 0;
-        Collider2D[] hits = nested ? new Collider2D[NearbyCapacity] : _nearby;
+        Collider2D[] hits = nested ? NestedNearby(_radiating) : _nearby;
 
         Vector2 pivot = origin.transform.position;
         float cutoff = damage * Ballistics.BlastCutoff;

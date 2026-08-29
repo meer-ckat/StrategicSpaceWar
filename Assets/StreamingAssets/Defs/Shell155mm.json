@@ -28,9 +28,8 @@
   "moduleLayer": {
     "m_Bits": 128
   },
-  "spallLayer": {
-    "m_Bits": 192
-  },
+  "unlit": true,
+  "glow": 4,
   "tint": {
     "r": 1.0,
     "g": 0.28,

@@ -204,6 +204,7 @@ public static class ShipGridSelfTest
                 Mathf.Approximately(now[0].air, 1f));
         }
 
+        RingRejectTest();
         StampTest();
         MirroredHullTest();
         OffGridPlateTest();
@@ -212,6 +213,19 @@ public static class ShipGridSelfTest
         HullSkinSizeTest();
         StampFromDefTest();
         RearSplitTest();
+        Check("shed rear: parent plate owns exactly its rear cell",
+            HullStructure.ShedRearOwnershipSelfTest());
+        Check("rear view: follows runtime mirror scale",
+            BackPlateView.MirroredFollowSelfTest());
+        Check("rear view: footprint crosses its anchor cell",
+            BackPlateView.FootprintOverflowSelfTest());
+        Check("rear view: quad uv maps back to the design rect",
+            BackPlateView.QuadUvSelfTest());
+        Check("rear view: plates enclose the rear silhouette",
+            BackPlateView.SilhouetteFloodSelfTest());
+        Check("solo debris: child origin and centre of mass are zero",
+            HullStructure.SoloDebrisOriginSelfTest());
+        DebrisHpTest();
 
         Debug.Log($"[ShipGrid] {_pass} passed, {_fail} failed.");
     }
@@ -221,6 +235,57 @@ public static class ShipGridSelfTest
     /// 예전 ToCell은 원점 중심을 가정해서 짝수 폭에서 정확히 0.5를 반올림했고,
     /// RoundToInt의 은행가 반올림이 거기서 한 칸을 먹었다.
     /// </summary>
+    /// <summary>
+    /// 링 검사. false = "절대 못 가른다"(BFS 생략), true = "몰라서 BFS에 묻는다".
+    /// 그래서 false 쪽이 틀리면 배가 갈라져야 하는데 안 갈라지는 시뮬 버그고,
+    /// true 쪽이 틀리면 그냥 헛BFS다 - 비대칭이라 false 케이스를 집중적으로 못 박는다.
+    /// </summary>
+    private static void RingRejectTest()
+    {
+        static HashSet<Vector2Int> Alive(params (int x, int y)[] cells)
+        {
+            var set = new HashSet<Vector2Int>();
+            foreach ((int x, int y) c in cells)
+                set.Add(new Vector2Int(c.x, c.y));
+            return set;
+        }
+
+        // 일자 한가운데 - 가른다. true여야 한다.
+        Check("ring: middle of a line might split",
+            ShipGrid.RemovalMightSplit(Alive((0, 0), (2, 0)), new Vector2Int(1, 0)));
+
+        // 일자 끝 - 이웃 하나뿐이라 못 가른다.
+        Check("ring: end of a line cannot split",
+            !ShipGrid.RemovalMightSplit(Alive((1, 0), (2, 0)), new Vector2Int(0, 0)));
+
+        // 고립 칸 - 이웃 0개.
+        Check("ring: isolated cell cannot split",
+            !ShipGrid.RemovalMightSplit(Alive(), new Vector2Int(0, 0)));
+
+        // L자 팔꿈치 - 남는 두 칸이 대각으로 이어진다. **8방향으로 세는 이유가 이 케이스다** -
+        // 4방향이면 두 덩어리로 보여 매번 헛BFS를 돈다.
+        Check("ring: L-corner elbow cannot split (diagonal survives)",
+            !ShipGrid.RemovalMightSplit(Alive((0, 0), (1, 1)), new Vector2Int(1, 0)));
+
+        // 계단 팔꿈치 - 남는 두 칸이 (0,0)과 (2,2), 체비쇼프 2라 링 안에서 못 잇는다.
+        // 진짜로 갈라지는 케이스고 true여야 한다.
+        Check("ring: staircase elbow might split",
+            ShipGrid.RemovalMightSplit(Alive((0, 0), (2, 2)), new Vector2Int(1, 1)));
+
+        // 꽉 찬 3x3의 한가운데 - 링 여덟 칸이 전부 살아 한 덩어리.
+        Check("ring: centre of a full block cannot split",
+            !ShipGrid.RemovalMightSplit(
+                Alive((0, 0), (1, 0), (2, 0), (0, 1), (2, 1), (0, 2), (1, 2), (2, 2)),
+                new Vector2Int(1, 1)));
+
+        // 링 안에서는 두 덩어리인데 링 밖으로 돌아 이어지는 ㄷ자 - 안 갈라지지만
+        // 링 검사는 모른다. true(보수적 폴백)가 맞다.
+        Check("ring: U-shape falls back to BFS (conservative)",
+            ShipGrid.RemovalMightSplit(
+                Alive((0, 0), (2, 0), (0, 1), (2, 1), (0, 2), (1, 2), (2, 2)),
+                new Vector2Int(1, 0)));
+    }
+
     private static void StampTest()
     {
         var hull = new GameObject("selftest hull");
@@ -768,6 +833,52 @@ public static class ShipGridSelfTest
             onlyLeft &= c.x <= 4;
 
         Check("rear split: 우주 건너편은 안 가져간다", onlyLeft);
+    }
+
+    /// <summary>
+    /// 뜯긴 판은 상한 채로 간다. **깎기만 하고 아무도 안 죽여야 한다** - 이 호출은 파단
+    /// BFS 한가운데서 일어나므로, 서브셀을 실제로 죽이면 그 자리에서 붕괴 연쇄가 시작된다.
+    /// 그래서 "비율이 맞나"와 "아무도 안 뚫렸나"를 같이 본다.
+    /// </summary>
+    private static void DebrisHpTest()
+    {
+        var go = new GameObject("debris hp self test");
+
+        try
+        {
+            var box = go.AddComponent<BoxCollider2D>();
+            box.size = Vector2.one;
+
+            // AddComponent가 곧 Awake다(오브젝트가 활성이라). 콜라이더를 먼저 붙였으므로
+            // Armor.Awake가 넓이를 읽고 HP를 만땅으로 채운 상태로 나온다.
+            Armor plate = go.AddComponent<BallisticArmor>();
+
+            Check($"debris hp: 태어날 때 만땅 (got {plate.HealthFraction:F3})",
+                Mathf.Abs(plate.HealthFraction - 1f) < 1e-3f);
+
+            plate.ScaleHealth(0.35f);
+
+            Check($"debris hp: 비율만큼 깎인다 (got {plate.HealthFraction:F3}, 기대 0.350)",
+                Mathf.Abs(plate.HealthFraction - 0.35f) < 1e-3f);
+
+            bool anyBreached = false;
+
+            for (int i = 0; i < Armor.SubCount; i++)
+                anyBreached |= plate.IsBreached(i);
+
+            Check("debris hp: 깎아도 뚫린 칸은 안 생긴다", !anyBreached);
+
+            // 0을 주면 판이 통째로 죽는 게 아니라 값만 0이 된다 - 죽이는 것은 여전히
+            // ApplyDamage의 몫이라, 여기서 붕괴가 시작되면 안 된다.
+            plate.ScaleHealth(0f);
+
+            Check($"debris hp: 0이어도 값만 놓는다 (got {plate.HealthFraction:F3})",
+                plate.HealthFraction < 1e-3f && plate != null);
+        }
+        finally
+        {
+            Object.DestroyImmediate(go);
+        }
     }
 
     private static string Lines(params string[] rows) => string.Join("\n", rows);

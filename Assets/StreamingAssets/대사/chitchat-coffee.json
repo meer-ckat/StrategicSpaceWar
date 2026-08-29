@@ -1,0 +1,9 @@
+{
+  "defName": "chitchat-coffee",
+  "cooldown": 240,
+  "lines": [
+    { "message": "3구역 커피 기계가 또 죽었습니다.", "author": "기관", "duration": 3, "intensity": 0.3, "style": "crew" },
+    { "message": "고쳐.", "author": "함장", "duration": 2, "intensity": 0.3, "style": "crew" },
+    { "message": "고쳤습니다. 오늘 두 번째입니다.", "author": "기관", "duration": 3.5, "intensity": 0.3, "style": "crew" }
+  ]
+}

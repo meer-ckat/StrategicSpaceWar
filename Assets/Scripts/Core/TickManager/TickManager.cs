@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Unity.Profiling;
 using UnityEngine;
 
 namespace Core
@@ -33,10 +34,56 @@ namespace Core
 
         public static long currentTick { get; private set; }
 
-        private readonly List<ITick> _listeners = new(); //현재 Tick()을 받아야할 대상들
-        //Pending이 있는 이유는, Tick 중에 갑자기 리스너 오브젝트가 사라지면/생기면 _listener를 순회할 때 MissingReferenceException이 나오기 때문에 현재 틱이 끝난 후 제거/생성 대상들을 모아놓는 것이다.
+        // 등록 시점에 ITickLate 여부로 두 리스트에 갈라 넣는다. 하나로 두고 페이즈마다
+        // 전체를 돌며 'is ITickLate'를 물으면, 리스너 대부분이 no-op인 판·문·엔진이라
+        // 순회 자체가 틱당 2회 전체 완주가 된다. 리스트 안 순서는 등록 순서 그대로라
+        // 결정론에 영향 없다 - 두 페이즈는 서로소 집합이다.
+        private readonly List<ITick> _early = new(); //힘을 거는 것들
+        private readonly List<ITick> _late = new();  //정착된 스냅샷을 읽는 것들(탄)
+        //Pending이 있는 이유는, Tick 중에 갑자기 리스너 오브젝트가 사라지면/생기면 리스트를 순회할 때 MissingReferenceException이 나오기 때문에 현재 틱이 끝난 후 제거/생성 대상들을 모아놓는 것이다.
         private readonly List<ITick> _pendingAdd = new(); //현재 Tick 이후 리스너 추가
         private readonly List<ITick> _pendingRemove = new(); //현재 Tick 이후 리스너 제거
+
+        // 목록과 나란히 드는 소속 집합. List.Contains는 O(n)이라 탄환·파편이 틱마다
+        // 수십 개 등록되는 판에서 등록 비용이 리스너 수에 비례해 버린다.
+        // pending 둘도 같은 이유로 집합을 나란히 든다 - 스폰이 OnTick 안이라(Campaign)
+        // 판 629장 등록이 전부 pending을 지나는데, 리스트만 있으면 등록마다 자라는
+        // 리스트를 앞에서부터 훑어 스폰 틱 한 번에 비교 수십만 회가 된다.
+        // 리스트를 버리지 못하는 이유는 **순서**다: ApplyPendingChanges가 등록 순서대로
+        // 목록에 넣어야 틱 순회 순서가 재현된다 - HashSet 순회는 순서가 정의되지 않는다.
+        private readonly HashSet<ITick> _listenerSet = new();
+        private readonly HashSet<ITick> _pendingAddSet = new();
+        private readonly HashSet<ITick> _pendingRemoveSet = new();
+
+        // 마커를 리스너와 나란히 든다. 예전에는 순회마다 MarkerFor(GetType + Dictionary)를
+        // 불렀는데, 마커의 Begin/End는 릴리스에서 no-op이어도 **그 조회는 릴리스에도
+        // 남는다** - 판 전부가 리스너라 초당 수십만 조회였다. 등록 때 한 번만 찾는다.
+        private readonly List<ProfilerMarker> _earlyMarkers = new();
+        private readonly List<ProfilerMarker> _lateMarkers = new();
+
+        private List<ITick> ListFor(ITick listener) =>
+            listener is ITickLate ? _late : _early;
+
+        private List<ProfilerMarker> MarkersFor(ITick listener) =>
+            listener is ITickLate ? _lateMarkers : _earlyMarkers;
+
+        private void AddNow(ITick listener)
+        {
+            ListFor(listener).Add(listener);
+            MarkersFor(listener).Add(MarkerFor(listener));
+        }
+
+        private void RemoveNow(ITick listener)
+        {
+            List<ITick> list = ListFor(listener);
+            int index = list.IndexOf(listener);
+
+            if (index < 0)
+                return;
+
+            list.RemoveAt(index);
+            MarkersFor(listener).RemoveAt(index);
+        }
 
         private bool _isTicking;
         private float _accumulator;
@@ -106,10 +153,11 @@ namespace Core
         {
             if (_isTicking)
             {
-                _pendingRemove.Remove(listener);
+                if (_pendingRemoveSet.Remove(listener))
+                    _pendingRemove.Remove(listener);
 
-                if (!_listeners.Contains(listener) &&
-                    !_pendingAdd.Contains(listener))
+                if (!_listenerSet.Contains(listener) &&
+                    _pendingAddSet.Add(listener))
                 {
                     _pendingAdd.Add(listener);
                 }
@@ -117,8 +165,8 @@ namespace Core
                 return;
             }
 
-            if (!_listeners.Contains(listener))
-                _listeners.Add(listener);
+            if (_listenerSet.Add(listener))
+                AddNow(listener);
         }
 
 
@@ -126,15 +174,17 @@ namespace Core
         {
             if (_isTicking)
             {
-                _pendingAdd.Remove(listener);
+                if (_pendingAddSet.Remove(listener))
+                    _pendingAdd.Remove(listener);
 
-                if (!_pendingRemove.Contains(listener))
+                if (_pendingRemoveSet.Add(listener))
                     _pendingRemove.Add(listener);
 
                 return;
             }
 
-            _listeners.Remove(listener);
+            if (_listenerSet.Remove(listener))
+                RemoveNow(listener);
         }
 
 
@@ -162,48 +212,82 @@ namespace Core
         }
 
 
+        // 프로파일러 마커. 마커 없는 C# 틱 코드는 전부 "TickManager Self"로 뭉개져서
+        // 안이 안 보인다 - 리스너 타입별로 갈라 두면 일반 프로파일에 Tick.Ship/Tick.Gun
+        // 같은 항목이 바로 나온다. Begin/End는 릴리스 빌드에서 no-op이다.
+        private static readonly ProfilerMarker _earlyMarker = new("TickManager.Early");
+        private static readonly ProfilerMarker _lateMarker = new("TickManager.Late");
+        private static readonly ProfilerMarker _physicsMarker = new("TickManager.Physics2D");
+        private static readonly Dictionary<Type, ProfilerMarker> _typeMarkers = new();
+
+        private static ProfilerMarker MarkerFor(ITick listener)
+        {
+            Type type = listener.GetType();
+
+            if (!_typeMarkers.TryGetValue(type, out ProfilerMarker marker))
+                _typeMarkers[type] = marker = new ProfilerMarker("Tick." + type.Name);
+
+            return marker;
+        }
+
         private void RunTick()
         {
             _isTicking = true;
 
             currentTick++;
 
-            // 1. 힘을 거는 것들 (함선 추력, 자세)
-            TickPhase(late: false);
+            // 리스너 하나가 던져도 _isTicking이 true로 얼어붙으면 등록/해제가 영영 밀린다.
+            // 그러면 죽은 리스너가 다음 틱에도 불려서 원래 예외와 상관없는 자리에서
+            // 두 번째 예외가 나고, 첫 원인이 그 밑에 묻힌다.
+            try
+            {
+                // 0. 지난 틱 파편 예산에 밀린 것부터. 새 파편이 안 날아오는 틱에도 큐가 마르게
+                //    하는 유일한 자리다 - Burst가 부르는 펌프는 새 요청이 있을 때만 돈다.
+                SpallResolver.PumpDeferred();
 
-            // 2. 손으로 옮긴 Transform이 있으면 물리에 반영한 뒤,
-            //    틱당 정확히 한 번 물리를 돌린다. FixedUpdate가 아니라 여기서 도는 덕에
-            //    충돌 해결과 탄 판정이 같은 시계를 쓴다.
-            Physics2D.SyncTransforms();
-            Physics2D.Simulate(TickDeltaTime);
+                // 1. 힘을 거는 것들 (함선 추력, 자세)
+                using (_earlyMarker.Auto())
+                    TickPhase(late: false);
 
-            // 3. projectiles resolve against that settled snapshot
-            TickPhase(late: true);
+                // 2. 손으로 옮긴 Transform이 있으면 물리에 반영한 뒤,
+                //    틱당 정확히 한 번 물리를 돌린다. FixedUpdate가 아니라 여기서 도는 덕에
+                //    충돌 해결과 탄 판정이 같은 시계를 쓴다.
+                using (_physicsMarker.Auto())
+                {
+                    Physics2D.SyncTransforms();
+                    Physics2D.Simulate(TickDeltaTime);
+                }
 
-            _isTicking = false;
+                // 탄도 스냅샷은 여기서 낡는다. 안 알리면 램 페이즈에 뜬 판 위치를 탄 페이즈가
+                // 읽어서, 배가 이동한 만큼 전부 어긋난다.
+                TraceWorld.Invalidate();
 
-            ApplyPendingChanges();
+                // 3. projectiles resolve against that settled snapshot
+                using (_lateMarker.Auto())
+                    TickPhase(late: true);
+            }
+            finally
+            {
+                _isTicking = false;
+                ApplyPendingChanges();
+            }
         }
 
 
         private void TickPhase(bool late)
         {
-            for (int i = 0; i < _listeners.Count; i++)
+            // 여기서 IsDestroyed를 안 부른다. unityObject == null은 네이티브 생존 확인이라
+            // 리스너 전원 × 2페이즈 × 60틱이면 그것만으로 예산을 먹는데, 잡는 게 거의 없다 -
+            // Destroy()는 프레임 끝까지 지연되니 그 사이엔 == null도 false고, 실제 파괴
+            // 시점엔 OnDisable → Unregister가 이미 목록에서 뺀다. 남는 구멍은 활성 오브젝트를
+            // 런타임에 DestroyImmediate하는 경우뿐이고, 그런 경로는 없다(스폰 직후 재빌드 제외).
+            List<ITick> listeners = late ? _late : _early;
+            List<ProfilerMarker> markers = late ? _lateMarkers : _earlyMarkers;
+
+            for (int i = 0; i < listeners.Count; i++)
             {
-                ITick listener = _listeners[i];
-
-                if (IsDestroyed(listener))
-                {
-                    if (!_pendingRemove.Contains(listener))
-                        _pendingRemove.Add(listener);
-
-                    continue;
-                }
-
-                if ((listener is ITickLate) != late)
-                    continue;
-
-                listener.OnTick();
+                using (markers[i].Auto())
+                    listeners[i].OnTick();
             }
         }
 
@@ -212,10 +296,12 @@ namespace Core
         {
             for (int i = 0; i < _pendingRemove.Count; i++)
             {
-                _listeners.Remove(_pendingRemove[i]);
+                if (_listenerSet.Remove(_pendingRemove[i]))
+                    RemoveNow(_pendingRemove[i]);
             }
 
             _pendingRemove.Clear();
+            _pendingRemoveSet.Clear();
 
 
             for (int i = 0; i < _pendingAdd.Count; i++)
@@ -225,11 +311,12 @@ namespace Core
                 if (IsDestroyed(listener))
                     continue;
 
-                if (!_listeners.Contains(listener))
-                    _listeners.Add(listener);
+                if (_listenerSet.Add(listener))
+                    AddNow(listener);
             }
 
             _pendingAdd.Clear();
+            _pendingAddSet.Clear();
         }
 
 
@@ -258,14 +345,24 @@ namespace Core
 
     public abstract class TickBehaviour : MonoBehaviour, ITick
     {
+        /// <summary>
+        /// false = "내 OnTick은 비어 있다"는 선언이고, 등록 자체를 건너뛴다. 판·문·엔진처럼
+        /// 사건으로만 사는 것들이 리스너 목록을 수천 개로 불리는 것을 막는다.
+        /// **OnTick에 코드를 넣으려면 이 선언부터 지워야 한다** - 남겨두면 조용히 안 돈다.
+        /// </summary>
+        protected virtual bool NeedsTick => true;
+
         protected virtual void OnEnable()
         {
-            TickManager.Register(this);
+            if (NeedsTick)
+                TickManager.Register(this);
         }
 
 
         protected virtual void OnDisable()
         {
+            // 등록 안 된 것을 빼는 것은 무해하다(집합 miss). NeedsTick을 다시 안 보는
+            // 이유다 - 파생이 값을 런타임에 바꿔도 여기서 새지 않는다.
             TickManager.Unregister(this);
         }
 

@@ -15,7 +15,7 @@ public abstract partial class Projectile
     /// <param name="lastCollider"></param>
     /// 모서리, 꼭짓점과 같이 두 개 이상의 콜라이더가 겹친 지점에서 RHA를 구하는 함수. 이게 없으면 워썬더식 법선 기준 4도 도탄이 되니까 꼭 유지.
     /// <returns></returns>
-    private bool CollectSurfaces(Vector2 origin, Vector2 dir, float distance, Collider2D lastCollider)
+    private bool CollectSurfaces(Vector2 origin, Vector2 dir, float distance, Collider2D lastCollider, Rigidbody2D owner)
     {
         _surfaces.count = 0; //surfaces는 이번 레이케스트에 맞은 collider들의 수다.
         _surfaces.primaryCollider = null; //주 collider
@@ -28,7 +28,7 @@ public abstract partial class Projectile
 
         for (int i = 0; i < n; i++)
         {
-            if (!Accept(_hits[i], dir, lastCollider)) //들어온 콜라이더들을 검사해서 유효하지 않다면 return;
+            if (!Accept(_hits[i], dir, lastCollider, owner)) //들어온 콜라이더들을 검사해서 유효하지 않다면 return;
                 continue;
 
             if (_hits[i].distance < min) //최소 거리 찾기
@@ -44,7 +44,7 @@ public abstract partial class Projectile
         {
             RaycastHit2D h = _hits[i];
 
-            if (!Accept(h, dir, lastCollider))
+            if (!Accept(h, dir, lastCollider, owner))
                 continue;
 
             if (h.distance - min > Ballistics.EdgeEpsilon) //모서리가 아니라면 continue
@@ -82,9 +82,11 @@ public abstract partial class Projectile
         return true;
     }
 
-    private static bool Accept(RaycastHit2D h, Vector2 dir, Collider2D lastCollider)
+    private static bool Accept(RaycastHit2D h, Vector2 dir, Collider2D lastCollider, Rigidbody2D owner)
     {
-        if (h.collider == lastCollider && h.distance < Ballistics.Epsilon * 2f)
+        var col = h.collider;
+        if(owner != null && col.attachedRigidbody == owner)
+        if (col == lastCollider && h.distance < Ballistics.Epsilon * 2f)
             return false;
 
         return Vector2.Dot(-dir, h.normal) >= 0f; //90도 이하 각도로 들어왔을 때만 허락(90도 이상은 뒤에서 뚫고 들어오는 각도, 불가능함. 보통 관통 후 반대쪽으로 나가는 것을 막기 위해 있음)

@@ -53,10 +53,26 @@ public static class ShipBuilder
             module.RestoreHealth01(Mathf.Max(0.01f, hp));
     }
 
-    private static bool StampsGrid(Component child, out bool isDoor)
+    private static bool StampsGrid(Component child, out ShipGrid.Cell cel)
     {
-        isDoor = child.GetComponent<Door>() != null;
-        return isDoor || child.GetComponent<Armor>() != null;
+        // Door를 먼저 본다. Ballistic Door는 thingClass가 BallisticArmor고 Door는 comps라,
+        // Armor를 먼저 물으면 문이 전부 벽으로 찍히고 doorAt이 빈 채로 나간다.
+        if (child.TryGetComponent<Door>(out _))
+        {
+            cel = ShipGrid.Cell.Door;
+            return true;
+        }
+
+        if (child.TryGetComponent(out Armor plate))
+        {
+            cel = plate.sealsRoom ? ShipGrid.Cell.Wall : ShipGrid.Cell.Vent;
+            return true;
+        }
+
+        // Empty가 아니라 Unset이다. Empty는 "공기 있는 실내"라는 뜻이 이미 있어서,
+        // 다음에 누가 bool을 안 보고 cel만 읽으면 조용히 틀린 답을 얻는다.
+        cel = ShipGrid.Cell.Unset;
+        return false;
     }
 
     /// <summary>
@@ -67,15 +83,26 @@ public static class ShipBuilder
     /// 컴포넌트 대신 <see cref="ThingDef.MainType"/>을 본다. 이름이 아니라 타입인 것이
     /// 중요하다 - `Armor`를 상속한 새 판(`BallisticArmor`)이 생겨도 저절로 따라온다.
     /// </summary>
-    private static bool StampsGrid(ThingDef def, out bool isDoor)
+    private static bool StampsGrid(ThingDef def, out ShipGrid.Cell cel)
     {
-        isDoor = false;
+        cel = ShipGrid.Cell.Unset;
 
         if (def?.MainType == null)
             return false;
 
-        isDoor = typeof(Door).IsAssignableFrom(def.MainType);
-        return isDoor || typeof(Armor).IsAssignableFrom(def.MainType);
+        if (typeof(Door).IsAssignableFrom(def.MainType))
+        {
+            cel = ShipGrid.Cell.Door;
+            return true;
+        }
+
+        if (typeof(Armor).IsAssignableFrom(def.MainType))
+        {
+            cel = def.sealsRoom ? ShipGrid.Cell.Wall : ShipGrid.Cell.Vent;
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -102,7 +129,7 @@ public static class ShipBuilder
 
         foreach (Placement p in def.placements)
         {
-            if (!StampsGrid(DefDatabase.Get(p.def), out bool isDoor))
+            if (!StampsGrid(DefDatabase.Get(p.def), out ShipGrid.Cell cel))
                 continue;
 
             var cell = new Vector2Int(p.col - authored.mins.x, p.row - authored.mins.y);
@@ -116,8 +143,7 @@ public static class ShipBuilder
                 continue;
             }
 
-            authored.map.cells[cell.x, cell.y] =
-                isDoor ? ShipGrid.Cell.Door : ShipGrid.Cell.Wall;
+            authored.map.cells[cell.x, cell.y] = cel;
         }
 
         ShipGrid.MarkExterior(authored.map);
@@ -173,7 +199,7 @@ public static class ShipBuilder
         {
             // 판이 아닌 직속 자식은 조용히 건너뛴다. 오류가 아니다 - IsPlate가 격자를 읽는
             // 모든 자리의 단일 관문이고, 여기가 그 관문이다.
-            if (child == null || !StampsGrid(child, out bool isDoor))
+            if (child == null || !StampsGrid(child, out ShipGrid.Cell cel))
                 continue;
 
             // 1차 패스와 **같은 공간**이어야 한다. 원점을 뒤집힌 좌표로 잡고 여기서 안 뒤집힌
@@ -207,14 +233,14 @@ public static class ShipBuilder
                     $"[ShipBuilder] {cell}에 판이 둘 이상 겹쳐 있다. 뒤에 오는 것이 이긴다 - " +
                     $"'{child.name}'.", child);
 
-            if (isDoor)
+            if (cel == ShipGrid.Cell.Door)
             {
-                map.cells[cell.x, cell.y] = ShipGrid.Cell.Door;
+                map.cells[cell.x, cell.y] = cel;
                 doorAt[cell] = child.GetComponent<Door>();
             }
             else
             {
-                map.cells[cell.x, cell.y] = ShipGrid.Cell.Wall;
+                map.cells[cell.x, cell.y] = cel;
                 armorAt[cell] = child.GetComponent<Armor>();
             }
         }
@@ -223,6 +249,84 @@ public static class ShipBuilder
         WireNeighbours(armorAt, doorAt);
         return map;
     }
+
+    /// <summary>
+    /// 선체 직속 자식으로 남아 있는 모듈을 자기 발밑 판의 자식으로 내린다.
+    ///
+    /// **<see cref="Stamp"/> 안에서 부르지 않는다.** Stamp는 순수 질의라 export와
+    /// self-test도 부르는데, 거기서 계층을 바꾸면 저작 중인 씬이 조용히 변한다.
+    /// 부르는 자리는 런타임 조립 경로 하나뿐이다.
+    ///
+    /// **JSON 경로에는 이미 있던 규칙이고, 씬 경로에만 없었다.** <see cref="Spawn"/>은
+    /// <c>mountCol/mountRow</c>를 보고 판 밑으로 넣는데, 씬에서 손으로 지은 배
+    /// (<c>shipDefName</c>이 빈 배 = export 원본)는 그 단계를 안 거쳐서 포탑이 선체 직속
+    /// 자식으로 남는다. 그러면 **그 모듈은 불사가 된다** - 판이 죽어도 안 죽고, 조각이
+    /// 잔해로 떠나도 안 따라가고, <see cref="Ship.StillAboard"/>는 선체 직속 자식도
+    /// "이 배의 것"으로 세므로 계속 쏘고 IsCombatEffective에도 잡혀서 전투가 안 끝난다.
+    /// 증상은 "부서진 배에서 멀리 떨어진 포탑 하나가 혼자 쏘고 있다"다.
+    ///
+    /// CLAUDE.md 불변식이 이미 말하던 것("판이 아닌 것은 선체 직속 자식이 되면 안 된다")을
+    /// 씬 경로에서도 강제하는 자리다. 격자를 다 찍은 **뒤에** 도는 것이 요점 - 그 전에
+    /// 옮기면 <c>foreach (Transform child in hull)</c> 순회 도중에 계층이 바뀐다.
+    ///
+    /// 발밑에 판이 없는 모듈은 **파괴한다.** 경고만 하고 두면 지금 버그가 그대로 남는다 -
+    /// 어디에도 안 매달린 불사 오브젝트가 시뮬레이션 안에 살아 있는 것이 제일 나쁘다.
+    /// </summary>
+    public static void MountLooseModules(
+        Transform hull,
+        ShipGrid.Map map,
+        Dictionary<Vector2Int, Armor> armorAt,
+        Dictionary<Vector2Int, Door> doorAt)
+    {
+        if (hull == null || map == null)
+            return;
+
+        _loose.Clear();
+
+        foreach (Transform child in hull)
+        {
+            // 판과 문은 선체 직속이 맞다 - 격자에 도장을 찍는 것이 그 정의다.
+            if (child == null || StampsGrid(child, out _))
+                continue;
+
+            // **IDamageable이 곧 모듈이다.** Gun·Engine·CriticalModule·Tank 넷이고,
+            // Armor와 Door는 Thing만 상속해서 안 걸린다. 타입 목록을 손으로 적으면
+            // 다섯 번째 모듈이 생기는 날 조용히 빠진다.
+            if (child.GetComponent<IDamageable>() != null)
+                _loose.Add(child);
+        }
+
+        for (int i = 0; i < _loose.Count; i++)
+        {
+            Transform module = _loose[i];
+            Vector2Int cell = map.ToCell(module.localPosition);
+
+            Transform plate = null;
+
+            if (map.Inside(cell))
+            {
+                if (armorAt.TryGetValue(cell, out Armor armor) && armor != null)
+                    plate = armor.transform;
+                else if (doorAt.TryGetValue(cell, out Door door) && door != null)
+                    plate = door.transform;
+            }
+
+            if (plate == null)
+            {
+                Debug.LogWarning(
+                    $"[ShipBuilder] '{module.name}'의 발밑({cell})에 판이 없다. 어디에도 " +
+                    "안 매달린 모듈은 불사가 되므로 파괴한다. 배치를 고칠 것.", hull);
+
+                Object.Destroy(module.gameObject);
+                continue;
+            }
+
+            module.SetParent(plate, worldPositionStays: true);
+        }
+    }
+
+    /// <summary>순회 도중 계층을 바꾸면 안 되므로 한 번 모아 두는 버퍼.</summary>
+    private static readonly List<Transform> _loose = new();
 
     // 구조는 대각선으로도 붙어 있다. 선체 연결성 BFS와 같은 8방향이어야 "붙어 있다"가
     // 한 가지 뜻만 갖는다.
@@ -296,10 +400,14 @@ public static class ShipBuilder
     /// <summary>
     /// 이미 읽어 둔 def로 짓는다. 저장된 런처럼 파일 이름으로 못 찾는 def가 있어서 갈랐다.
     /// </summary>
+    private static readonly Unity.Profiling.ProfilerMarker _mSpawnFrom = new("ShipBuilder.SpawnFrom");
+
     public static bool SpawnFrom(Transform hull, ShipDef def, Component pourInto)
     {
         if (def == null)
             return false;
+
+        using var _ = _mSpawnFrom.Auto();
 
         if (pourInto != null)
             def.Apply(pourInto);
@@ -354,8 +462,9 @@ public static class ShipBuilder
         var modules = new List<(Placement placement, Transform spawned)>();
         int missing = 0;
 
-        foreach (Placement p in def.placements)
+        for(int i = 0; i < def.placements.Count; i++)
         {
+            var p = def.placements[i];
             var cell = new Vector2Int(p.col - minCol, p.row - minRow);
 
             // 자리와 각도를 스폰에 같이 넘긴다. def로 지은 물건은 전부 붙이고 자리를 잡은
@@ -364,7 +473,7 @@ public static class ShipBuilder
             // p.offset을 안 더한다** - localPosition이 곧 칸 번호라 그걸 밀면 Stamp가 다른
             // 칸을 읽는다. 미는 것은 콜라이더 offset뿐이다 (Placement.offset 참고).
             Thing spawned = DefDatabase.Spawn(
-                p.def, hull, map.ToLocal(cell.x, cell.y), p.rot, p.size, p.offset);
+                p.def, hull, map.ToLocal(cell.x, cell.y), p.rot, p.size, p.offset, p.shape);
 
             if (spawned == null)
             {
@@ -377,6 +486,13 @@ public static class ShipBuilder
             // 돌고, Armor.Awake는 서브셀을 전부 만땅으로 초기화한다. 그 전에 넣으면 지워진다.
             Restore(spawned, p.hp);
 
+            // **한 오브젝트의 Thing 전부에 찍는다.** ThingDef.Spawn은 thingClass 하나만
+            // 돌려주는데 comps에도 Thing이 올 수 있다 - Ballistic Door가 BallisticArmor에
+            // Door를 얹은 것이 그렇다. 돌려받은 것에만 찍으면 나머지가 -1로 남는다.
+            // 같은 오브젝트끼리 ID를 공유하는 것은 겹침이 아니다. 물건이 하나니까 맞다.
+            foreach (Thing t in spawned.GetComponents<Thing>())
+                t.stableId = i;
+
             if (StampsGrid(spawned, out _))
                 plateAt[cell] = spawned.transform;
             else
@@ -387,15 +503,18 @@ public static class ShipBuilder
         // 자기 자신으로 착각하고 스스로의 부모가 된다.
         foreach ((Placement p, Transform module) in modules)
         {
-            if (!p.IsMounted)
-                continue;
-
-            var mount = new Vector2Int(p.mountCol - minCol, p.mountRow - minRow);
+            // **붙을 판을 안 적었으면 발밑 판에 붙는다.** 예전에는 조용히 넘어가서 선체
+            // 직속으로 남았는데, 그러면 판이 부서져도 안 죽고 잔해로 떠나도 안 따라가는
+            // 고아가 된다 - "판이 아닌 것은 선체 직속 자식이 되면 안 된다"가 깨지는 자리다.
+            // 증상이 "부서진 자리에 포탑만 떠 있다"라 배치 실수인지 코드 버그인지 안 갈린다.
+            var mount = p.IsMounted
+                ? new Vector2Int(p.mountCol - minCol, p.mountRow - minRow)
+                : new Vector2Int(p.col - minCol, p.row - minRow);
 
             if (!plateAt.TryGetValue(mount, out Transform plate))
             {
                 Debug.LogWarning(
-                    $"[ShipBuilder] '{p.def}'이 ({p.mountCol},{p.mountRow})의 판에 붙는다고 하는데 거기 판이 없다. " +
+                    $"[ShipBuilder] '{p.def}'이 붙을 판이 ({mount.x + minCol},{mount.y + minRow})에 없다. " +
                     "선체 직속으로 둔다 - 이 모듈은 벽이 부서져도 안 죽는다.");
                 continue;
             }
