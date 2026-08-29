@@ -472,35 +472,48 @@ public abstract class Armor : Thing
     /// 플레이어가 화면에서 읽고 싶은 것은 후자다. 시뻘건 단면은 방금 찢어진 곳이고
     /// 검게 식은 잔해는 한참 전에 떨어진 것 - 그게 색만으로 전해진다.
     /// </summary>
-    public float Heat { get; private set; }
+    // 매 틱 곱하는 대신 적은 틱에서 흐른 시간으로 감쇠를 계산한다 - HullStructure의
+    // RearHeatNow와 같은 방식이고, 지수 감쇠라 수학적으로 등가다. 이 한 줄이 판
+    // 수천 장을 틱 리스너에서 통째로 빼 준다(NeedsTick) - 안 뜨거운 판이 절대
+    // 다수라, 매 틱 도는 상태로 두면 판이 사는 수만큼 비용이 붙는다.
+    public float Heat
+    {
+        get
+        {
+            if (_heat0 <= 0f)
+                return 0f;
+
+            float dt = (TickManager.currentTick - _heatTick) * TickManager.TickDeltaTime;
+            float v = _heat0 * Mathf.Pow(0.5f, dt / Ballistics.HeatHalfLife);
+
+            return v < 0.004f ? 0f : v;
+        }
+    }
+
+    private float _heat0;
+    private long _heatTick;
 
     public void AddHeat(float amount)
     {
-        if (amount > 0f)
-            Heat = Mathf.Min(1f, Heat + amount);
-    }
-
-    /// <summary>
-    /// 식는다. 그림 값이라 시뮬레이션에 아무 영향이 없고, 이 메서드가 통째로 없어도
-    /// 판정은 똑같이 돈다.
-    /// </summary>
-    public override void OnTick()
-    {
-        if (Heat <= 0f)
+        if (amount <= 0f)
             return;
 
-        // **판은 자기 뒤 후면을 안 데운다.** 한번 넣어봤다가 뺐다 - 내 배의 후면은
-        // sortingOrder -10에 0.35까지 어둡게 깔리므로, 살아 있는 판 **밑**은 그 판이
-        // 가려서 화면에 아무것도 안 나온다. 안 보이는 것을 매 틱 뜨거운 판 수만큼
-        // 계산하고 있었다.
-        //
-        // 후면이 빛나는 자리는 판이 없는 자리뿐이고, 거기로 열이 들어오는 길은 둘이다 -
-        // 판이 뜯길 때(HullStructure.ReportPlateLost)와 후면 자체가 맞을 때(DamageRear).
-        Heat *= Mathf.Pow(0.5f, TickManager.TickDeltaTime / Ballistics.HeatHalfLife);
-
-        if (Heat < 0.004f)
-            Heat = 0f;
+        // 지금 값 위에 얹고 기준점을 다시 찍는다. 같은 틱에 두 번 와도 흐른 시간이
+        // 0이라 그냥 합이 된다 - 예전 매 틱 감쇠와 결과가 같다.
+        _heat0 = Mathf.Min(1f, Heat + amount);
+        _heatTick = TickManager.currentTick;
     }
+
+    // 판은 자기 뒤 후면을 안 데운다. 한번 넣어봤다가 뺐다 - 내 배의 후면은
+    // sortingOrder -10에 0.35까지 어둡게 깔리므로, 살아 있는 판 밑은 그 판이 가려서
+    // 화면에 아무것도 안 나온다. 후면이 빛나는 자리는 판이 없는 자리뿐이고, 거기로
+    // 열이 들어오는 길은 둘이다 - 판이 뜯길 때(HullStructure.ReportPlateLost)와
+    // 후면 자체가 맞을 때(DamageRear).
+
+    /// <summary>판의 틱 일은 열 감쇠뿐이었고 그것이 읽기로 옮겨졌다. 등록할 이유가 없다.</summary>
+    protected override bool NeedsTick => false;
+
+    public override void OnTick() { }
 
     /// <summary>
     /// 서브셀이 HP를 잃을 때마다 오른다. 그림은 매 프레임 float 36개를 비교하는 대신

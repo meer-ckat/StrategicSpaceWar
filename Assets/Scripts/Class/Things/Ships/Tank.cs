@@ -47,5 +47,7 @@ public class Tank : Thing, IDamageable
         _health = Mathf.Max(0f, _health - amount);
     }
 
+    protected override bool NeedsTick => false;
+
     public override void OnTick() { }   // 탱크는 틱 필요 없음
 }

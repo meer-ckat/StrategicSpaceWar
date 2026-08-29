@@ -29,5 +29,7 @@ public class Engine : Thing, IDamageable
         _health = Mathf.Max(0f, _health - amount);
     }
 
+    protected override bool NeedsTick => false;
+
     public override void OnTick() { }   // 엔진은 틱 필요 없음
 }

@@ -345,14 +345,24 @@ namespace Core
 
     public abstract class TickBehaviour : MonoBehaviour, ITick
     {
+        /// <summary>
+        /// false = "내 OnTick은 비어 있다"는 선언이고, 등록 자체를 건너뛴다. 판·문·엔진처럼
+        /// 사건으로만 사는 것들이 리스너 목록을 수천 개로 불리는 것을 막는다.
+        /// **OnTick에 코드를 넣으려면 이 선언부터 지워야 한다** - 남겨두면 조용히 안 돈다.
+        /// </summary>
+        protected virtual bool NeedsTick => true;
+
         protected virtual void OnEnable()
         {
-            TickManager.Register(this);
+            if (NeedsTick)
+                TickManager.Register(this);
         }
 
 
         protected virtual void OnDisable()
         {
+            // 등록 안 된 것을 빼는 것은 무해하다(집합 miss). NeedsTick을 다시 안 보는
+            // 이유다 - 파생이 값을 런타임에 바꿔도 여기서 새지 않는다.
             TickManager.Unregister(this);
         }
 
