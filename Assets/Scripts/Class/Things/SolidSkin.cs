@@ -32,6 +32,13 @@ public sealed class SolidSkin : MonoBehaviour
     [SerializeField] private Color tint = Color.white;
 
     /// <summary>
+    /// true면 2D 라이트 곱셈 밖에서 그린다. 탄이 이걸 켠다 - 트레이서는 스스로 내는
+    /// 빛이라 어두운 우주의 글로벌 라이트에 눌리면 안 된다. 적열이 조명 뒤에 더해지는
+    /// 것과 같은 논리다. 모듈은 끈 채로 둔다 - 배와 같은 조명을 받아야 한 덩어리로 읽힌다.
+    /// </summary>
+    [SerializeField] private bool unlit;
+
+    /// <summary>
     /// 콜라이더가 없을 때 쓸 크기. 탄이 이 경우다 - 레이캐스트로 판정해서 콜라이더가 없다.
     /// </summary>
     [SerializeField] private Vector2 skinSize = new(0.3f, 0.3f);
@@ -68,10 +75,34 @@ public sealed class SolidSkin : MonoBehaviour
         sortingOrder = order;
     }
 
+    private static Material _unlitShared;
+
+    private static Material UnlitShared()
+    {
+        if (_unlitShared != null)
+            return _unlitShared;
+
+        // 런타임 Shader.Find라 빌드 스트리핑 대상이다 - PlateSkin/RearSkin과 같은 처지.
+        // Always Included Shaders에 등록해야 빌드에서 산다.
+        Shader shader = Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default");
+
+        if (shader == null)
+        {
+            Debug.LogError("[SolidSkin] Sprite-Unlit-Default 셰이더가 없다. 조명 받는 채로 둔다.");
+            return null;
+        }
+
+        _unlitShared = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
+        return _unlitShared;
+    }
+
     private void Start()
     {
         _renderer = GetComponent<SpriteRenderer>();
         _renderer.sortingOrder = sortingOrder;
+
+        if (unlit && UnlitShared() is Material m)
+            _renderer.sharedMaterial = m;
 
         // 자기에게 없으면 부모에게 묻는다. 터렛은 체력을 따로 안 들지만(피해는 포대가
         // 받는다) 포대가 상하면 같이 어두워져야 한 덩어리로 읽힌다.

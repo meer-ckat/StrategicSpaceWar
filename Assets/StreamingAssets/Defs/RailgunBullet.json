@@ -28,6 +28,7 @@
   "moduleLayer": {
     "m_Bits": 128
   },
+  "unlit": true,
   "tint": {
     "r": 0.7,
     "g": 0.9,
