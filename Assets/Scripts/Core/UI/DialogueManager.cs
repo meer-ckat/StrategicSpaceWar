@@ -450,8 +450,8 @@ public class DialogueManager : MonoBehaviour
         GUIImage cut = ImGui.Image(
             "story_interrupt_cut",
             new Rect(
-                new Vector2(0f, Mathf.Clamp(_interruptFlashY, 0f, Screen.height - interruptFlashHeight)),
-                new Vector2(Screen.width, interruptFlashHeight)),
+                new Vector2(0f, Mathf.Clamp(_interruptFlashY, 0f, GUIManager.LogicalHeight - interruptFlashHeight)),
+                new Vector2(GUIManager.LogicalWidth, interruptFlashHeight)),
             GUIStyleMaker.Solid(_interruptFlashColor)
         );
 
@@ -995,7 +995,7 @@ public class DialogueManager : MonoBehaviour
 
     private void RecalculateInternal()
     {
-        float y = Screen.height - internalBottomMargin;
+        float y = GUIManager.LogicalHeight - internalBottomMargin;
 
         // 함내 무전은 아래에서 위로 쌓인다. 최신 보고가 가장 손 가까운 곳에 남는다.
         for (int i = Texts.Count - 1; i >= 0; i--)
@@ -1022,7 +1022,7 @@ public class DialogueManager : MonoBehaviour
             if (line.leaving || LaneForStyle(line.style) != DialogueLane.System)
                 continue;
 
-            line.targetPos = new Vector2((Screen.width - width) * 0.5f, y);
+            line.targetPos = new Vector2((GUIManager.LogicalWidth - width) * 0.5f, y);
             y += VisualHeight(line) + spacing;
         }
     }
@@ -1283,8 +1283,8 @@ public class DialogueManager : MonoBehaviour
         return lane switch
         {
             DialogueLane.External => origin,
-            DialogueLane.Internal => new Vector2(origin.x, Screen.height - internalBottomMargin),
-            _ => new Vector2((Screen.width - WidthForLane(DialogueLane.System)) * 0.5f, systemTopMargin),
+            DialogueLane.Internal => new Vector2(origin.x, GUIManager.LogicalHeight - internalBottomMargin),
+            _ => new Vector2((GUIManager.LogicalWidth - WidthForLane(DialogueLane.System)) * 0.5f, systemTopMargin),
         };
     }
 
@@ -1293,7 +1293,7 @@ public class DialogueManager : MonoBehaviour
         return lane switch
         {
             DialogueLane.External => origin.y - 18f,
-            DialogueLane.Internal => Screen.height - internalBottomMargin - 18f,
+            DialogueLane.Internal => GUIManager.LogicalHeight - internalBottomMargin - 18f,
             _ => systemTopMargin - 8f,
         };
     }
@@ -1350,8 +1350,8 @@ public class DialogueManager : MonoBehaviour
     {
         EnsurePatternLine();
 
-        float width = Screen.width;
-        float height = Screen.height;
+        float width = GUIManager.LogicalWidth;
+        float height = GUIManager.LogicalHeight;
 
         float t = Time.unscaledTime * patternSpeed;
         float slide = -(t % 1000f);

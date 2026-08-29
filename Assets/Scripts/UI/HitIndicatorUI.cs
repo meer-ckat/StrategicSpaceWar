@@ -642,6 +642,11 @@ public sealed class HitIndicatorUI : MonoBehaviour
                 view.WorldToScreenPoint(
                     impact.mark.CurrentWorldPoint);
 
+            // WorldToScreenPoint는 실제 화면 픽셀이다 - GUIManager가 그리기 전에
+            // uiScale을 곱하므로, 여기서 먼저 나눠야 그린 결과가 실제 화면의 같은
+            // 자리로 돌아온다. z(깊이 판정)는 부호가 안 바뀌니 같이 나눠도 무해하다.
+            screen /= GUIManager.UiScale;
+
             if (!OnScreen(screen))
             {
                 Widget.Visible(
@@ -659,7 +664,7 @@ public sealed class HitIndicatorUI : MonoBehaviour
                 new Vector2(
                     screen.x - ImpactSize * 0.5f,
 
-                    Screen.height -
+                    GUIManager.LogicalHeight -
                     screen.y -
                     ImpactSize * 0.5f));
         }
@@ -675,6 +680,9 @@ public sealed class HitIndicatorUI : MonoBehaviour
             view.WorldToScreenPoint(
                 indicator.mark.CurrentWorldPoint);
 
+        // SyncImpacts와 같은 이유로 실제 픽셀을 논리 좌표로 나눈다.
+        screen /= GUIManager.UiScale;
+
         if (!OnScreen(screen))
             return false;
 
@@ -682,7 +690,7 @@ public sealed class HitIndicatorUI : MonoBehaviour
 
         // Unity screen Y -> IMGUI Y
         float hitY =
-            Screen.height -
+            GUIManager.LogicalHeight -
             screen.y;
 
         float leftSpace =
@@ -690,7 +698,7 @@ public sealed class HitIndicatorUI : MonoBehaviour
             screenMargin;
 
         float rightSpace =
-            Screen.width -
+            GUIManager.LogicalWidth -
             screenMargin -
             hitX;
 
@@ -771,7 +779,7 @@ public sealed class HitIndicatorUI : MonoBehaviour
                 0f,
                 Mathf.Max(
                     0f,
-                    Screen.height - iconSize.y));
+                    GUIManager.LogicalHeight - iconSize.y));
 
         indicator.root.SetRect(
             new Rect(
@@ -888,14 +896,15 @@ public sealed class HitIndicatorUI : MonoBehaviour
                 local.size));
     }
 
+    /// <summary>screen은 호출자가 이미 uiScale로 나눠 논리 좌표로 바꾼 값이어야 한다.</summary>
     private static bool OnScreen(Vector3 screen)
     {
         return
             screen.z > 0f &&
             screen.x >= 0f &&
-            screen.x <= Screen.width &&
+            screen.x <= GUIManager.LogicalWidth &&
             screen.y >= 0f &&
-            screen.y <= Screen.height;
+            screen.y <= GUIManager.LogicalHeight;
     }
 
     // =========================================================

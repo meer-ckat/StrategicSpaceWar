@@ -167,11 +167,17 @@ public sealed class ContactView : MonoBehaviour
 
         Vector3 screen = cam.WorldToScreenPoint(at);
 
+        // WorldToScreenPoint는 항상 실제 화면 픽셀이다 - GUIManager의 배율(uiScale)과
+        // 무관하다. GUIManager.OnGUI가 그리기 전에 배율을 다시 곱하므로, 여기서 미리
+        // 나눠 논리 좌표로 바꿔야 최종 위치가 실제 화면의 같은 자리로 돌아온다. onScreen
+        // 판정도 이 나눗셈 뒤에 논리 화면 크기와 비교해야 같은 공간에서 재는 것이다.
+        Vector2 logical = (Vector2)screen / GUIManager.UiScale;
+
         // z < 0이면 카메라 뒤다. 직교 투영이라 전투 중에는 안 생기지만, 컷신이 카메라를
         // 옮기는 동안 생길 수 있고 그때 x/y가 뒤집혀 들어온다.
         bool onScreen = screen.z > 0f
-            && screen.x >= 0f && screen.x <= Screen.width
-            && screen.y >= 0f && screen.y <= Screen.height;
+            && logical.x >= 0f && logical.x <= GUIManager.LogicalWidth
+            && logical.y >= 0f && logical.y <= GUIManager.LogicalHeight;
 
         bool identified = distance <= IdentifyRange;
 
@@ -182,16 +188,16 @@ public sealed class ContactView : MonoBehaviour
         }
 
         // GUI 좌표는 y가 아래로 증가한다. 스크린 좌표는 위로 증가하므로 여기서 뒤집는다.
-        Vector2 point = new(screen.x, Screen.height - screen.y);
+        Vector2 point = new(logical.x, GUIManager.LogicalHeight - logical.y);
 
         if (screen.z < 0f)
-            point = new Vector2(Screen.width, Screen.height) - point;
+            point = new Vector2(GUIManager.LogicalWidth, GUIManager.LogicalHeight) - point;
 
         float x = Mathf.Clamp(point.x - MarkerWidth * 0.5f,
-            EdgeInset, Screen.width - MarkerWidth - EdgeInset);
+            EdgeInset, GUIManager.LogicalWidth - MarkerWidth - EdgeInset);
 
         float y = Mathf.Clamp(point.y - MarkerHeight * 0.5f,
-            EdgeInset, Screen.height - MarkerHeight - EdgeInset);
+            EdgeInset, GUIManager.LogicalHeight - MarkerHeight - EdgeInset);
 
         string text = identified
             ? $"{Name(other)}  {distance:0} m"
@@ -225,10 +231,14 @@ public sealed class ContactView : MonoBehaviour
     {
         // 배 **위쪽**으로 월드 기준 offset이다. 화면 픽셀로 띄우면 줌아웃했을 때 패널이
         // 배에서 저 멀리 떨어져 뜬다 - 속도 줌이 붙은 뒤로는 그 폭이 크다.
-        Vector3 head = cam.WorldToScreenPoint(at + Vector2.up * StatusWorldRise);
+        //
+        // WorldToScreenPoint는 실제 화면 픽셀이라 uiScale로 나눠 논리 좌표로 바꾼다 -
+        // Draw의 logical과 같은 이유다.
+        Vector2 head = (Vector2)cam.WorldToScreenPoint(at + Vector2.up * StatusWorldRise)
+            / GUIManager.UiScale;
 
         float x = head.x - PanelWidth * 0.5f;
-        float y = Screen.height - head.y - MarkerHeight;
+        float y = GUIManager.LogicalHeight - head.y - MarkerHeight;
 
         Tracked tracked = Track(other);
 

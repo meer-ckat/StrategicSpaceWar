@@ -12,6 +12,26 @@ namespace IMGUI // not I'm GUI.
         public static Vector2 ScreenCenter => ScreenSize * 0.5f;
         public static bool Blocked = false;
 
+        /// <summary>
+        /// 전체 UI 배율. 1보다 크면 커진다. 인스펙터에서 플레이 중에도 바로 슬라이더로
+        /// 확인할 수 있게 인스턴스 필드로 뒀다 - 값을 정하는 것은 오너 몫이라 여기서
+        /// 기본값을 안 밀고 1로 둔다.
+        ///
+        /// **값 자체가 아니라 <see cref="LogicalWidth"/>/<see cref="LogicalHeight"/>가
+        /// 실제로 쓰인다.** 각 화면(HUD·접촉 마커·피격 표시·대사창)의 배치 계산은
+        /// 여전히 Screen.width/height 크기의 "논리 화면"에 놓고, <see cref="OnGUI"/>가
+        /// 그 결과를 이 배율만큼 키워서 실제 화면에 그린다. 그래야 배율을 올려도
+        /// 오른쪽·아래 가장자리에 붙은 패널이 화면 밖으로 밀려나지 않는다 - 위치 좌표
+        /// 자체가 이미 줄어든 논리 화면 기준이라, 키운 결과가 정확히 실제 화면을 채운다.
+        /// 반대로 Screen.width/height를 그대로 쓰고 그리기만 키우면, 배율만큼 화면
+        /// 오른쪽 밖으로 밀려나는 패널이 생긴다.
+        /// </summary>
+        [SerializeField, Range(0.5f, 2f)] private float uiScale = 1f;
+
+        public static float UiScale => instance != null ? instance.uiScale : 1f;
+        public static float LogicalWidth => Screen.width / UiScale;
+        public static float LogicalHeight => Screen.height / UiScale;
+
         public static Vector2 MousePos
         {
             get
@@ -20,7 +40,11 @@ namespace IMGUI // not I'm GUI.
                     return Vector2.zero;
 
                 Vector2 p = Mouse.current.position.ReadValue();
-                return new Vector2(p.x, Screen.height - p.y);
+
+                // 논리 좌표로 나눈다. 지금은 클릭을 먹는 위젯이 하나도 없어서(전부
+                // Decorative 표시 전용) 영향이 없지만, 나중에 인터랙티브 위젯이 배율
+                // 적용 뒤 논리 좌표로 자리를 잡으면 이 나눗셈이 없을 때만 클릭이 어긋난다.
+                return new Vector2(p.x, Screen.height - p.y) / UiScale;
             }
         }
 
@@ -130,10 +154,16 @@ namespace IMGUI // not I'm GUI.
 
             if (item is GUIGroup group)
             {
+                // 뒤에서부터 도는 것이 필수다. 그리는 중이 아니면 아래 DetachFromParent가
+                // 이 목록에서 자기를 빼므로, 앞에서부터 돌면 한 칸씩 건너뛴다.
                 for (int i = group.Childrens.Count - 1; i >= 0; i--)
                     Unregister(group.Childrens[i]);
             }
 
+            // **그리는 중에는 아무것도 안 만진다.** GUIGroup.DrawChildren이 childrens를
+            // foreach로 도는데, 여기서 부모의 목록을 건드리면 그 순회가 던진다. 그리기가
+            // 끝나고 FlushChanges가 같은 일을 한다 - 목록 둘(Items, 부모의 childrens)이
+            // **같은 순간에** 바뀌어야 그룹이 죽은 자식을 드는 창이 안 생긴다.
             if (isIterating)
             {
                 PendingRemove.Add(item);
@@ -141,6 +171,10 @@ namespace IMGUI // not I'm GUI.
                 return;
             }
 
+            // 부모의 자식 목록에서도 뺀다. 예전에는 Items에서만 뺐다 - 리테인드로만 쓸
+            // 때는 그룹과 자식이 대개 같이 죽어서 안 드러났지만, 즉시 모드는 자식 하나만
+            // 선언을 그만두는 일이 상시다. 그러면 그룹이 죽은 자식을 계속 들고 그리려 든다.
+            item.DetachFromParent();
             Items.Remove(item);
         }
 
@@ -148,8 +182,14 @@ namespace IMGUI // not I'm GUI.
         {
             if (PendingRemove.Count > 0)
             {
+                // 부모에서 떼는 것도 여기서 한다. Unregister가 그리는 중이라 미뤄 둔
+                // 일이고, 그리기 목록에서 빠지는 것과 **같은 순간이어야** 그룹이 죽은
+                // 자식을 드는 창이 안 생긴다.
                 foreach (GUIItem item in PendingRemove)
+                {
+                    item.DetachFromParent();
                     Items.Remove(item);
+                }
 
                 PendingRemove.Clear();
             }
@@ -217,18 +257,32 @@ namespace IMGUI // not I'm GUI.
 
             isIterating = true;
 
-            // 흔들림은 Repaint에서만 건다.
+            // 배율은 이벤트 종류를 안 가리고 건다 - Event.current.mousePosition도 같이
+            // 변환돼야 클릭 판정(GetTopMouseLayer)이 그리기와 같은 논리 좌표에서
+            // 이뤄진다. uiScale은 인스펙터 슬라이더로만 바뀌는 안정값이라 걸어도 안전하다.
             //
-            // GUI.matrix는 Event.current.mousePosition까지 같이 변환하므로 입력 이벤트에도 걸면
-            // 흔들리는 동안 클릭 좌표가 프레임마다 무작위로 밀린다. 그리기만 흔들고
-            // 판정은 원래 자리에서 하면 "보이는 건 흔들리는데 누르면 눌린다"가 된다
+            // 흔들림은 반대로 Repaint에서만 건다 - 프레임마다 요동치는 값을 클릭
+            // 이벤트에 걸면 흔들리는 동안 클릭 좌표가 무작위로 밀린다. 그리기만
+            // 흔들고 판정은 원래 자리에서 하면 "보이는 건 흔들리는데 누르면 눌린다"가 된다.
+            //
+            // 순서는 흔들림이 바깥(왼쪽)이다 - shakeOffset은 "화면 픽셀 단위 최대
+            // 진폭"이라 배율과 무관하게 항상 같은 픽셀 수만큼 흔들려야 한다. 안쪽에
+            // 두면 배율만큼 흔들림도 커진다.
             Matrix4x4 savedMatrix = GUI.matrix;
+            bool scaling = !Mathf.Approximately(uiScale, 1f);
             bool shaking =
                 Event.current.type == UnityEngine.EventType.Repaint &&
                 shakeOffset != Vector2.zero;
 
-            if (shaking)
-                GUI.matrix = Matrix4x4.TRS(shakeOffset, Quaternion.identity, Vector3.one);
+            if (scaling || shaking)
+            {
+                Matrix4x4 m = Matrix4x4.Scale(new Vector3(uiScale, uiScale, 1f));
+
+                if (shaking)
+                    m = Matrix4x4.TRS(shakeOffset, Quaternion.identity, Vector3.one) * m;
+
+                GUI.matrix = m;
+            }
 
             BuildDrawRoots();
 
@@ -248,7 +302,7 @@ namespace IMGUI // not I'm GUI.
                 GUI.Label(new Rect(10f, 10f, 300f, 30f), GUI.tooltip);
 
             // 안 되돌리면 이 프레임 이후 다른 OnGUI(에디터 오버레이 포함)까지 밀린 채로 그려진다
-            if (shaking)
+            if (scaling || shaking)
                 GUI.matrix = savedMatrix;
         }
 
@@ -308,7 +362,7 @@ namespace IMGUI // not I'm GUI.
                     continue;
 
                 // 자식은 GUIGroup이 재귀적으로 그림.
-                if (!string.IsNullOrEmpty(item.Parent))
+                if (item.Parent != null)
                     continue;
 
                 drawRoots.Add(item);
