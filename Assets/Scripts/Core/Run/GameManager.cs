@@ -24,8 +24,14 @@ public sealed class GameManager : MonoBehaviour
     /// <summary>씬이 열리고 흐른 시간(초). HUD 부팅 시각표의 원점.</summary>
     public static float SceneSeconds => Time.unscaledTime - _sceneStart;
 
-    /// <summary>부팅 연출이 시작되기까지의 지연. 암전에서 씬이 밝아오는 시간이다.</summary>
-    public const float GuiBootDelay = 1.5f;
+    /// <summary>재시작 직후 완전한 검정을 유지하는 시간.</summary>
+    private const float BootBlackHold = 1f;
+
+    /// <summary>
+    /// 부팅 연출이 시작되기까지의 지연 = 검정 유지 + 페이드인(0.5초).
+    /// 화면이 다 밝아진 순간 첫 계기가 켜진다.
+    /// </summary>
+    public const float GuiBootDelay = BootBlackHold + 0.5f;
 
     /// <summary>
     /// 지금 GUI가 숨어야 하는가. 격파 중이거나, 재시작 직후 HUD 부팅이 아직 안 끝난
@@ -114,6 +120,8 @@ public sealed class GameManager : MonoBehaviour
 
         if (!PlayerDown)
         {
+            BootFade();
+
             // 유폭 즉사는 IsCombatEffective가 false를 스칠 틈 없이 오브젝트가 사라질 수
             // 있다 - "봤던 플레이어가 없어졌다"도 격파다. 스폰 전의 null은 _sawPlayer가
             // 걸러낸다.
@@ -199,36 +207,70 @@ public sealed class GameManager : MonoBehaviour
     }
 
     /// <summary>t초째의 암전. 붉게 번쩍였다가 검정으로 - 소등 연출과 같은 색, 같은 박자.</summary>
-    private void Blackout(float t)
+    private Image FindBlackout()
     {
-        if (_blackout == null && !_blackoutMissing)
-        {
-            GameObject engine = GameObject.Find("ScriptEngine");
+        if (_blackout != null || _blackoutMissing)
+            return _blackout;
 
-            _blackout = engine != null
-                ? engine.transform.Find("DramaticBackground")?.GetComponent<Image>()
-                : null;
+        GameObject engine = GameObject.Find("ScriptEngine");
 
-            if (_blackout == null)
-            {
-                // 없어도 루프는 돈다 - 연출이 빠질 뿐 재시작은 해야 한다.
-                _blackoutMissing = true;
-                Debug.LogWarning("[GameManager] ScriptEngine/DramaticBackground(Image)가 없다. 암전 없이 재시작한다.");
-                return;
-            }
-
-            _blackout.gameObject.SetActive(true);
-        }
+        _blackout = engine != null
+            ? engine.transform.Find("DramaticBackground")?.GetComponent<Image>()
+            : null;
 
         if (_blackout == null)
+        {
+            // 없어도 루프는 돈다 - 연출이 빠질 뿐 재시작은 해야 한다.
+            _blackoutMissing = true;
+            Debug.LogWarning("[GameManager] ScriptEngine/DramaticBackground(Image)가 없다. 암전 없이 간다.");
+            return null;
+        }
+
+        _blackout.gameObject.SetActive(true);
+        return _blackout;
+    }
+
+    private void Blackout(float t)
+    {
+        Image blackout = FindBlackout();
+
+        if (blackout == null)
             return;
 
-        _blackout.color = t < ShipStatusHud.DieFlashSeconds
+        blackout.color = t < ShipStatusHud.DieFlashSeconds
             ? Color.red
             : Color.Lerp(
                 Color.red,
                 Color.black,
                 (t - ShipStatusHud.DieFlashSeconds) / BlackFadeSeconds);
+    }
+
+    /// <summary>
+    /// 재시작(그리고 첫 진입) 직후의 암전 걷기. 1초는 완전한 검정을 유지하고 - 리로드
+    /// 순간의 스폰·초기화가 이 뒤에 숨는다 - 0.5초에 걸쳐 투명해진다. 합이 정확히
+    /// GuiBootDelay라, 화면이 다 밝아진 순간 첫 계기(함체)가 켜진다.
+    /// </summary>
+    private void BootFade()
+    {
+        float t = SceneSeconds;
+
+        if (t >= GuiBootDelay)
+            return;
+
+        // 이 구간에서는 이명 정지와 뮤트 해제를 매 프레임 보장한다. 정지는 멱등이라
+        // 공짜고, 어떤 경로로 새어 들어온 이명이든 여기서 확실히 끊긴다.
+        EndSilence();
+
+        Image blackout = FindBlackout();
+
+        if (blackout == null)
+            return;
+
+        float alpha = t < BootBlackHold
+            ? 1f
+            : 1f - (t - BootBlackHold) / (GuiBootDelay - BootBlackHold);
+
+        blackout.color = new Color(0f, 0f, 0f, alpha);
     }
 
     private void Restart()
