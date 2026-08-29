@@ -697,10 +697,36 @@ public abstract class Armor : Thing
 
         float share = amount / SubCount;
 
-        // 위에서부터 훑는 도중 판이 무너져 사라질 수 있다. ApplyDamage가 _collapsed로
-        // 막아주므로 남은 반복은 조용히 아무 일도 안 한다.
-        for (int i = 0; i < SubCount; i++)
-            ApplyDamage(i, share);
+        int depth = ++_batchDepth;
+
+        while (_batchedDeathsByDepth.Count <= depth)
+        {
+            _batchedDeathsByDepth.Add(0);
+            _batchOwnerByDepth.Add(null);
+        }
+
+        _batchedDeathsByDepth[depth] = 0;
+        _batchOwnerByDepth[depth] = this;
+
+        try
+        {
+            // 위에서부터 훑는 도중 판이 무너져 사라질 수 있다. ApplyDamage가 _collapsed로
+            // 막아주므로 남은 반복은 조용히 아무 일도 안 한다.
+            for (int i = 0; i < SubCount; i++)
+                ApplyDamage(i, share);
+        }
+        finally
+        {
+            int died = _batchedDeathsByDepth[depth];
+            _batchOwnerByDepth[depth] = null;
+            _batchDepth--;
+
+            // _collapsed로 이 판 자체가 끝났어도 쏜다 - CollapseRemains는 "그 순간까지
+            // 살아 있던" 몫만 커버한다. 이 died는 그 전에 하나씩 죽어 도달한 몫이라
+            // 안 쏘면 그 재료만 파편 없이 증발한다.
+            if (died > 0)
+                FireBatchedCollapse(died);
+        }
 
         ShockModules(amount * Ballistics.ModuleShockFraction);
     }
@@ -818,8 +844,29 @@ public abstract class Armor : Thing
     /// 죽은 서브셀의 재료는 증발한 게 아니라 **뜯겨서 어딘가로 갔다.** 관통 뒤의 파편과 달리
     /// 선호 방향이 없어서 원 전체로 흩뿌린다.
     /// </summary>
+    // 유폭·충각(ApplyDamageEvenly)처럼 서브셀을 한 틱에 여러 개 죽이는 경로에서, 죽을
+    // 때마다 따로 쏘지 않고 모았다가 한 번에 쏜다 - CollapseRemains가 "살아남은 몫"을
+    // 한 번에 쏘는 것과 같은 요령을 "방금 죽은 몫"에도 쓴다. 정적 깊이 스택인 이유는
+    // 유폭이 자기 자신 한가운데서 재진입하기 때문이다(CLAUDE.md) - 판 A의 유폭이
+    // 파편으로 판 B의 탄약고를 터뜨리면 그 유폭이 판 B의 ApplyDamageEvenly를 판 A가
+    // 아직 배칭 중인 동안 부른다. 깊이를 안 가르면 안쪽 판의 집계가 바깥 판 집계에 섞인다.
+    //
+    // **소유자도 같이 든다.** 판 B가 배칭 중일 때 판 A가 (ApplyDamageEvenly가 아니라)
+    // 관통 ApplyDamageAlong으로 죽으면 - 그 파편이 A를 스쳐 지나간 것뿐이라면 - 깊이는
+    // 켜져 있어도 그건 A의 세션이 아니다. 소유자가 다르면 즉시 개별 발사로 빠진다 -
+    // 안 그러면 A가 죽인 몫이 B의 자리에서, B의 개수로 터져 나간다.
+    private static readonly List<int> _batchedDeathsByDepth = new();
+    private static readonly List<Armor> _batchOwnerByDepth = new();
+    private static int _batchDepth = -1;   // -1 = 배칭 중이 아니다 - 개별 즉시 발사로 돌아간다
+
     private void Collapse(int subIndex)
     {
+        if (_batchDepth >= 0 && _batchOwnerByDepth[_batchDepth] == this)
+        {
+            _batchedDeathsByDepth[_batchDepth]++;
+            return;
+        }
+
         Vector2 world = transform.TransformPoint(
             Ballistics.SubCellCentre(subIndex, _cellSize) + _cellOffset);
 
@@ -832,6 +879,27 @@ public abstract class Armor : Thing
             SubCellFullHp * Ballistics.CollapseEnergyFraction,
             Ballistics.CollapseFragmentCount,
             Ballistics.Hash((stableId < 0)? GetInstanceID() : stableId, TickManager.currentTick, subIndex),
+            debrisLayer);
+    }
+
+    /// <summary>
+    /// ApplyDamageEvenly 한 번이 죽인 서브셀 <paramref name="died"/>개를 판 중심에서 한
+    /// 번에 쏜다. **총 에너지·파편 밀도는 CollapseRemains와 같은 자다** - 칸마다 따로
+    /// 쏘던 것을 모아 쐈을 뿐, 재료 총량도 파편 수 상한도 안 바꿨다. 그래서 유폭 하나가
+    /// 판 수십 장을 죽여도 레이캐스트 수가 (죽은 칸 수 × 3)에서 (판 수 × 최대 12)로
+    /// 준다 - 근사가 아니라 같은 답을 더 적은 호출로 낸다.
+    /// </summary>
+    private void FireBatchedCollapse(int died)
+    {
+        Debug.Assert(stableId >= 0, $"[Armor line.458b] '{defName}'에 stableId가 없다. def로 안 지어진 배다.", this);
+
+        SpallResolver.Burst(
+            transform.TransformPoint(_cellOffset),
+            transform.up,
+            Ballistics.CollapseSpread,
+            died * SubCellFullHp * Ballistics.CollapseEnergyFraction,
+            Mathf.Clamp(died, 1, Ballistics.SpallMaxCount),
+            Ballistics.Hash((stableId < 0) ? GetInstanceID() : stableId, TickManager.currentTick, SubCount + 1),
             debrisLayer);
     }
 
