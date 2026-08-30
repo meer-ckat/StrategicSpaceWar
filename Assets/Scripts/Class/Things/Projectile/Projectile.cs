@@ -115,6 +115,14 @@ public abstract partial class Projectile : Thing, ITickLate
     }
 
     /// <summary>
+    /// 던져서 명단에서 빠졌으면 그 자리에서 죽는다. **탄에게는 이것이 유일한 출구다** -
+    /// 수명 검사도(lifeTick) 스톨도 자폭도 전부 <see cref="OnTick"/> 안에 있어서, 틱을
+    /// 못 받는 탄은 죽을 길이 하나도 안 남는다. 증상은 "컴포넌트가 전부 꺼진 미사일이
+    /// 그 자리에 박혀 있다"이고, 원인인 예외와 화면상 한참 떨어져 보인다.
+    /// </summary>
+    public override void OnTickThrew() => Destroy(gameObject);
+
+    /// <summary>
     /// 한 틱치 시간을 다 쓸 때까지 앞으로 훑는다. 판을 뚫으면 남은 시간으로 계속 가므로
     /// 한 틱 안에서 외벽을 뚫고 안쪽 격벽까지 맞을 수 있다.
     /// </summary>
@@ -161,11 +169,27 @@ public abstract partial class Projectile : Thing, ITickLate
             HitResult result = PenetrationManager.Resolve(CaptureState(), _surfaces);
             PenetrationManager.Record(result, _surfaces);
 
+            // **파편은 Apply보다 먼저 낳는다.** SpawnHeavyFragments가 `Instantiate(this)`로
+            // 자기 자신을 복제하는데, Apply는 Explode에서 `Destroy(gameObject)`를 부를 수
+            // 있다(blastDamage가 있는 탄 전부). Destroy는 **그 자리에서 컴포넌트를 전부
+            // 끄고** 실제 파괴만 프레임 끝으로 미루므로, 그 뒤에 복제하면 꺼진 상태까지
+            // 같이 복제된다 - 태어나자마자 틱을 못 받아 수명도 자폭도 없는 유령이
+            // 탄착점에 영원히 남는다. 증상이 "미사일이 목표 지점에 컴포넌트가 다 꺼진 채
+            // 박혀 있다"였고, 이름이 `<def>(Clone)`이라 진짜 탄과 구분이 안 갔다.
+            //
+            // 순서를 바꿔도 파편은 한 톨도 안 달라진다 - 읽는 값이 전부 result(Apply보다
+            // 먼저 나온 것)와 탄의 정체(mass·caliber·generation)뿐이고, Apply가 바꾸는
+            // velocity·integrity·state는 하나도 안 본다.
+            bool heavy = result.heavySpall && generation < Ballistics.MaxFragmentGeneration;
+
+            if (heavy)
+                SpawnHeavyFragments(result);
+
             Apply(result, dir);
 
-            if (result.heavySpall && generation < Ballistics.MaxFragmentGeneration)
-                SpawnHeavyFragments(result);
-            else
+            // 파편 쪽과 달리 이건 자리를 안 옮긴다 - 피해를 넣는 일이라 Apply 뒤라는
+            // 순서 자체가 결과의 일부다.
+            if (!heavy)
                 SpallResolver.Resolve(result, spallLayer);
 
             lastCollider = _surfaces.primaryCollider;
