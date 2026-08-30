@@ -104,7 +104,8 @@ public class CriticalModule : Thing, IDamageable
                 RamImpact.Detonate(mount, blastDamage);
 
             // 그림과 소리. 시뮬레이션은 위에서 이미 다 끝났고 아래는 사람을 위한 것이다.
-            DefDatabase.Spawn(flashDef, null, transform.position, 0f);
+            // Light2D 섬광(flashDef) 대신 VFX. 2.5초는 옛 Blast Flash의 지속과 같다.
+            VfxOneShot.Play("Explosion", transform.position, 6f, 1.5f, blastDamage * 0.0625f);
             CameraSystem.Shake(shake);
 
             SoundManager.AudioShot(blastSound, transform.position, 1f, blastPitch);

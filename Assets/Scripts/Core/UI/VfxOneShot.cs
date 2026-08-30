@@ -31,6 +31,19 @@ public static class VfxOneShot
     /// 멈추면 안 된다 - 대신 한 번은 크게 말한다.
     /// </summary>
     public static void Play(string name, Vector2 at, float lifeSeconds = 4f)
+        => Spawn(name, at, lifeSeconds, 0f, 0f, withAttributes: false);
+
+    /// <summary>
+    /// Duration/Power를 **이벤트 어트리뷰트**로 실어서 띄운다. Explosion.vfx가 이 둘을
+    /// 소스 어트리뷰트로 읽는다 - 블랙보드 노출 프로퍼티가 아니라서 SetFloat로는 안 간다.
+    /// 자동 OnPlay를 끄고(initialEventName 비움) 어트리뷰트를 실은 이벤트를 직접 쏜다 -
+    /// 안 끄면 켜지는 순간 빈 어트리뷰트로 한 번 더 터진다.
+    /// </summary>
+    public static void Play(string name, Vector2 at, float lifeSeconds, float duration, float power)
+        => Spawn(name, at, lifeSeconds, duration, power, withAttributes: true);
+
+    private static void Spawn(
+        string name, Vector2 at, float lifeSeconds, float duration, float power, bool withAttributes)
     {
         if (string.IsNullOrEmpty(name))
             return;
@@ -47,10 +60,27 @@ public static class VfxOneShot
         if (asset == null)
             return;
 
+        // 비활성으로 만들고 값을 다 넣은 뒤에 켠다 - ThingDef.Spawn과 같은 규칙.
+        // 활성 상태에서 붙이면 initialEventName을 지우기 전에 자동 재생이 나간다.
         var go = new GameObject($"vfx {name}");
+        go.SetActive(false);
         go.transform.position = new Vector3(at.x, at.y, 0f);
 
-        go.AddComponent<VisualEffect>().visualEffectAsset = asset;
+        var vfx = go.AddComponent<VisualEffect>();
+        vfx.visualEffectAsset = asset;
+
+        if (withAttributes)
+            vfx.initialEventName = string.Empty;
+
+        go.SetActive(true);
+
+        if (withAttributes)
+        {
+            VFXEventAttribute attr = vfx.CreateVFXEventAttribute();
+            attr.SetFloat("Duration", duration);
+            attr.SetFloat("Power", power);
+            vfx.SendEvent(VisualEffectAsset.PlayEventID, attr);
+        }
 
         // 파티클이 다 살고 죽을 시간을 준 뒤 통째로 치운다. 그래프가 스스로 멈추는
         // 것과 오브젝트가 사라지는 것은 다른 일이라, 이게 없으면 다 탄 이펙트가

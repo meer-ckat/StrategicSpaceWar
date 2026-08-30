@@ -179,6 +179,9 @@ public abstract partial class Projectile
         if (_surfaces.count > 0 && _surfaces.armor[0] != null)
             RamImpact.Detonate(_surfaces.armor[0], blastDamage);
 
+        // 유폭과 같은 그림, 작은 값. 고폭탄·미사일은 탄약고보다 잠깐 타오른다.
+        VfxOneShot.Play("Explosion", transform.position, 4f, 0.7f, blastDamage * 0.0625f);
+
         // 관통했더라도 여기서 끝난다. 뚫고 들어가 안쪽을 헤집는 것은 AP의 일이고,
         // 고폭탄은 터지면서 자기를 쓴다.
         Destroy(gameObject);
