@@ -30,6 +30,9 @@ public abstract partial class Projectile
             if (col == null || !col.TryGetComponent(out IDamageable target))
                 continue;
 
+            if (_ownerRigidbody != null && col.attachedRigidbody == _ownerRigidbody)
+                continue;
+
             float speed = velocity.magnitude;
 
             if (speed <= 0f)

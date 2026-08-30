@@ -122,7 +122,8 @@ public class Gun : Thing, IDamageable
     /// 도는 부분. <see cref="turretTexture"/>가 비면 이 오브젝트 자신이라, 2단이 아닌
     /// 기존 def는 예전과 글자 그대로 같이 돈다.
     /// </summary>
-    private Transform _turret;
+    protected Transform _turret;
+    public Transform Turret => _turret;
 
     /// <summary>
     /// 회전부를 자식으로 만든다. **판 - 포대 - 터렛이 부모 자식 한 줄이라, 판이 죽으면
@@ -341,7 +342,7 @@ public class Gun : Thing, IDamageable
     /// 발사와 검사가 이 한 함수를 같이 쓰는 것이 요점이다. 두 벌로 두면 언젠가 한쪽만
     /// 고치고, 그 증상이 "가끔 내 배에 맞는다"라 원인이 한참 안 보인다.
     /// </summary>
-    private void MuzzleShot(out Vector2 muzzle, out Vector2 direction, out Vector2 inherited)
+    protected void MuzzleShot(out Vector2 muzzle, out Vector2 direction, out Vector2 inherited)
     {
         // **포대가 아니라 터렛이다.** 2단이 아닌 포탑은 _turret이 자기 자신이라 같은 값이다.
         Vector2 barrel = _turret.up;
@@ -435,7 +436,9 @@ public class Gun : Thing, IDamageable
         if (shell == null)
             return;
 
-        shell.Launch(direction, muzzleSpeed, inherited);
+        Rigidbody2D body = GetComponentInParent<Rigidbody2D>();
+
+        shell.Launch(direction, muzzleSpeed, inherited, body);
 
         // 탄이 가져간 만큼 배가 뒤로 간다. **회전을 만드는 코드가 없는 것이 요점이다** -
         // AddForceAtPosition이 무게중심에서 벗어난 힘을 알아서 토크로 바꾼다. 뱃머리
@@ -457,8 +460,6 @@ public class Gun : Thing, IDamageable
         // angularDamping이 0이라 이 회전은 저절로 안 멎는다. 현측 사격이 배를 계속
         // 돌리고 조타 RCS가 그걸 붙잡는다. 그것도 여기 코드가 아니다.
         // 반동은 포가 만든 운동량만 본다 - 물려준 속도는 배가 이미 갖고 있던 것이다.
-        Rigidbody2D body = GetComponentInParent<Rigidbody2D>();
-
         if (body != null)
         {
             body.AddForceAtPosition(

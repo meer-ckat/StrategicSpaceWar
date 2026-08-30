@@ -35,6 +35,7 @@ public abstract partial class Projectile : Thing, ITickLate
     public ShellState state = ShellState.Intact;
     public int hitIndex;
     public int generation; //generation 0은 처음 발사된 탄두, 이후엔 파편들.
+    public Transform Target; //Raycast해서 만약 hit.collider를 get 했다면 그거 transform 넘겨주는 걸로, 나중에 레이저 포인터 기능 넣어서 유도함이 레이저 유도 대신해주는 기믹 같은 거 추가할 거임.
 
     public int ProjectileId { get; private set; } //Projectile을 구분하기 위한 ID
     public float Speed => velocity.magnitude;
@@ -56,7 +57,7 @@ public abstract partial class Projectile : Thing, ITickLate
         ProjectileId = ++_nextId;
 
         if (velocity.sqrMagnitude <= 0f) //만약 속도가 개같다면 리제로
-            Launch(transform.up, muzzleSpeed >= 50 ? muzzleSpeed : 50); //50 이상으로 고정, Petard 공병 박격포탄이 최소인거임
+            Launch(transform.up, muzzleSpeed >= 1 ? muzzleSpeed : 1); //1 이상으로 고정
     }
 
     /// <summary>
@@ -69,7 +70,7 @@ public abstract partial class Projectile : Thing, ITickLate
     /// 반동은 이 값을 안 본다. 포가 만든 운동량은 포구 속도 몫뿐이고, 물려받은 속도는
     /// 배가 이미 갖고 있던 것이라 배에서 빼야 할 이유가 없다.
     /// </summary>
-    public virtual void Launch(Vector2 direction, float speed, Vector2 inherited = default, Rigidbody2D owner = null)
+    public virtual void Launch(Vector2 direction, float speed, Vector2 inherited = default, Rigidbody2D owner = null, Transform target = null)
     {
         _ownerRigidbody = owner;
         velocity = direction.normalized * speed + inherited;
@@ -77,6 +78,7 @@ public abstract partial class Projectile : Thing, ITickLate
 
         if (velocity.sqrMagnitude > 0f) //속도가 유효하다면
             transform.up = velocity.normalized;
+        Target = target;
     }
 
     /// <summary>

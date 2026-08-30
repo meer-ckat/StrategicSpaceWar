@@ -85,7 +85,10 @@ public abstract partial class Projectile
     private static bool Accept(RaycastHit2D h, Vector2 dir, Collider2D lastCollider, Rigidbody2D owner)
     {
         var col = h.collider;
-        if(owner != null && col.attachedRigidbody == owner)
+
+        if (owner != null && col.attachedRigidbody == owner)
+            return false;
+
         if (col == lastCollider && h.distance < Ballistics.Epsilon * 2f)
             return false;
 
