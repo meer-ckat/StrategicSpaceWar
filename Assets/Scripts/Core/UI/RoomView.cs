@@ -55,6 +55,26 @@ public sealed class RoomView : MonoBehaviour
         public ShipGrid.Map map;        // 참조가 바뀌면 배가 다시 지어진 것이다
         public Vector2 localOffset;     // 격자 한가운데의 선체 기준 자리
         public float[] lastPressure;    // 방 번호별. 새는 속도를 여기서 뽑는다
+
+        /// <summary>
+        /// 방 번호별 이번 프레임의 색. **분출량이 색에 들어가는데 그 값은 기압 델타라
+        /// 한 프레임 것이다** - 칠하는 루프에서 다시 구할 수 없다(이미 lastPressure를
+        /// 덮어썼다). 재는 자리에서 접어 두면 칠하기는 읽기만 하면 된다.
+        /// </summary>
+        public Color32[] roomColor;
+
+        /// <summary>
+        /// 다시 구워야 하는가. **기압이 안 바뀐 프레임에는 그림도 안 바뀐다** - 그런데
+        /// 예전에는 프레임마다 픽셀 배열을 통째로 지우고 구조를 다시 깔고 텍스처를
+        /// 업로드했다. 기압을 바꾸는 Atmosphere는 10틱에 한 번만 도는데(Ship.cs) 오버레이는
+        /// 그보다 훨씬 자주 다시 구운 셈이다.
+        ///
+        /// 처음이 true인 것은 첫 프레임에 한 번은 구워야 하기 때문이다.
+        /// </summary>
+        public bool dirty = true;
+
+        /// <summary>지난 프레임에 보였나. 숨었다가 다시 켜지면 텍스처가 낡아 있다.</summary>
+        public bool wasVisible;
     }
 
     private readonly Dictionary<Ship, Overlay> _overlays = new();
@@ -364,15 +384,69 @@ public sealed class RoomView : MonoBehaviour
         overlay.localOffset = map.ToLocal(0, 0)
             + new Vector2((map.width - 1) * 0.5f, -(map.height - 1) * 0.5f);
         overlay.lastPressure = new float[ship.rooms.Count];
+        overlay.roomColor = new Color32[ship.rooms.Count];
 
         for (int i = 0; i < ship.rooms.Count; i++)
             overlay.lastPressure[i] = ship.rooms[i].Pressure;
+
+        // 새로 구운 오버레이는 아직 아무것도 안 칠해져 있다.
+        overlay.dirty = true;
     }
 
+    /// <summary>
+    /// **감압 판정과 그림은 다른 축이다.** 방을 도는 것은 언제나 돈다 - 분출(Blow)과
+    /// 그 소리는 오버레이가 꺼져 있어도 월드에서 실제로 일어나는 일이라, Tab에 걸리면
+    /// 안 보는 동안 배가 조용히 새다가 켜는 순간 몰아친다.
+    ///
+    /// 픽셀은 반대다. 보이지도 않는 텍스처를 프레임마다 지우고 다시 깔고 업로드할 이유가
+    /// 없고, 보이더라도 **기압이 안 바뀐 프레임에는 결과가 글자 그대로 같다.**
+    /// </summary>
     private void Paint(Ship ship, Overlay overlay, bool draw)
     {
         ShipGrid.Map map = overlay.map;
         float dt = Mathf.Max(1e-4f, Time.deltaTime);
+
+        // 숨어 있던 동안의 기압 변화는 텍스처에 안 들어갔다. 다시 켜지면 한 번은 굽는다.
+        if (draw && !overlay.wasVisible)
+            overlay.dirty = true;
+
+        overlay.wasVisible = draw;
+
+        for (int i = 0; i < ship.rooms.Count && i < overlay.lastPressure.Length; i++)
+        {
+            Room room = ship.rooms[i];
+            float pressure = room.Pressure;
+
+            // 떨어지는 쪽만 본다. 문으로 다시 차오르는 방을 빨갛게 칠할 이유는 없다.
+            float venting = Mathf.Clamp01((overlay.lastPressure[i] - pressure) / dt / FullVentRate);
+
+            overlay.lastPressure[i] = pressure;
+
+            // 기압이 색을 정하고, 새는 중이면 그 위에 주황이 덮인다. 알파는 안 건드린다 -
+            // 진공도 "진공이다"라는 정보라 끝까지 보여야 한다.
+            var packed = (Color32)Color.Lerp(Color.Lerp(Vacuum, Hold, pressure), Vent, venting);
+
+            // **색이 바뀐 것이 곧 다시 구울 이유다.** 기압을 직접 비교하지 않는 이유는
+            // 색이 최종 답이기 때문이다 - 눈에 안 보이는 소수점 변화로 텍스처를 다시
+            // 올리는 일이 없고, 분출 주황이 붙고 빠지는 것도 저절로 잡힌다.
+            if (!Same(overlay.roomColor[i], packed))
+            {
+                overlay.roomColor[i] = packed;
+                overlay.dirty = true;
+            }
+
+            // 새는 방은 어딘가로 뿜고 있다. 그 어딘가가 파공이다 - 방의 벽 중 뚫린 판을
+            // 찾아 방 반대쪽으로 분출시킨다. 방향은 판에서 방 중심을 뺀 것, 즉 바깥이다.
+            //
+            // **이 줄은 draw와 무관하다.** 분출은 그림이 아니라 월드에서 일어나는 일이다.
+            if (venting > 0.15f)
+                Blow(ship, room, venting);
+        }
+
+        if (!draw || !overlay.dirty)
+            return;
+
+        overlay.dirty = false;
 
         System.Array.Clear(overlay.pixels, 0, overlay.pixels.Length);
 
@@ -387,27 +461,11 @@ public sealed class RoomView : MonoBehaviour
                 overlay.pixels[(map.height - 1 - row) * map.width + col] = structure;
         }
 
-        for (int i = 0; i < ship.rooms.Count && i < overlay.lastPressure.Length; i++)
+        for (int i = 0; i < ship.rooms.Count && i < overlay.roomColor.Length; i++)
         {
-            Room room = ship.rooms[i];
-            float pressure = room.Pressure;
+            Color32 packed = overlay.roomColor[i];
 
-            // 떨어지는 쪽만 본다. 문으로 다시 차오르는 방을 빨갛게 칠할 이유는 없다.
-            float venting = Mathf.Clamp01((overlay.lastPressure[i] - pressure) / dt / FullVentRate);
-            overlay.lastPressure[i] = pressure;
-
-            // 기압이 색을 정하고, 새는 중이면 그 위에 주황이 덮인다. 알파는 안 건드린다 -
-            // 진공도 "진공이다"라는 정보라 끝까지 보여야 한다.
-            Color color = Color.Lerp(Color.Lerp(Vacuum, Hold, pressure), Vent, venting);
-
-            // 새는 방은 어딘가로 뿜고 있다. 그 어딘가가 파공이다 - 방의 벽 중 뚫린 판을
-            // 찾아 방 반대쪽으로 분출시킨다. 방향은 판에서 방 중심을 뺀 것, 즉 바깥이다.
-            if (venting > 0.15f)
-                Blow(ship, room, venting);
-
-            var packed = (Color32)color;
-
-            foreach (Vector2Int cell in room.cells)
+            foreach (Vector2Int cell in ship.rooms[i].cells)
             {
                 if (!map.Inside(cell))
                     continue;
@@ -417,10 +475,11 @@ public sealed class RoomView : MonoBehaviour
             }
         }
 
-        if (draw)
-        {
-            overlay.texture.SetPixels32(overlay.pixels);
-            overlay.texture.Apply(false);
-        }
+        overlay.texture.SetPixels32(overlay.pixels);
+        overlay.texture.Apply(false);
     }
+
+    /// <summary>Color32에는 ==가 없다. 네 바이트를 그냥 비교한다.</summary>
+    private static bool Same(Color32 a, Color32 b)
+        => a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
 }
