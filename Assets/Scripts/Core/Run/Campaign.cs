@@ -149,6 +149,12 @@ public sealed class Campaign : TickBehaviour
         if (_def == null || waitForCutscene)
             return;
 
+        // 함선 선택이 열려 있으면 런을 아예 안 시작한다. 대사가 unscaled 시계를 타서
+        // timeScale 0으로는 안 멎는다 - 시작 자체를 막아야 한다. 선택은 반드시 씬
+        // 리로드로 끝나므로, 그 다음 로드의 Start가 정상적으로 연다.
+        if (ShipSelectScreen.IsOpen)
+            return;
+
         StartRun();
     }
 
@@ -315,6 +321,10 @@ public sealed class Campaign : TickBehaviour
         if (HasTarget(sector))
             _battle.objective = TargetsDown;
 
+        // 대본(script 필드)보다 먼저 적는다 - 진입 사건에 반응하는 대사가 구역 인트로
+        // 대본과 겹치면 인트로가 이긴다(같은 프레임이면 나중 것이 난입이다).
+        RunLog.SectorEntered(_sector + 1);
+
         if (!string.IsNullOrEmpty(sector.script))
             ScriptManager.current?.Play(sector.script);
 
@@ -393,6 +403,8 @@ public sealed class Campaign : TickBehaviour
 
         // **잔해를 걷기 전에 센다** - 노획과 같은 이유로 여기가 마지막 기회다.
         BuryWingmen();
+
+        RunLog.SectorCleared(_sector + 1);
 
         _sector++;
         RunState.Sector = _sector;

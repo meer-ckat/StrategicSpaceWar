@@ -104,8 +104,27 @@
 | `detonated-{팀}.json` | 탄약고·원자로 유폭 | 모듈 이름 |
 | `hull-split-{팀}.json` | 선체가 갈라져 조각이 떨어짐 | 함선 이름 |
 | `crew-lost-{팀}.json` | 승무원 전멸 (전 구역 감압) | 함선 이름 |
+| `sector-entered-{번호}.json` | 그 구역에 들어설 때 (1부터) | 구역 번호 |
+| `sector-cleared-{번호}.json` | 그 구역을 이겼을 때 | 구역 번호 |
 
 `{팀}`은 `enemy` / `ally` / `neutral`. 접미사 없는 파일이 공용 폴백이다.
+
+**횟수 접미사** — 전투 사건 넷(`ship-finished`, `detonated`, `hull-split`, `crew-lost`)은
+팀 뒤에 **이 런에서 몇 번째인가**를 붙인 파일을 먼저 찾는다:
+
+```
+ship-finished-enemy-1.json   이 런의 첫 적함 격파. 있으면 그때 한 번만 나온다
+ship-finished-enemy-5.json   다섯 번째 격파
+ship-finished-enemy.json     그 외 전부 (pickOne 변형 목록)
+```
+
+찾는 순서는 `키-팀-횟수` → `키-팀` → `키`. 횟수 파일은 이야기용(pickOne 없음),
+팀 파일은 변형 목록(pickOne)으로 쓰는 것이 결이 맞다. 구역 사건은 팀 대신
+번호로 갈리고(`sector-entered-3` = 3구역), 접미사 없는 공용 폴백은 같다.
+
+죽어서 같은 구역을 다시 열면 `sector-entered`가 또 적힌다 — "몇 번째 시도"도
+사건 횟수로 셀 수 있다는 뜻이다. 조건이 더 필요하면 코드 쪽 `RunLog.Count(종류, 팀)`을
+읽으면 된다.
 
 ## 고칠 때
 

@@ -39,6 +39,12 @@ public static class RunLog
         /// 하나 늘고, 그건 나머지 네 사건 전부가 빈칸으로 들고 다녀야 하는 값이다.
         /// </summary>
         RoleLost,
+
+        /// <summary>구역에 들어섰다. <c>what</c>은 1부터 세는 구역 번호다 - 대본 키가 그대로 쓴다.</summary>
+        SectorEntered,
+
+        /// <summary>구역을 이겼다. <c>what</c>은 <see cref="SectorEntered"/>와 같은 번호다.</summary>
+        SectorCleared,
     }
 
     public readonly struct Entry
@@ -140,6 +146,17 @@ public static class RunLog
             Add(Kind.RoleLost, role.ToString(), ship.team);
     }
 
+    /// <summary>
+    /// 구역 진입. 플레이어의 진행이라 팀은 Ally다. 죽어서 같은 구역을 다시 열어도
+    /// 또 적는다 - "몇 번째 시도인가"가 그 자체로 대본이 읽을 수 있는 값이다.
+    /// </summary>
+    public static void SectorEntered(int number)
+        => Add(Kind.SectorEntered, number.ToString(), Ship.Team.Ally);
+
+    /// <summary>구역 승리. 부르는 자리는 Campaign.OnBattleEnd의 승리 가지 하나다.</summary>
+    public static void SectorCleared(int number)
+        => Add(Kind.SectorCleared, number.ToString(), Ship.Team.Ally);
+
     private static string NameOf(Ship ship)
         => string.IsNullOrEmpty(ship.shipDefName) ? ship.name : ship.shipDefName;
 
@@ -168,13 +185,34 @@ public static class RunLog
     public static void Clear() => _entries.Clear();
 
     /// <summary>어떤 팀의 함선을 몇 척이나 끝냈나. 엔딩 조건이 읽을 첫 번째 질문이다.</summary>
-    public static int FinishedCount(Ship.Team team)
+    public static int FinishedCount(Ship.Team team) => Count(Kind.Finished, team);
+
+    /// <summary>
+    /// 이 종류의 사건이 지금까지 몇 번 있었나. **저장하지 않고 매번 센다** - 사건은
+    /// 초당 몇 개가 아니라 전투당 몇 개라, 목록 순회가 캐시와 카운터를 유지하는 것보다
+    /// 싸고 어긋날 자리가 없다.
+    /// </summary>
+    public static int Count(Kind kind)
     {
         int n = 0;
 
         for (int i = 0; i < _entries.Count; i++)
         {
-            if (_entries[i].kind == Kind.Finished && _entries[i].team == team)
+            if (_entries[i].kind == kind)
+                n++;
+        }
+
+        return n;
+    }
+
+    /// <summary>팀까지 가른 횟수. "적함을 몇 척 끝냈나"가 이 모양이다.</summary>
+    public static int Count(Kind kind, Ship.Team team)
+    {
+        int n = 0;
+
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            if (_entries[i].kind == kind && _entries[i].team == team)
                 n++;
         }
 
