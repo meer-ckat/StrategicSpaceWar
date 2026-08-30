@@ -188,8 +188,21 @@ namespace Core
         }
 
 
+        /// <summary>
+        /// true면 시뮬레이션 틱이 완전히 멎는다. 함선 선택 화면이 쓴다 - Time.timeScale과
+        /// 따로 있는 이유는 틱 누적이 unscaled deltaTime이 아니어도, 밀린 시간이
+        /// 재개 순간 한꺼번에 터지면 안 되기 때문이다. 멎은 동안 누적분은 버린다.
+        /// </summary>
+        public static bool Paused;
+
         private void Update()
         {
+            if (Paused)
+            {
+                _accumulator = 0f;
+                return;
+            }
+
             _accumulator += Time.deltaTime;
 
             int ticksProcessed = 0;

@@ -194,6 +194,20 @@ public partial class Ship : Thing
     protected float angleInput;     // -1..1
 
     /// <summary>
+    /// 켜면 자세 제어가 키 입력(angleInput) 대신 **마우스 포인터 바라보기**가 된다.
+    /// 기수가 커서를 쫓고, 모든 포탑은 기수 방향으로 잠긴다(Gun.directionLockTo) -
+    /// 함체로 조준하는 전투기식 조종. ship JSON에서 켠다.
+    /// </summary>
+    public bool isMouseAim;
+
+    /// <summary>
+    /// 기수의 월드 방향. transform.right는 scale에 안 물들므로 좌우 반전(localScale.x=-1)
+    /// 함선은 부호를 직접 곱해야 그림이 보는 쪽이 나온다.
+    /// </summary>
+    public Vector2 NoseDirection =>
+        (Vector2)transform.right * Mathf.Sign(transform.localScale.x);
+
+    /// <summary>
     /// 컷신이 이 배의 포탑을 겨누게 하는 점. **null이면 아무 일도 안 일어난다** - 포탑은
     /// 평소대로 가장 가까운 적을 잡는다. 컷신 전용이지만 `Gun`은 그 사실을 모른다:
     /// `IsManual`이 `owner.IsPlayerControlled`를 읽는 것과 같은 방향이고, 그래서 포탑에
@@ -264,6 +278,7 @@ public partial class Ship : Thing
     }
 
     Rigidbody2D rig;
+    public Rigidbody2D Rig => rig;
     [NonSerialized] private Texture2D shipHullPng;
     public Texture2D ShipHullPng => shipHullPng;
 
@@ -334,6 +349,11 @@ public partial class Ship : Thing
 
         if (IsPlayerControlled)
             BindBoost();
+
+        // 함선 선택 화면이 고른 배가 씬의 기본값을 이긴다. 선택 화면은 고르고 나서
+        // 씬을 다시 여는 방식이라(암전이 공짜다), 그 선택이 살아남는 자리가 여기다.
+        if (IsPlayerControlled && !string.IsNullOrEmpty(ShipSelectScreen.Chosen))
+            shipDefName = ShipSelectScreen.Chosen;
 
         // RequireComponent는 에디터에서 스크립트를 붙일 때만 채워준다. 이미 저장된 씬의
         // 함선에는 없을 수 있어서, 없으면 여기서 만든다.
@@ -507,7 +527,12 @@ public partial class Ship : Thing
         _mRam.End();
 
         _mDrive.Begin();
-        if (isDriverReady) { Angle(); Drive(); }
+        if (isDriverReady)
+        {
+            if (isMouseAim) MouseAim();
+            Angle();
+            Drive();
+        }
         _mDrive.End();
 
         _mAim.Begin();
@@ -596,8 +621,16 @@ public partial class Ship : Thing
 
             // 런 기록도 여기서 적는다. **이 걸쇠가 이미 상태를 사건으로 바꿔 놓았기
             // 때문이다** - IsCombatEffective를 매 틱 읽으면 같은 죽음을 60번 적고,
-            // 원자로를 수리해 되살아난 배의 죽음까지 남는다.
+            // 원자로를 수리해 되살아난 배의 수리 죽음까지 남는다.
             RunLog.Finished(this);
+
+            // 터진 배는 명단에서 뺀다 - 표적 검색·FireAndForget·분리 해시가 시체를
+            // 후보로 다시 안 집는다. 오브젝트와 틱은 그대로 산다(잔해도 물리는 돈다).
+            // **플레이어는 남긴다** - Battle.Player()가 이 목록으로 찾아서, 빼면 상호
+            // 격침이 "플레이어 없음 = 패배"로 오판된다. 죽은 플레이어가 남아 있어도
+            // 표적 쪽은 IsHostileTo가 IsCombatEffective로 이미 거른다.
+            if (!IsPlayerControlled)
+                All.Remove(this);
         }
 
         _wasEffective = effective;
@@ -938,8 +971,6 @@ public partial class Ship : Thing
     /// (함체 기준 사각·블라인드 아크)을 넣을 때 쓰려고 남긴다. 그때 Gun이 "포신이 함체
     /// 기준 몇 도인가"를 물어야 하고, 거울상 보정이 이미 여기 들어 있어야 두 벌이 안 생긴다.
     /// </summary>
-    public Vector2 NoseDirection =>
-        (Vector2)transform.right * (transform.localScale.x < 0f ? -1f : 1f);
     public Vector2 PortDirection => //그러게 이건 왜 필요하지
         (Vector2)transform.up * (transform.localScale.x < 0f ? -1f : 1f);//일단 지금 배들이 전부 오른쪽 생성이라서 port를 위쪽으로 함.
 
@@ -1182,6 +1213,41 @@ public partial class Ship : Thing
     protected void AimGun()
     {
         //Not Implemented, and should make Gun class first
+    }
+
+    /// <summary>
+    /// 마우스 조준 조종. 기수가 커서를 쫓도록 angleInput을 덮어쓰고(비례 제어 - 오차
+    /// 15도 안에서 감속해 떨림 없이 잡는다), 포탑 전부를 기수 방향으로 잠근다.
+    ///
+    /// 잠금은 **값이라 매 틱 다시 넣는다** - 기수는 계속 도는데 Vector2?는 살아 있는
+    /// 참조가 아니다. AI 배(커서 없음)는 isMouseAim을 켜도 각도 제어만 평소대로 남는다.
+    /// </summary>
+    private void MouseAim()
+    {
+        Vector2 nose = NoseDirection;
+
+        for (int i = 0; i < shipGuns.Count; i++)
+        {
+            if (shipGuns[i] != null)
+                shipGuns[i].directionLockTo = nose;
+        }
+
+        if (!IsPlayerControlled || Camera.main == null || Mouse.current == null)
+            return;
+
+        Vector3 screen = Mouse.current.position.ReadValue();
+        screen.z = -Camera.main.transform.position.z;
+
+        Vector2 cursor = Camera.main.ScreenToWorldPoint(screen);
+        Vector2 toCursor = cursor - (Vector2)transform.position;
+
+        if (toCursor.sqrMagnitude < 1e-4f)
+            return;
+
+        float want = Mathf.Atan2(toCursor.y, toCursor.x) * Mathf.Rad2Deg;
+        float have = Mathf.Atan2(nose.y, nose.x) * Mathf.Rad2Deg;
+
+        angleInput = Mathf.Clamp(Mathf.DeltaAngle(have, want) / 15f, -1f, 1f);
     }
 
     protected void Repair()

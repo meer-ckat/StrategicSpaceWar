@@ -102,8 +102,11 @@ public sealed class GameManager : MonoBehaviour
 
     private void OnDisable() => SceneManager.sceneLoaded -= OnSceneLoaded;
 
-    private void OnSceneLoaded(Scene scene, LoadSceneMode mode) =>
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
         _sceneStart = Time.unscaledTime;
+        _bootFaded = false;   // 새 씬은 부팅 암전을 처음부터 다시 걷는다
+    }
 
     private void Update()
     {
@@ -276,12 +279,29 @@ public sealed class GameManager : MonoBehaviour
     /// 순간의 스폰·초기화가 이 뒤에 숨는다 - 0.5초에 걸쳐 투명해진다. 합이 정확히
     /// GuiBootDelay라, 화면이 다 밝아진 순간 첫 계기(함체)가 켜진다.
     /// </summary>
+    private bool _bootFaded;
+
     private void BootFade()
     {
         float t = SceneSeconds;
 
         if (t >= GuiBootDelay)
+        {
+            // 마지막으로 쓴 알파가 0이 아니라 "0.5초 페이드의 마지막 프레임 값"이다 -
+            // 여기서 한 번 완전히 지우지 않으면 그 잔막이 화면에 영영 남는다. 한 번만
+            // 쓰고 손을 떼는 이유는 이 Image가 컷신 연출과 공유라서다.
+            if (!_bootFaded)
+            {
+                _bootFaded = true;
+
+                Image cover = FindBlackout();
+
+                if (cover != null)
+                    cover.color = Color.clear;
+            }
+
             return;
+        }
 
         // 이 구간에서는 이명 정지와 뮤트 해제를 매 프레임 보장한다. 정지는 멱등이라
         // 공짜고, 어떤 경로로 새어 들어온 이명이든 여기서 확실히 끊긴다.
