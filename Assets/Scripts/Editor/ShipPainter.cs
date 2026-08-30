@@ -2489,7 +2489,7 @@ public sealed class ShipPainter : EditorWindow
             return;
         }
 
-        // 칸 하나가 96x96이라 판마다 SetPixel을 부르면 543만 번이 된다. 배열 하나 채우고
+        // 칸 하나가 48x48이라 판마다 SetPixel을 부르면 136만 번이 된다. 배열 하나 채우고
         // 마지막에 한 번만 올린다.
         var pixels = new Color32[width * height];
 
@@ -2591,7 +2591,7 @@ public sealed class ShipPainter : EditorWindow
     }
 
     /// <summary>
-    /// 칸 하나가 차지하는 96x96 픽셀 블록을 칠한다.
+    /// 칸 하나가 차지하는 48x48 픽셀 블록을 칠한다.
     ///
     /// **row는 아래로 증가하고 텍스처 y는 위로 증가한다.** 안 뒤집으면 템플릿이 위아래로
     /// 뒤집혀 나오고, 그 위에 그린 그림이 통째로 뒤집힌 채 배에 붙는다.

@@ -22,7 +22,7 @@ public sealed class SolidSkin : MonoBehaviour
     /// def 폴더에 있는 PNG 파일 이름. 비어 있으면 단색으로 내려간다.
     ///
     /// **가로는 콜라이더와 정확히 같아야 하고, 세로는 그 이상이면 된다.** 축척은
-    /// <see cref="ShipDef.PPU"/>로 고정이라 1 m = 96 px다. 남는 세로는 위로 뻗는다 -
+    /// <see cref="ShipDef.PPU"/>로 고정이라 1 m = 48 px다. 남는 세로는 위로 뻗는다 -
     /// 그림의 아래 끝이 콜라이더의 아래 끝이고, 포신은 그 위로 자란다. 이 규칙 하나가
     /// pivot을 정하므로 def에 pivot을 적을 필요가 없다.
     /// </summary>
