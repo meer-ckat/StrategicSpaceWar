@@ -68,11 +68,17 @@ public class Placement
     /// </summary>
     public Vector2[] shape;
 
-    /// <summary>이 모듈이 볼트로 붙은 판의 칸. -1이면 선체 직속(= 판이 죽어도 안 죽는다).</summary>
+    /// <summary>이 모듈이 볼트로 붙은 판의 칸. (-1,-1) 한 쌍이면 선체 직속(= 판이 죽어도 안 죽는다).</summary>
     public int mountCol = -1;
     public int mountRow = -1;
 
-    public bool IsMounted => mountCol >= 0 && mountRow >= 0;
+    /// <summary>
+    /// 센티널은 (-1,-1) **쌍**이다. 부호로 거르면 안 된다 - row는 위가 음수라 배 위쪽
+    /// 절반의 마운트가 전부 "안 붙음"으로 오판되고, 발밑에 판도 없는 모듈(갑판 위 발사대)은
+    /// MountLooseModules가 불사 방지로 파괴한다. 증상이 "위쪽 포대만 안 생긴다"였다.
+    /// 대가: (-1,-1) 칸에는 마운트를 못 적는다 - 실제 배가 그 칸을 쓰면 그때 센티널을 바꾼다.
+    /// </summary>
+    public bool IsMounted => mountCol != -1 || mountRow != -1;
 
     public Vector2Int Cell => new(col, row);
 }
