@@ -62,18 +62,92 @@ public class ThingDef
     public Type MainType => _mainType;
 
     /// <summary>
-    /// 이 def대로 물건 하나를 만들어 parent 밑에 놓는다.
-    ///
-    /// **비활성으로 만들고 마지막에 켠다.** AddComponent는 오브젝트가 활성이면 Awake를 즉시
-    /// 부르는데, 그러면 stats가 들어가기 전에 Armor.Awake가 돌아서 판이 기본값 체력으로
-    /// 태어난다. 위치까지 다 잡은 뒤에 한 번에 켜는 것이 유일하게 안전한 순서다.
-    /// </summary>
-    /// <summary>
     /// 물건 하나가 태어나는 값. **판 한 장마다 지난다** - destroyer가 629칸, lance가
-    /// 306칸이라 배 한 척의 소환 비용은 사실상 이 마커의 합이다.
+    /// 306칸이라 배 한 척의 소환 비용은 사실상 이 마커의 합이다. 지금은 그 대부분이
+    /// Instantiate 하나라 <see cref="_mProto"/>는 def당 한 번만 뜬다.
     /// </summary>
     private static readonly Unity.Profiling.ProfilerMarker _mSpawn = new("ThingDef.Spawn");
+    private static readonly Unity.Profiling.ProfilerMarker _mProto = new("ThingDef.Prototype");
 
+    /// <summary>
+    /// 이 def의 원본 한 벌. 비활성이고 씬에 안 보이며 절대 켜지지 않는다.
+    ///
+    /// **여기 있는 것이 def 해석의 전부다.** 리플렉션으로 컴포넌트를 붙이고
+    /// <see cref="JsonUtility.FromJsonOverwrite"/>로 원문을 붓는 일이 def당 한 번만
+    /// 일어난다. 예전에는 판 한 장마다 일어났고, destroyer가 629칸이라 배 한 척을
+    /// 짓는 것이 곧 JSON을 629번 파싱하는 것이었다 - 구역 진입의 스파이크가 그것이다.
+    /// </summary>
+    private GameObject _prototype;
+
+    private GameObject Prototype()
+    {
+        if (_prototype != null)
+            return _prototype;
+
+        using var _ = _mProto.Auto();
+
+        var go = new GameObject(defName);
+
+        // **절대 켜지 않는다.** 켜는 순간 Awake가 도는데 원본은 스탯만 든 껍데기다.
+        go.SetActive(false);
+        go.hideFlags = HideFlags.HideAndDontSave;
+
+        if (!string.IsNullOrEmpty(layer))
+        {
+            int id = LayerMask.NameToLayer(layer);
+
+            if (id < 0)
+                Debug.LogError($"[ThingDef] {source}: '{layer}'라는 레이어가 없다. Default로 둔다.");
+            else
+                go.layer = id;
+        }
+
+        // 크기 0은 "콜라이더 없음"이다. 탄은 레이캐스트로 판정하므로 콜라이더가 없어야 하고,
+        // 무조건 붙이면 탄끼리 부딪히기 시작한다. 배치가 크기를 주는 경우는 복제 뒤에 붙인다.
+        if (collider.size.x > 0f && collider.size.y > 0f)
+        {
+            BoxCollider2D box = go.AddComponent<BoxCollider2D>();
+            box.size = collider.size;
+            box.offset = collider.offset;
+        }
+
+        // 그림은 전부 절차적이다. 스프라이트 자산이 없고, ArmorSkin 같은 부속이 콜라이더
+        // 모양대로 런타임에 텍스처를 굽는다. 머티리얼은 URP 스톡 기본값 그대로.
+        go.AddComponent<SpriteRenderer>();
+
+        JsonUtility.FromJsonOverwrite(raw, go.AddComponent(_mainType));
+
+        foreach (Type comp in _compTypes)
+            JsonUtility.FromJsonOverwrite(raw, go.AddComponent(comp));
+
+        _prototype = go;
+        return go;
+    }
+
+    /// <summary>
+    /// 원본을 버린다. def를 다시 읽을 때 <see cref="DefDatabase.Reload"/>가 부른다 -
+    /// 안 부르면 옛 수치를 든 원본이 씬에 계속 떠 있고, 새로 지은 배가 그것을 복제한다.
+    /// </summary>
+    public void DiscardPrototype()
+    {
+        if (_prototype == null)
+            return;
+
+        if (Application.isPlaying)
+            UnityEngine.Object.Destroy(_prototype);
+        else
+            UnityEngine.Object.DestroyImmediate(_prototype);
+
+        _prototype = null;
+    }
+
+    /// <summary>
+    /// 이 def대로 물건 하나를 만들어 parent 밑에 놓는다.
+    ///
+    /// **비활성으로 만들고 마지막에 켠다.** 원본이 비활성이라 복제도 비활성으로 태어나고,
+    /// 그래서 stats가 들어가기 전에 Armor.Awake가 도는 일이 없다. 콜라이더·모양·자리까지
+    /// 다 잡은 뒤에 한 번에 켜는 것이 유일하게 안전한 순서다.
+    /// </summary>
     public Thing Spawn(
         Transform parent,
         Vector2 localPosition,
@@ -87,28 +161,19 @@ public class ThingDef
 
         using var _ = _mSpawn.Auto();
 
-        var go = new GameObject(defName);
-        go.SetActive(false);
+        // 비활성 원본의 복제도 비활성이다. **비활성으로 만들고 마지막에 켠다**는 규칙이
+        // 여기서도 그대로 성립한다 - 콜라이더도 모양도 자리도 다 잡은 뒤에 Awake가 돈다.
+        GameObject go = (GameObject)GameObject.Instantiate(
+            Prototype(), parent, instantiateInWorldSpace: false);
 
-        go.transform.SetParent(parent, worldPositionStays: false);
+        // 복제는 원본의 hideFlags까지 물려받는다. 안 지우면 판이 계층에서 사라지고
+        // 씬에 저장도 안 된다 - 증상이 "배는 도는데 하이어라키가 비었다"라 한참 헤맨다.
+        go.hideFlags = HideFlags.None;
+        go.name = defName;
+
         go.transform.localPosition = localPosition;
         go.transform.localRotation = Quaternion.Euler(0f, 0f, rotationZ);
 
-        if (!string.IsNullOrEmpty(layer))
-        {
-            int id = LayerMask.NameToLayer(layer);
-
-            if (id < 0)
-                Debug.LogError($"[ThingDef] {source}: '{layer}'라는 레이어가 없다. Default로 둔다.");
-            else
-                go.layer = id;
-        }
-
-        // 크기 0은 "콜라이더 없음"이다. 탄은 레이캐스트로 판정하므로 콜라이더가 없어야 하고,
-        // 무조건 붙이면 탄끼리 부딪히기 시작한다.
-        //
-        // 있을 때는 컴포넌트보다 먼저 와야 한다. Armor.Awake가 이걸 읽어 서브셀 격자와
-        // 체력을 정하는데, 없으면 fallbackCellSize로 조용히 새어 나간다.
         // 배치가 크기를 말했으면 그것이 이긴다. 격자는 콜라이더를 안 보므로 같은 def가
         // 자리마다 다른 크기로 서도 방·선체·파단은 아무것도 안 달라진다 - 경사장갑을 위해
         // def를 한 벌 더 두지 않아도 되는 이유가 이 분리다. 자세한 것은 Placement.size.
@@ -116,7 +181,10 @@ public class ThingDef
 
         if (size.x > 0f && size.y > 0f)
         {
-            BoxCollider2D box = go.AddComponent<BoxCollider2D>();
+            // def가 콜라이더를 안 줬는데 배치가 크기를 준 경우에만 새로 붙는다.
+            if (!go.TryGetComponent(out BoxCollider2D box))
+                box = go.AddComponent<BoxCollider2D>();
+
             box.size = size;
 
             // **배치의 offset은 칸 좌표계다. box.offset은 회전 뒤의 로컬 좌표계다.** 그냥
@@ -135,26 +203,17 @@ public class ThingDef
                 "버린다. offset은 오브젝트가 아니라 콜라이더를 미는 값이다.");
         }
 
-        // 그림은 전부 절차적이다. 스프라이트 자산이 없고, ArmorSkin 같은 부속이 콜라이더
-        // 모양대로 런타임에 텍스처를 굽는다. 머티리얼은 URP 스톡 기본값 그대로.
-        go.AddComponent<SpriteRenderer>();
+        var thing = (Thing)go.GetComponent(_mainType);
 
-        var thing = (Thing)go.AddComponent(_mainType);
-        JsonUtility.FromJsonOverwrite(raw, thing);
-
-        foreach (Type comp in _compTypes)
-            JsonUtility.FromJsonOverwrite(raw, go.AddComponent(comp));
-
-        // **주 컴포넌트를 붙인 뒤, 켜기 전.** 두 경계 사이가 유일한 자리다 - 앞이면
-        // Armor가 아직 없어서 TryGetComponent가 조용히 실패하고(증상: 게임에서만
-        // 사각형), 뒤면 Awake의 BakeShape가 이미 사각형 기준으로 구운 뒤다.
-        //
+        // **켜기 전.** 뒤면 Awake의 BakeShape가 이미 사각형 기준으로 구운 뒤다.
         // 배치가 준 모양이 def의 모양을 이긴다. Placement.size와 같은 규약이다.
         if (shapeOverride != null && shapeOverride.Length >= 3 && thing is Armor armour)
             armour.PrepareShape(shapeOverride);
 
-        go.SetActive(true);
-        return thing;
+        // 켜기가 실패하면 소환도 실패다. 이유는 Thing.Activate에 - 반쯤 지어진 채
+        // 비활성으로 남는 유령을 막는 자리다. 부르는 쪽은 이미 null을 다룬다
+        // (Gun.Fire의 `shell == null`).
+        return Thing.Activate(go) ? thing : null;
     }
 
     /// <summary>

@@ -567,7 +567,12 @@ public sealed class Campaign : TickBehaviour
             var hulk = go.AddComponent<Hulk>();
             hulk.structureDefName = spawn.ship;
 
-            go.SetActive(true);
+            // 켜기가 곧 Awake다 - 실패하면 Thing.Activate가 지우고, 여기서는 목록에도
+            // 안 담는다. 예전에는 Add가 켜는 줄 아래라 실패한 오브젝트가 청소 대상에도
+            // 안 들어 비활성인 채 영원히 남았다.
+            if (!Thing.Activate(go))
+                return null;
+
             _spawned.Add(go);
 
             return null;
@@ -581,7 +586,12 @@ public sealed class Campaign : TickBehaviour
             // 조종하는 것이 붙어야 배가 움직인다.
             var ai = go.AddComponent<ShipAi>();
 
-            go.SetActive(true);
+            // Ship.Awake가 배를 통째로 짓는 자리라 이 리포에서 제일 많이 던질 수 있는
+            // 켜기다. 실패하면 Thing.Activate가 지우고 여기서 그만둔다 - 아래 편대·속도
+            // 설정은 살아 있는 배를 전제한다.
+            if (!Thing.Activate(go))
+                return null;
+
             _spawned.Add(go);
 
             if(spawn.isWingman)

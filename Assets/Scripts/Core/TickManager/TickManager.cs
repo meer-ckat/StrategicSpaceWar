@@ -316,11 +316,22 @@ namespace Core
                 }
                 catch (Exception e)
                 {
+                    ITick broken = listeners[i];
+
                     Debug.LogError(
-                        $"[TickManager] {listeners[i].GetType().Name}이 OnTick에서 던졌다. " +
+                        $"[TickManager] {broken.GetType().Name}이 OnTick에서 던졌다. " +
                         $"명단에서 뺀다: {e}");
 
-                    Unregister(listeners[i]);
+                    Unregister(broken);
+
+                    // **뺀 뒤에 그 자신에게 알린다.** 명단에서 빼기만 하면 그 오브젝트는
+                    // 얼어붙은 채 씬에 남는다 - 탄에게는 그게 "안 사라지는 유령"이고
+                    // (수명 검사도 자폭도 OnTick 안에 있다), 배에게는 "죽으면 안 되는
+                    // 것이 죽는 것"이다. **무엇이 옳은지는 TickManager가 알 수 없다.**
+                    // 그래서 판단을 당사자에게 넘긴다 - 기본값은 아무것도 안 하는 것이고,
+                    // 스스로 지워져야 하는 것만 이 훅을 덮어쓴다.
+                    if (broken is TickBehaviour behaviour)
+                        behaviour.OnTickThrew();
                 }
             }
         }
@@ -399,6 +410,18 @@ namespace Core
             // 이유다 - 파생이 값을 런타임에 바꿔도 여기서 새지 않는다.
             TickManager.Unregister(this);
         }
+
+
+        /// <summary>
+        /// 내 OnTick이 던져서 명단에서 빠졌다. **기본은 그대로 남는 것이다** - 배는
+        /// 한 틱 실패했다고 사라지면 안 되고, 얼어붙은 채로라도 화면에 있는 편이
+        /// 통째로 증발하는 것보다 낫다.
+        ///
+        /// 자기 존재 이유가 틱인 것(탄·파편)은 덮어써서 스스로 지워야 한다. 그것들은
+        /// 수명 검사도 자폭도 OnTick 안에 있어서, 명단에서 빠지는 순간 죽을 길이
+        /// 하나도 안 남는다.
+        /// </summary>
+        public virtual void OnTickThrew() { }
 
 
         public abstract void OnTick();

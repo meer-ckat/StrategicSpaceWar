@@ -102,7 +102,10 @@ public class CutSceneManager
             ai._detatchBrain = true;
             ai._targetPos = (Vector3)spawnPos;
 
-            go.SetActive(true);
+            // 켜기가 실패하면 Thing.Activate가 오브젝트를 지운다 - 그러면 ship·ai가
+            // 가짜 null이 되고, 이 클래스는 이미 그 둘을 매번 null 검사하고 쓴다
+            // (MoveTo·AimAt·HoldFire...). 연출은 그 배만 빠진 채 이어진다.
+            Thing.Activate(go);
         }
 
         /// <summary>이 배가 갈 자리. ShipAi가 매 틱 그 점을 향해 조종한다.</summary>
