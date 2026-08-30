@@ -299,8 +299,29 @@ namespace Core
 
             for (int i = 0; i < listeners.Count; i++)
             {
-                using (markers[i].Auto())
-                    listeners[i].OnTick();
+                // **던진 하나가 나머지를 못 죽이게 한다.** 잡지 않으면 예외가 여기서
+                // 빠져나가 이 페이즈의 뒤쪽 리스너가 그 틱에 통째로 안 돈다 - 그리고
+                // 던진 놈은 대개 자기 Destroy에 못 닿은 것이라(자폭·수명 검사가 그
+                // 아래에 있다) 다음 틱에 또 던진다. 증상은 예외 한 줄이 아니라
+                // "시뮬레이션 절반이 조용히 멈춤"이고, 원인과 한참 떨어져서 나온다.
+                //
+                // 그래서 로그만 찍고 넘어가지 않고 **명단에서 뺀다.** 한 번 던진
+                // 리스너는 상태가 이미 깨진 것이라 다음 틱에 나을 이유가 없다.
+                // Unregister는 순회 중이면 _pendingRemove로 가므로 여기서 안전하다.
+                // RunLog.Add가 구독자를 감싸는 것과 같은 태도다.
+                try
+                {
+                    using (markers[i].Auto())
+                        listeners[i].OnTick();
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError(
+                        $"[TickManager] {listeners[i].GetType().Name}이 OnTick에서 던졌다. " +
+                        $"명단에서 뺀다: {e}");
+
+                    Unregister(listeners[i]);
+                }
             }
         }
 

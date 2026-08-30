@@ -76,6 +76,12 @@ public class Missile : Projectile
                 }
             }
         }
+        // 발사대의 잠금 캐시가 6틱 낡을 수 있어서(Launcher.AcquireInterval) 이미
+        // 파괴된 배의 Transform이 여기 올 수 있다. 가짜 null을 진짜 null로 접어야
+        // OnTick이 그것을 "잃은 표적"으로 읽고 신관을 태운다.
+        if (target == null)
+            target = null;
+
         _hadTarget = target != null;
         base.Launch(direction, speed + inherited.magnitude, default, owner, target);
     }
@@ -95,22 +101,30 @@ public class Missile : Projectile
             return;
         }
 
+        // **이 틱의 표적을 한 번만 읽고, 죽었으면 그 자리에서 필드까지 비운다.**
+        // 아래 두 자리(자폭 판정, 유도)가 각자 Target을 검사하면 판정과 조종이 다른
+        // 답을 볼 수 있고, 무엇보다 **파괴된 Transform은 == null이 true인데 참조는
+        // 살아 있어서** 멤버에 손대는 순간 MissingReferenceException이 난다. 그 예외는
+        // 아래 자폭 검사보다 위에서 터지므로 미사일이 표적에 처박힌 채 영영 안 사라진다.
+        // 진짜 null로 접어 두면 그 창이 존재하지 않는다.
+        Transform target = Target;
+
+        if (target == null)
+            target = Target = null;
+
         // 놓침 자폭. 산개(weave)가 일부러 기수를 벌리는 동안은 놓친 것이 아니고,
         // 연료가 끝난 관성 비행에는 유도가 없으니 지나친 표적을 영영 못 물어서
-        // 여기 걸린다 - 우주로 날아가는 것보다 끊는 것이 낫다.
-        //
-        // 표적 Transform이 파괴되면(배가 완전히 죽는 등) Unity가 == null로 돌려서
-        // 내적을 잴 대상 자체가 없다 - 받은 적이 있는데 없어졌으면 그냥 놓친 것으로
-        // 치고 같은 신관을 태운다. 안 그러면 유도도 판정도 없이 lifeTick까지 떠돈다.
+        // 여기 걸린다 - 우주로 날아가는 것보다 끊는 것이 낫다. 표적이 사라진 것도
+        // (배가 완전히 죽는 등) 놓친 것으로 치고 같은 신관을 태운다.
         if (_currentTime >= weaveTime)
         {
             bool missed;
 
-            if (Target == null)
+            if (target == null)
                 missed = _hadTarget;
             else
             {
-                Vector2 toTarget = ((Vector2)Target.position - (Vector2)transform.position).normalized;
+                Vector2 toTarget = ((Vector2)target.position - (Vector2)transform.position).normalized;
                 missed = Vector2.Dot(transform.up, toTarget) <= MissDot;
             }
 
@@ -130,9 +144,9 @@ public class Missile : Projectile
 
         if(_currentTime < fuelTime)
         {
-            if(Target != null && velocity.sqrMagnitude > 0f)
+            if(target != null && velocity.sqrMagnitude > 0f)
             {
-                Vector2 toTarget = ((Vector2)Target.position - (Vector2)transform.position).normalized;
+                Vector2 toTarget = ((Vector2)target.position - (Vector2)transform.position).normalized;
                 float want = Mathf.Atan2(toTarget.y, toTarget.x) * Mathf.Rad2Deg;
 
                 // 발사 직후 옆으로 부풀었다 돌아오는 편향. sin 반주기라 weaveTime이
