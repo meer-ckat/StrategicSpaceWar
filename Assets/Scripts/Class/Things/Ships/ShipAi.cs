@@ -333,7 +333,8 @@ public sealed class ShipAi : TickBehaviour
         if (toTarget.sqrMagnitude < 1e-6f)
             return 0f;
 
-        // -90도: Gun.Slew와 같은 이유. 뱃머리가 transform.up이라 0도가 오른쪽이 아니라 위다.
+        // -90 아니다 - 뱃머리는 transform.up이 아니라 +X다(NoseDirection 참고, Gun과 다른
+        // 축). 여기서 빼는 180은 각도 보정이 아니라 좌우 반전 배의 거울상 보정이다.
         float want = Mathf.Atan2(toTarget.y, toTarget.x) * Mathf.Rad2Deg - ((transform.localScale.x < 0)? 180f : 0f);
         float error = Mathf.DeltaAngle(_ship.hullAngle, want);
 

@@ -26,6 +26,7 @@
   "thrust":3,
   "fuelTime":5,
   "maxRotationPerTick":2,
+  "FireAndForget":true,
   "weaveAngle": 60,
   "weaveTime": 1,
   "armorLayer": {

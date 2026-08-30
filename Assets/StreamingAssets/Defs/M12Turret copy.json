@@ -18,6 +18,9 @@
   "muzzleOffset": 2.6,
   "friendlyCheckRange": 260,
   "maxHealth": 700,
+  "LockRadius":400,
+  "NoTargeting":true,
+  "AimNotRequired":true,
   "tint": {
     "r": 0.72,
     "g": 0.74,

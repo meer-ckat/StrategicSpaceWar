@@ -46,6 +46,10 @@ public abstract partial class Projectile : Thing, ITickLate
 
     // shared scratch - consumed synchronously inside one loop iteration
     private static readonly RaycastHit2D[] _hits = new RaycastHit2D[4]; //다중 충돌 처리
+
+    // Launch 전용 스크래치. _hits와 절대 같이 쓰면 안 된다 - 파편은 부모 탄의 OnTick
+    // **한가운데서** Launch되므로, 부모가 아직 읽는 _hits를 여기서 덮으면 조용히 깨진다.
+    private static readonly RaycastHit2D[] _launchHits = new RaycastHit2D[8];
     private static readonly SurfaceSet _surfaces = new();
     private static int _nextId; //다음 Projectile ID 할당
     private Rigidbody2D _ownerRigidbody;
@@ -56,8 +60,12 @@ public abstract partial class Projectile : Thing, ITickLate
         base.Awake();
         ProjectileId = ++_nextId;
 
-        if (velocity.sqrMagnitude <= 0f) //만약 속도가 개같다면 리제로
-            Launch(transform.up, muzzleSpeed >= 1 ? muzzleSpeed : 1); //1 이상으로 고정
+        // 속도가 0이면 리제로. **Launch를 안 부른다** - 파생의 Launch(표적 탐색, 산개
+        // 준비)가 Awake 한가운데서 돌 이유가 없고, 거기서 예외가 나면 Unity가 이
+        // 컴포넌트를 꺼 버려 자폭도 수명도 없는 좀비 미사일이 표적에 박힌 채 남는다.
+        // 진짜 Launch는 쏜 쪽이 스폰 직후에 부른다 - 이건 그때까지의 안전값일 뿐이다.
+        if (velocity.sqrMagnitude <= 0f)
+            velocity = (Vector2)transform.up * (muzzleSpeed >= 1 ? muzzleSpeed : 1f);
     }
 
     /// <summary>
@@ -74,7 +82,32 @@ public abstract partial class Projectile : Thing, ITickLate
     {
         _ownerRigidbody = owner;
         velocity = direction.normalized * speed + inherited;
-        transform.position += (Vector3)velocity * TickManager.TickDeltaTime / 2; // 0.5틱 먼저 이동 판정
+
+        // 0.5틱 선행 이동 - 단 **검사 없이 순간이동하면 안 된다.** 10000 m/s면 반 틱이
+        // 83 m라 총구 앞의 판을 통째로 건너뛰고, 증상이 "10 m 앞인데 안 맞는다"다.
+        // 선행 구간을 레이로 재서 첫 남 직전에 멈춘다 - 명중 판정 자체는 다음 틱
+        // OnTick이 그 자리에서 정상 경로로 한다. 자기 배(owner)는 통과.
+        float step = velocity.magnitude * TickManager.TickDeltaTime * 0.5f;
+
+        if (step > 0f)
+        {
+            Vector2 dir = velocity.normalized;
+
+            int n = Physics2D.RaycastNonAlloc(
+                transform.position, dir, _launchHits, step, armorLayer | moduleLayer);
+
+            for (int i = 0; i < n; i++)
+            {
+                RaycastHit2D h = _launchHits[i];
+
+                if (owner != null && h.collider.attachedRigidbody == owner)
+                    continue;
+
+                step = Mathf.Min(step, Mathf.Max(0f, h.distance - Ballistics.Epsilon));
+            }
+
+            transform.position += (Vector3)(dir * step);
+        }
 
         if (velocity.sqrMagnitude > 0f) //속도가 유효하다면
             transform.up = velocity.normalized;

@@ -36,6 +36,16 @@ public class Gun : Thing, IDamageable
     public float muzzleSpeed = 900f;
     public float roundsPerMinute = 60f;
 
+    /// <summary>발사 순간 포구에서 포신 방향으로 띄울 VFX 이름(Resources/VFX). 비면 없음.</summary>
+    public string muzzleVfx;
+
+    /// <summary>
+    /// 값이 있으면 표적 대신 이 **방향**(월드 좌표가 아니라 월드 프레임의 방향 벡터)을
+    /// 겨눈다. 마우스 조준 배(Ship.isMouseAim)가 매 틱 기수 방향을 넣어준다 - 값이라
+    /// 살아 있는 참조가 아니므로 주는 쪽이 갱신해야 한다. def 값이 아니다.
+    /// </summary>
+    [System.NonSerialized] public Vector2? directionLockTo;
+
     [Header("조준")]
     [SerializeField] private AimMode aim = AimMode.FollowOwner;
 
@@ -52,6 +62,13 @@ public class Gun : Thing, IDamageable
     public float slewRate = 30f;
 
     public float fireArc = 2f;      // 도. 조준 오차가 이 안에 들어와야 쏜다
+
+    /// <summary>
+    /// 조준이 안 끝나도 쏜다 - fireArc 검사를 건너뛴다. 발사 후 스스로 표적을 무는
+    /// FireAndForget 미사일이나, 쏘는 것 자체가 조준인 빔 무기용. 선회는 평소대로
+    /// 계속 도니까 "겨누지 않는다"가 아니라 "겨눠질 때까지 안 기다린다"다.
+    /// </summary>
+    public bool AimNotRequired;
 
     [Header("터렛")]
 
@@ -257,7 +274,15 @@ public class Gun : Thing, IDamageable
         if (owner != null && (!Ship.StillAboard(this, owner) || !owner.isGunnerReady))
             return;
 
-        if (!TryGetTarget(out Vector2 target))
+        Vector2 target;
+
+        // 방향 잠금이 표적 탐색을 이긴다. 방향을 자기 위치 기준 먼 점으로 바꿔서
+        // 기존 Slew(점을 겨눈다)를 그대로 쓴다 - 자기에서 뻗은 점이라 각도 오차가 없다.
+        if (directionLockTo.HasValue && directionLockTo.Value.sqrMagnitude > 1e-6f)
+        {
+            target = (Vector2)_turret.position + directionLockTo.Value.normalized * 1000f;
+        }
+        else if (!TryGetTarget(out target))
         {
             _pending = 0f;
             return;
@@ -281,7 +306,7 @@ public class Gun : Thing, IDamageable
         // LineIsClear가 맨 뒤인 것은 성능이 아니라 의미다. 앞의 둘이 통과했을 때만
         // "이 틱에 정말 쏜다"이고, 그때의 포신 방향이 탄이 실제로 갈 선이다.
         // 막혀서 안 쏜 발은 _pending을 소모하지 않으므로 사선이 열리는 순간 나간다.
-        if (error > fireArc || _pending < 1f || !LineIsClear())
+        if ((!AimNotRequired && error > fireArc) || _pending < 1f || !LineIsClear())
             return;
 
         _pending -= 1f;
@@ -469,5 +494,10 @@ public class Gun : Thing, IDamageable
         }
 
         SoundManager.AudioShot("Cannon", muzzle);
+
+        // 빈 이름이면 VfxOneShot이 알아서 무시한다. -90: 그래프가 +x로 뿜는데 포신은 +y다.
+        // 수명 1초: 발사 연출은 순간이고, 3600 RPM이면 초당 60개가 태어난다 - 기본 4초로
+        // 두면 동시 240개가 산다.
+        VfxOneShot.Play(muzzleVfx, muzzle, 1f, _turret.eulerAngles.z - 90f);
     }
 }

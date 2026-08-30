@@ -28,6 +28,7 @@ public class Missile : Projectile
     private const float MissFuseSeconds = 0.5f;
 
     private float _missedTime;
+    public bool FireAndForget; // 사실 지금도 능동에 가깝긴 하지만, 얘는 조준할 필요도 없이 일단 쏘고 나서 앞에 적이 있다면 걔를 따라간다.
 
     /// <summary>
     /// 포탄과 달리 물려받은 속도에 방향을 맡기지 않는다 - 발사관(포신) 방향으로
@@ -37,8 +38,46 @@ public class Missile : Projectile
     /// </summary>
     public override void Launch(Vector2 direction, float speed, Vector2 inherited = default, Rigidbody2D owner = null, Transform target = null)
     {
-        base.Launch(direction, speed + inherited.magnitude, default, owner, target);
+        // owner가 없으면 탐색도 없다 - Projectile.Awake가 velocity 0일 때 owner 없이
+        // Launch를 먼저 부르는데(자동 리제로), 그 호출에서 owner.transform을 읽으면
+        // 모든 FireAndForget 미사일이 스폰 즉시 NRE로 죽는다.
+        if (FireAndForget && target == null && owner != null)
+        {
+            Ship shooter = owner.GetComponent<Ship>();   // 루프 밖에서 한 번만
+            float best = float.MaxValue;
+
+            foreach (Ship ship in Ship.All)
+            {
+                if (ship == null || ship.Rig == null || ship.Rig == owner)
+                    continue;
+
+                // 팀 비교가 아니라 IsHostileTo다 - 그쪽이 중립(운석)과 시체
+                // (IsCombatEffective)까지 같이 거른다. 술어를 손으로 다시 적으면
+                // NearestHostile과 갈라지고, 증상은 "미사일만 시체를 쫓는다"다.
+                // shooter가 없는 것은 사격장 거치대뿐이라 예전처럼 아무나 문다.
+                if (shooter != null && !shooter.IsHostileTo(ship))
+                    continue;
+
+                Vector2 to = (Vector2)ship.transform.position - (Vector2)transform.position;
+
+                // 발사 방향 앞쪽 원뿔(내적 > MissDot, 약 ±78도)만. **up 기준이다** -
+                // 2D에서 forward는 화면 안쪽(+z)이라 내적이 항상 0에 붙어 아무나 잡힌다.
+                // direction이 곧 발사 방향이라 스폰 회전에 안 기댄다.
+                if (Vector2.Dot(direction.normalized, to.normalized) <= MissDot)
+                    continue;
+
+                // 원뿔 안에서 가장 가까운 것. 목록 순서로 끊으면 뒤 배가 앞 배를 가린다.
+                float d = to.sqrMagnitude;
+
+                if (d < best)
+                {
+                    best = d;
+                    target = ship.transform;
+                }
+            }
+        }
         _hadTarget = target != null;
+        base.Launch(direction, speed + inherited.magnitude, default, owner, target);
     }
 
     /// <summary>표적을 받은 적이 있는가. 파괴된 Transform은 == null이 돼서 이걸로만 "잃었다"를 안다.</summary>
