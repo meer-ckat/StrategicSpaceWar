@@ -1,5 +1,5 @@
 {
-  "defName": "rail",
+  "defName": "Solar Plexus",
   "thingClass": "Gun",
   "comps": [
     "SolidSkin"
@@ -15,20 +15,21 @@
       "y": 0
     }
   },
-  "projectile": "Sunkiller",
-  "muzzleSpeed": 10000,
-  "muzzleVfx": "ShipIncoming",
-  "roundsPerMinute": 20,
+  "projectile": "백만볼트",
+  "muzzleSpeed": 300000000,
+  "roundsPerMinute": 3600,
   "aim": 0,
-  "slewRate": 8,
-  "fireArc": 0.8,
+  "slewRate": 30,
+  "fireArc": 2,
+  "AimNotRequired": true,
+  "muzzleVfx": "Beam",
   "muzzleOffset": 1.6,
   "friendlyCheckRange": 200,
   "maxHealth": 500,
   "tint": {
-    "r": 0.6,
-    "g": 0.72,
-    "b": 0.85,
+    "r": 0.95,
+    "g": 0.85,
+    "b": 0.35,
     "a": 1
   }
 }

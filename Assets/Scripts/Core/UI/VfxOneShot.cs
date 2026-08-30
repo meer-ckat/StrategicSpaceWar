@@ -31,7 +31,15 @@ public static class VfxOneShot
     /// 멈추면 안 된다 - 대신 한 번은 크게 말한다.
     /// </summary>
     public static void Play(string name, Vector2 at, float lifeSeconds = 4f)
-        => Spawn(name, at, lifeSeconds, 0f, 0f, withAttributes: false);
+        => Spawn(name, at, lifeSeconds, 0f, 0f, withAttributes: false, 0f, withPose: false);
+
+    /// <summary>
+    /// 방향 있는 한 방(포구 연출). 회전은 transform에도 걸리지만, **World space 그래프는
+    /// transform을 안 읽으므로** position/direction을 소스 어트리뷰트로도 같이 실어 보낸다 -
+    /// 그래프가 Inherit Source Position/Direction만 켜면 어느 공간이든 제자리에 핀다.
+    /// </summary>
+    public static void Play(string name, Vector2 at, float lifeSeconds, float rotationDeg)
+        => Spawn(name, at, lifeSeconds, 0f, 0f, withAttributes: false, rotationDeg, withPose: true);
 
     /// <summary>
     /// Duration/Power를 **이벤트 어트리뷰트**로 실어서 띄운다. Explosion.vfx가 이 둘을
@@ -40,10 +48,11 @@ public static class VfxOneShot
     /// 안 끄면 켜지는 순간 빈 어트리뷰트로 한 번 더 터진다.
     /// </summary>
     public static void Play(string name, Vector2 at, float lifeSeconds, float duration, float power)
-        => Spawn(name, at, lifeSeconds, duration, power, withAttributes: true);
+        => Spawn(name, at, lifeSeconds, duration, power, withAttributes: true, 0f, withPose: true);
 
     private static void Spawn(
-        string name, Vector2 at, float lifeSeconds, float duration, float power, bool withAttributes)
+        string name, Vector2 at, float lifeSeconds, float duration, float power, bool withAttributes,
+        float rotationDeg, bool withPose)
     {
         if (string.IsNullOrEmpty(name))
             return;
@@ -65,20 +74,39 @@ public static class VfxOneShot
         var go = new GameObject($"vfx {name}");
         go.SetActive(false);
         go.transform.position = new Vector3(at.x, at.y, 0f);
+        go.transform.rotation = Quaternion.Euler(0f, 0f, rotationDeg);
 
         var vfx = go.AddComponent<VisualEffect>();
         vfx.visualEffectAsset = asset;
 
-        if (withAttributes)
+        bool sendEvent = withAttributes || withPose;
+
+        if (sendEvent)
             vfx.initialEventName = string.Empty;
 
         go.SetActive(true);
 
-        if (withAttributes)
+        if (sendEvent)
         {
             VFXEventAttribute attr = vfx.CreateVFXEventAttribute();
-            attr.SetFloat("Duration", duration);
-            attr.SetFloat("Power", power);
+
+            if (withAttributes)
+            {
+                attr.SetFloat("Duration", duration);
+                attr.SetFloat("Power", power);
+            }
+
+            if (withPose)
+            {
+                // rotationDeg는 "그래프의 +x가 향할 월드 각"이라(Gun이 포신각 -90을
+                // 넘긴다), 소스 direction도 같은 각으로 만든다 - transform과 어트리뷰트가
+                // 다른 방향을 말하면 그래프 공간에 따라 빔이 뒤집힌다.
+                float rad = rotationDeg * Mathf.Deg2Rad;
+
+                attr.SetVector3("position", new Vector3(at.x, at.y, 0f));
+                attr.SetVector3("direction", new Vector3(Mathf.Cos(rad), Mathf.Sin(rad), 0f));
+            }
+
             vfx.SendEvent(VisualEffectAsset.PlayEventID, attr);
         }
 

@@ -1,0 +1,58 @@
+{
+  "defName": "백만볼트",
+  "thingClass": "AutoCannonProjectile",
+  "comps": [
+    "SolidSkin",
+    "UnityEngine.Rendering.Universal.Light2D"
+  ],
+  "layer": "Default",
+  "collider": {
+    "size": {
+      "x": 0,
+      "y": 0
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "mass": 0.000001,
+  "caliber": 0.01,
+  "shatterVelocity": 1000000000,
+  "penetrationK": 0.18,
+  "lifeTick": 120,
+  "muzzleSpeed": 300000000,
+  "armorLayer": {
+    "m_Bits": 64
+  },
+  "moduleLayer": {
+    "m_Bits": 128
+  },
+  "unlit": true,
+  "glow": 12,
+  "tint": {
+    "r": 1.0,
+    "g": 0.95,
+    "b": 0.2,
+    "a": 1
+  },
+  "skinSize": {
+    "x": 0.25,
+    "y": 0.25
+  },
+  "m_ComponentVersion": 2,
+  "m_LightType": 3,
+  "m_BlendStyleIndex": 0,
+  "m_FalloffIntensity": 0.5,
+  "m_Color": {
+    "r": 1.0,
+    "g": 0.9,
+    "b": 0.1,
+    "a": 1
+  },
+  "m_Intensity": 8.0,
+  "m_PointLightInnerAngle": 360,
+  "m_PointLightOuterAngle": 360,
+  "m_PointLightInnerRadius": 0,
+  "m_PointLightOuterRadius": 3.0
+}
