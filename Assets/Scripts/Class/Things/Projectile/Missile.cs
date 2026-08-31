@@ -97,7 +97,7 @@ public class Missile : Projectile
         // 루프 안이라 이 클래스의 추력이 매 틱 되살릴 수 있다 - 여기서 먼저 끊는다.
         if (Speed <= Ballistics.MinSpeed)
         {
-            Destroy(gameObject);
+            Retire();
             return;
         }
 
@@ -134,7 +134,7 @@ public class Missile : Projectile
 
                 if (_missedTime >= MissFuseSeconds)
                 {
-                    Destroy(gameObject);
+                    Retire();
                     return;
                 }
             }

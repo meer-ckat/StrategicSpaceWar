@@ -115,12 +115,38 @@ public abstract partial class Projectile : Thing, ITickLate
     }
 
     /// <summary>
+    /// 이 탄은 끝났다. **Unity의 == null이나 enabled를 죽음의 신호로 쓰지 않는다** -
+    /// <c>Destroy</c>는 실제 파괴를 프레임 끝으로 미루므로 그 사이의 상태를 어떻게
+    /// 읽어야 하는지가 Unity 버전과 경로에 달려 있다. 우리가 정한 플래그 하나면
+    /// 그 질문이 아예 없다.
+    /// </summary>
+    protected bool Spent { get; private set; }
+
+    /// <summary>
+    /// 죽는 유일한 문. **두 번 불러도 안전하다** - 틱 루프가 한 틱에 판을 여러 장
+    /// 지나므로 같은 탄이 여러 경로에서 끝날 수 있다.
+    ///
+    /// 이 문이 있어야 하는 진짜 이유는 <see cref="SpawnHeavyFragments"/>다. 그쪽은
+    /// <c>Instantiate(this)</c>로 자기를 복제하는데, 이미 <c>Destroy</c>된 뒤라면
+    /// **컴포넌트가 꺼진 상태까지 복제돼서** 틱을 못 받는 유령이 태어난다. 죽었다는
+    /// 사실을 복제 전에 물어볼 수 있어야 그 창이 닫힌다.
+    /// </summary>
+    protected void Retire()
+    {
+        if (Spent)
+            return;
+
+        Spent = true;
+        Destroy(gameObject);
+    }
+
+    /// <summary>
     /// 던져서 명단에서 빠졌으면 그 자리에서 죽는다. **탄에게는 이것이 유일한 출구다** -
     /// 수명 검사도(lifeTick) 스톨도 자폭도 전부 <see cref="OnTick"/> 안에 있어서, 틱을
     /// 못 받는 탄은 죽을 길이 하나도 안 남는다. 증상은 "컴포넌트가 전부 꺼진 미사일이
     /// 그 자리에 박혀 있다"이고, 원인인 예외와 화면상 한참 떨어져 보인다.
     /// </summary>
-    public override void OnTickThrew() => Destroy(gameObject);
+    public override void OnTickThrew() => Retire();
 
     /// <summary>
     /// 한 틱치 시간을 다 쓸 때까지 앞으로 훑는다. 판을 뚫으면 남은 시간으로 계속 가므로
@@ -130,7 +156,7 @@ public abstract partial class Projectile : Thing, ITickLate
     {
         if (TickManager.currentTick - spawnTick >= lifeTick) //Dead man's switch
         {
-            Destroy(gameObject);
+            Retire();
             return;
         }
 
@@ -144,7 +170,7 @@ public abstract partial class Projectile : Thing, ITickLate
             if (speed <= Ballistics.MinSpeed) //스톨 시 제거
             {
                 transform.position = position;
-                Destroy(gameObject);
+                Retire();
                 return;
             }
 
@@ -192,6 +218,14 @@ public abstract partial class Projectile : Thing, ITickLate
             if (!heavy)
                 SpallResolver.Resolve(result, spallLayer);
 
+            // **Apply가 우리를 죽였으면 루프를 끝낸다.** Explode는 blastDamage가 있는
+            // 탄 전부에서 Retire를 부르는데 그것만으로는 루프가 안 멈춘다 - 관통이면
+            // 아래 두 검사(Blocked/Shattered)에 안 걸려 다음 판까지 계속 돌고, 거기서
+            // 또 터지면서 이미 꺼진 자기를 복제한 파편(유령)을 낳는다. 한 발이 한 번만
+            // 터진다는 것 자체가 규칙이라, 그 규칙을 여기서 지킨다.
+            if (Spent)
+                return;
+
             lastCollider = _surfaces.primaryCollider;
 
             // push off AFTER Apply, so a ricochet leaves along its new heading
@@ -202,7 +236,7 @@ public abstract partial class Projectile : Thing, ITickLate
             {
                 velocity = Vector2.zero;
                 transform.position = position;
-                Destroy(gameObject);
+                Retire();
                 return;
             }
 
@@ -210,7 +244,7 @@ public abstract partial class Projectile : Thing, ITickLate
             if (state == ShellState.Shattered)
             {
                 transform.position = position;
-                Destroy(gameObject);
+                Retire();
                 return;
             }
         }

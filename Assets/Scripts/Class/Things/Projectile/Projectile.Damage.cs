@@ -188,7 +188,11 @@ public abstract partial class Projectile
 
         // 관통했더라도 여기서 끝난다. 뚫고 들어가 안쪽을 헤집는 것은 AP의 일이고,
         // 고폭탄은 터지면서 자기를 쓴다.
-        Destroy(gameObject);
+        //
+        // **Retire여야 한다.** 이 자리는 틱 루프 한가운데고, Destroy는 루프를 안 멈춘다 -
+        // 관통이면 다음 판까지 계속 돌면서 또 터지고, 그때 SpawnHeavyFragments가 낳는
+        // 파편은 꺼진 자기를 복제한 유령이 된다. Spent를 세워야 루프가 그것을 읽는다.
+        Retire();
     }
 
     /// <summary>
@@ -198,6 +202,16 @@ public abstract partial class Projectile
     /// </summary>
     private void SpawnHeavyFragments(in HitResult r)
     {
+        // **죽은 자기를 복제하지 않는다.** 아래 Instantiate(this)는 이 오브젝트의 현재
+        // 상태를 그대로 뜨는데, Retire(=Destroy) 뒤라면 **컴포넌트가 꺼진 것까지 뜬다** -
+        // 태어나자마자 틱을 못 받아 수명도 스톨도 자폭도 안 도는 유령이 탄착점에 영원히
+        // 남는다. 예외도 로그도 없어서 증상이 "미사일이 목표 지점에 박혀 있다"뿐이다.
+        //
+        // 부르는 쪽(OnTick)이 이미 Spent를 보고 루프를 끊지만 여기서 한 번 더 본다 -
+        // 이 실패는 조용하고 영원해서, 새 호출 경로가 생겼을 때 알아챌 방법이 없다.
+        if (Spent)
+            return;
+
         int count = Mathf.Max(1, r.spallCount);
         var rng = new DeterministicRng(r.spallSeed);
 
