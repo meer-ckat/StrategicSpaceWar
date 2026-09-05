@@ -17,6 +17,8 @@ namespace IMGUI
         private static GUIStyle vSliderBase;
         private static GUIStyle vSliderThumbBase;
 
+        public static string OsFontName = "Malgun Gothic";
+
         public static bool Initialized { get; private set; }
 
         /// <summary>
@@ -36,6 +38,29 @@ namespace IMGUI
             sliderThumbBase = new GUIStyle(GUI.skin.horizontalSliderThumb);
             vSliderBase = new GUIStyle(GUI.skin.verticalSlider);
             vSliderThumbBase = new GUIStyle(GUI.skin.verticalSliderThumb);
+
+            // 기본 폰트는 Arial이고 한글은 OS 폴백으로 그려진다. CalcHeight는 Arial 줄 높이를
+            // 재는데 실제 한글 글리프는 그보다 커서 위아래로 삐져나온다 - 재는 폰트와 그리는
+            // 폰트가 같아야 한다. 한글이 있는 폰트를 주 폰트로 쓴다.
+            UnityEngine.Font korean = UnityEngine.Font.CreateDynamicFontFromOSFont(OsFontName, 16);
+            if (korean != null)
+            {
+                // 씬이 바뀌면 지워져서 스타일이 조용히 기본 폰트로 돌아간다.
+                korean.hideFlags = HideFlags.HideAndDontSave;
+                labelBase.font = korean;
+                boxBase.font = korean;
+                buttonBase.font = korean;
+                toggleBase.font = korean;
+                textFieldBase.font = korean;
+            }
+            else
+                Debug.LogWarning($"[IMGUI] OS 폰트 '{OsFontName}' 없음. 기본 폰트로 그린다.");
+
+            labelBase.clipping = TextClipping.Overflow;
+            boxBase.clipping = TextClipping.Overflow;
+            buttonBase.clipping = TextClipping.Overflow;
+            toggleBase.clipping = TextClipping.Overflow;
+            textFieldBase.clipping = TextClipping.Overflow;
 
             Initialized = true;
         }
