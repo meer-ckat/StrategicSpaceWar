@@ -657,6 +657,9 @@ public static class ShipBuilder
             // 돌고, Armor.Awake는 서브셀을 전부 만땅으로 초기화한다. 그 전에 넣으면 지워진다.
             Restore(spawned, p.hp);
 
+            if (p.fuel < 1f && spawned != null && spawned.TryGetComponent(out Tank tank))
+                tank.RestoreFuel01(p.fuel);
+
             // **한 오브젝트의 Thing 전부에 찍는다.** ThingDef.Spawn은 thingClass 하나만
             // 돌려주는데 comps에도 Thing이 올 수 있다 - Ballistic Door가 BallisticArmor에
             // Door를 얹은 것이 그렇다. 돌려받은 것에만 찍으면 나머지가 -1로 남는다.

@@ -228,6 +228,7 @@ public static class ShipExporter
                     row = cell.y,
                     rot = module.eulerAngles.z - hull.eulerAngles.z,
                     hp = HealthOf(module),
+                    fuel = module.TryGetComponent(out Tank tank) ? tank.Fuel01 : 1f,
                     mountCol = plateCell.x,
                     mountRow = plateCell.y,
                 };

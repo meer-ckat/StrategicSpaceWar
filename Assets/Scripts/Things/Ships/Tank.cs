@@ -45,6 +45,12 @@ public class Tank : Thing, IDamageable
         return taken;
     }
 
+    /// <summary>잔량 비율. 저장이 든다.</summary>
+    public float Fuel01 => impulse > 0f ? remaining / impulse : 0f;
+
+    /// <summary>로드 경로. 값을 그냥 놓는다.</summary>
+    public void RestoreFuel01(float fraction) => remaining = impulse * Mathf.Clamp01(fraction);
+
     /// <summary>로드 경로. 값을 그냥 놓는다 - TakeDamage의 부작용을 타지 않는다.</summary>
     public void RestoreHealth01(float fraction)
         => _health = maxHealth * Mathf.Clamp01(fraction);
