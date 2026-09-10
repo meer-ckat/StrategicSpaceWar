@@ -115,3 +115,27 @@ InitTestScene*.unity*
 # 들어가면 못 뺀다. 원본이 필요하면 따로 보관.
 *.kra
 *.kra.meta
+
+# Supertonic TTS model weights (~390MB; vector_estimator.onnx alone is 245MB,
+# over GitHub's 100MB per-file limit). Fetch with tools/fetch-supertonic.ps1.
+/[Aa]ssets/StreamingAssets/Supertonic/
+/[Aa]ssets/StreamingAssets/Supertonic.meta
+
+# Baked TTS audio (regenerate from Tools > Supertonic > Bake Dialogue)
+/[Aa]ssets/StreamingAssets/TtsBaked/
+/[Aa]ssets/StreamingAssets/TtsBaked.meta
+
+# 보이스 스타일 추출기 (tools/voice-style-extractor). 가상환경과 모델 정션,
+# 그리고 추출 결과. 목소리는 개인정보라 저장소에 안 올린다.
+/tools/voice-style-extractor/.venv*/
+/tools/voice-style-extractor/models/
+/tools/voice-style-extractor/results/
+/tools/voice-style-extractor/wavs/*.wav
+/tools/voice-style-extractor/wavs_done/
+
+# Unity가 안 읽는 폴더(~)지만 밑판 PNG는 추적한다. 게임이 안 읽는 것과 저장소가 안 지키는 것은 다른 일이다.
+!/Assets/Art/Templates~/
+/.context/
+/.claude/worktrees/
+/.claude/settings.local.json
+/Captures/
