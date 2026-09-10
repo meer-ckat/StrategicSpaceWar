@@ -25,6 +25,51 @@ public class Gun : Thing, IDamageable
         Auto,
     }
 
+    /// <summary>
+    /// 이 포탑이 이번 틱에 안 쏜 이유. **순서가 곧 표시 우선순위다** - 한 줄에 묶인 포가
+    /// 열둘이면 이유도 열둘이라, HUD는 그중 값이 제일 큰 것 하나를 고른다. 뒤로 갈수록
+    /// 플레이어가 할 일이 크다: 장전은 기다리면 되고 사선은 배를 돌려야 하고 포수는
+    /// 원자로를 고쳐야 한다.
+    ///
+    /// 시뮬레이션은 이 값을 안 읽는다. 넷이 전부 "포탑이 안 쏜다" 하나로 보이던 것을
+    /// 가르는 것이 전부다.
+    /// </summary>
+    public enum HoldReason
+    {
+        /// <summary>안 막혔다. 이번 틱에 쐈거나 쏠 수 있었다.</summary>
+        None = 0,
+
+        /// <summary>방아쇠를 안 당겼다. 컷신의 사격 중지도 여기로 온다.</summary>
+        Trigger,
+
+        /// <summary>장전 중.</summary>
+        Reloading,
+
+        /// <summary>선회 중이라 조준 오차가 아직 fireArc 밖이다.</summary>
+        Slewing,
+
+        /// <summary>겨눌 것이 없다.</summary>
+        NoTarget,
+
+        /// <summary>사선에 아군이 있다. **배를 돌리지 않으면 안 열린다.**</summary>
+        LineBlocked,
+
+        /// <summary>표적이 사각(traverse) 밖이다. 포탑이 한계에 걸린 채 선다.</summary>
+        OutOfArc,
+
+        /// <summary>포수가 없다 - 전기가 나갔거나 승무원이 죽었다.</summary>
+        NoGunner,
+
+        /// <summary>얹혔던 판이 잔해로 떨어져 나갔다. 이제 이 배의 포가 아니다.</summary>
+        Adrift,
+
+        /// <summary>부서졌다.</summary>
+        Destroyed,
+    }
+
+    /// <summary>지난 틱에 안 쏜 이유. HUD 전용.</summary>
+    public HoldReason Hold { get; private set; }
+
     [Header("무장")]
 
     /// <summary>
@@ -38,6 +83,16 @@ public class Gun : Thing, IDamageable
 
     /// <summary>발사 순간 포구에서 포신 방향으로 띄울 VFX 이름(Resources/VFX). 비면 없음.</summary>
     public string muzzleVfx;
+
+    /// <summary>
+    /// MuzzleFlash.vfx의 FirePower 어트리뷰트(0~1). 1이 최대 화력, 0.01이 기관총 - 커질수록
+    /// 섬광의 지속시간·크기가 커진다. 진공이라 포구 화염이 대기 중보다 훨씬 크게 퍼지는 것이
+    /// 그래프의 전제라, 이 값이 곧 "이 포가 얼마나 큰가"다.
+    /// </summary>
+    public float muzzleFirePower = 0.2f;
+
+    /// <summary>MuzzleFlash.vfx의 color 내장 어트리뷰트. 화약이면 주황, 전자기 가속이면 다른 색.</summary>
+    public Color muzzleColor = new(1f, 0.75f, 0.4f);
 
     /// <summary>
     /// 값이 있으면 표적 대신 이 **방향**(월드 좌표가 아니라 월드 프레임의 방향 벡터)을
@@ -62,6 +117,12 @@ public class Gun : Thing, IDamageable
     public float slewRate = 30f;
 
     public float fireArc = 2f;      // 도. 조준 오차가 이 안에 들어와야 쏜다
+
+    /// <summary>
+    /// 사각 반각(도). 마운트 전방(포 오브젝트의 +X = 기수와 같은 축, 배치 rot이 돌린다)에서
+    /// 좌우 이만큼. 0이면 무제한. 판정만 함체 기준이고 선회 속도는 여전히 월드 기준이다.
+    /// </summary>
+    public float traverse;
 
     /// <summary>
     /// 조준이 안 끝나도 쏜다 - fireArc 검사를 건너뛴다. 발사 후 스스로 표적을 무는
@@ -100,6 +161,17 @@ public class Gun : Thing, IDamageable
     /// </summary>
     public float friendlyCheckRange = 100f;
 
+    /// <summary>
+    /// 이 질량(kg)을 넘는 배는 표적으로 안 본다. 0이면 상한이 없다 - 지금까지의 모든 포다.
+    ///
+    /// **대공포가 전함을 겨누는 것을 막는 값이다.** 자동 포탑은 제일 가까운 적을 보는데,
+    /// 함대전에서 제일 가까운 것은 거의 언제나 눈앞의 큰 배라 CIWS가 뚫지도 못할 장갑에
+    /// 초당 스무 발을 붓고 정작 전투기는 아무도 안 본다. 구경으로 자동 판정하지 않는
+    /// 이유는 임계값을 코드에 두면 새 배 한 척이 그 선을 넘나들 때마다 설계자가 모르는
+    /// 사이에 방공망이 켜졌다 꺼지기 때문이다 - 무엇을 쏠지는 def가 정한다.
+    /// </summary>
+    public float maxTargetMass;
+
     [Header("내구")]
     public float maxHealth = 60f;
 
@@ -133,7 +205,19 @@ public class Gun : Thing, IDamageable
                 "덮어쓴다.", this);
 
         BuildTurret();
+
+        // 배치 rot. 터렛이 없는 포는 이 오브젝트 자체가 도니까 transform.right를 매 틱 읽으면
+        // 마운트가 포를 따라 돌아 휴지 자세가 자기 꼬리를 쫓는다. 켜지기 전에 넣은 값이라 여기서 한 번.
+        _mountLocalZ = transform.localEulerAngles.z;
+
+        // **스폰 순간부터 마운트 전방을 본다.** 안 하면 경사판(45도) 위 포는 부모 판의
+        // 기울기를 그대로 입고 태어나고, 그 오차를 첫 틱들의 Slew가 눈에 보이게 정정한다 -
+        // 큰 포일수록(slewRate가 느릴수록) 스폰 직후 헛도는 것이 오래 보인다. MountWant는
+        // 판이 아니라 선체 기준이라 이 한 줄로 판의 기울기가 사라진다.
+        _turret.rotation = Quaternion.Euler(0f, 0f, MountWant());
     }
+
+    private float _mountLocalZ;
 
     /// <summary>
     /// 도는 부분. <see cref="turretTexture"/>가 비면 이 오브젝트 자신이라, 2단이 아닌
@@ -156,6 +240,10 @@ public class Gun : Thing, IDamageable
 
         if (string.IsNullOrEmpty(turretTexture))
             return;
+
+        // 2단이면 포대는 그림자 쪽이다. 단색끼리 같은 밝기면 회전부와 한 덩어리로 뭉쳐 포대가 안 보인다.
+        if (TryGetComponent(out SolidSkin baseSkin))
+            baseSkin.DimFallback(0.45f);
 
         var go = new GameObject("turret");
         go.SetActive(false);
@@ -219,11 +307,56 @@ public class Gun : Thing, IDamageable
     /// 그 다음이 강제 발사 - 수동 주포는 평소 마우스를 눌러야 쏘는데 컷신에는 누를
     /// 사람이 없다. 둘 다 켜면 안 쏜다(중지가 이긴다).
     /// </summary>
+    ///
+    /// **방향 잠금(마우스 조준 배)은 조준만 정하지 방아쇠가 아니다.** 잠금이 표적 탐색을
+    /// 이기므로 AI 배의 자동 포탑은 "표적 있음"으로 내려와 적이 없어도 기수 방향으로 쐈다 -
+    /// 격납고에서 나온 fly가 빈 우주에 갈기던 것이 그것이다. 잠긴 자동 포탑은 탐지 거리 안에
+    /// 적이 있을 때만 쏜다. 플레이어 배의 잠긴 포탑은 IsManual이라 원래 마우스가 방아쇠다.
+    /// </summary>
     protected virtual bool WantsToFire =>
         (owner == null || !owner.cutsceneHoldFire)
         && ((owner != null && owner.cutsceneForceFire)
-            || !IsManual
-            || (Mouse.current != null && Mouse.current.leftButton.isPressed));
+            || (!IsManual && (!directionLockTo.HasValue || owner == null || owner.NearestHostile() != null))
+            || (IsManual && Mouse.current != null && Mouse.current.leftButton.isPressed));
+
+    /// <summary>
+    /// <see cref="maxTargetMass"/> 이하인 적 중 제일 가까운 것. 없으면 null - 그러면
+    /// 이 포탑은 표적 없음으로 서 있는다. **큰 배를 대신 쏘지 않는다**, 그것이 요점이다.
+    /// </summary>
+    private Ship NearestLightHostile()
+    {
+        Ship best = null;
+        float bestSqr = owner.DetectionDistance * owner.DetectionDistance;
+        Vector2 here = _turret.position;
+
+        for (int i = 0; i < Ship.All.Count; i++)
+        {
+            Ship other = Ship.All[i];
+
+            if (!owner.IsHostileTo(other))
+                continue;
+
+            // 사각 밖 적을 고르면 한계에 걸린 채 사각 안의 다른 적을 무시한다.
+            if (!InArc(other.transform.position))
+                continue;
+
+            // Rigidbody2D.mass는 판 수에서 나온다(Ship.RecalcMass). 반파된 큰 배가
+            // 상한 아래로 내려오면 CIWS가 그때부터 쏘는 것이 맞다 - 남은 것이 실제로
+            // 전투기만 한 조각이다.
+            if (maxTargetMass > 0f && (other.Rig == null || other.Rig.mass > maxTargetMass))
+                continue;
+
+            float sqr = ((Vector2)other.transform.position - here).sqrMagnitude;
+
+            if (sqr >= bestSqr)
+                continue;
+
+            bestSqr = sqr;
+            best = other;
+        }
+
+        return best;
+    }
 
     private bool TryAimAtCursor(out Vector2 worldPoint)
     {
@@ -250,31 +383,73 @@ public class Gun : Thing, IDamageable
         if (owner == null)
             return false;
 
-        Ship target = owner.NearestHostile();
+        // 상한이 없으면 배가 이미 이번 틱에 구한 답을 그대로 쓴다(틱스탬프 캐시).
+        // 상한이 있으면 그 캐시가 답할 수 없는 질문이라 여기서 따로 훑는다 - 포탑 수가
+        // 배당 한 자릿수라 Ship.All 한 바퀴가 NearestHostile 한 번과 같은 크기다.
+        Ship target = maxTargetMass > 0f || traverse > 0f
+            ? NearestLightHostile()
+            : owner.NearestHostile();
 
         if (target == null)
             return false;
 
-        // 편차 조준은 넣지 않는다. 탄속 900 m/s에 교전거리 40 m면 비행시간 0.045초,
-        // 함선이 10 m/s로 움직여도 리드가 0.45 m라 함선 크기보다 작다.
-        // 원거리 교전이 생기면 여기에 세 줄 추가하면 된다.
         worldPoint = target.transform.position;
+
+        // **편차 조준.** 예전 주석은 "교전거리 40 m면 리드가 0.45 m라 함선보다 작다"였는데
+        // 실제 FightDistance가 120~420 m다. destroyer의 200 m에서 M12(1100 m/s)는 비행이
+        // 0.18초라 횡속 30 m/s면 5.5 m 뒤를 쏘는데, fireArc 0.7도가 그 거리에서 허용하는
+        // 것은 2.4 m다 - **리드 오차가 조준 정밀도의 두 배**라 fireArc를 조인 것이 무의미했다.
+        //
+        // 리드 마커(ShipStatusHud)와 **같은 함수**를 쓴다. 마커가 "여기 두면 맞는다"고
+        // 약속하는데 AI가 다른 식으로 겨누면 그 약속이 플레이어에게만 참이다.
+        //
+        // 상대 프레임인 것이 핵심이다 - 탄이 내 배 속도를 물려받으므로(Projectile.Launch)
+        // 표적의 절대 미래 위치를 겨누면 내 배 속도만큼 어긋난다. 포탑 위치에서 재는 것은
+        // 마커보다 정직한 값이다(마커는 배 중심으로 근사한다).
+        //
+        // 못 따라잡으면(탄보다 빠른 표적) 그냥 지금 자리를 겨눈다 - 안 쏘는 것보다 낫다.
+        Vector2 d = worldPoint - (Vector2)_turret.position;
+        Vector2 relative = target.velocity - owner.velocity;
+
+        // **탄이 상대속도보다 빠를 때만 리드한다.** 미사일 발사대는 muzzleSpeed가 2다
+        // (추진은 Missile이 한다) - 그 값으로 요격을 풀면 접근 중일 때 수백 초짜리 근이
+        // 나와 조준점이 우주 밖으로 날아간다. 판정도 이 조건에서만 근이 하나라 깨끗하다.
+        if (relative.sqrMagnitude < muzzleSpeed * muzzleSpeed
+            && Ballistics.InterceptTime(d, relative, muzzleSpeed, out float t))
+            worldPoint += relative * t;
+
         return true;
     }
 
     public override void OnTick()
     {
         if (Neutralized)
+        {
+            Hold = HoldReason.Destroyed;
             return;
+        }
 
         // 포수가 다른 자리에 가 있으면 포탑은 멈춘다.
         // StillAboard: 이 포탑이 얹힌 판이 잔해로 떨어져 나갔으면 owner는 여전히 살아 있는
         // Ship을 가리키지만 더 이상 이 배의 포탑이 아니다. 우주로 날아가면서 쏘면 안 된다.
         // owner가 애초에 없는 포탑(테스트용 거치대)은 예전처럼 그냥 쏜다.
-        if (owner != null && (!Ship.StillAboard(this, owner) || !owner.isGunnerReady))
+        //
+        // 예전에는 이 둘이 한 조건이었다. 가른 것은 판정이 아니라 답이다 - 잔해로 간 포는
+        // 돌아오지 않고, 포수가 없는 포는 원자로를 고치면 돌아온다.
+        if (owner != null && !Ship.StillAboard(this, owner))
+        {
+            Hold = HoldReason.Adrift;
             return;
+        }
+
+        if (owner != null && !owner.isGunnerReady)
+        {
+            Hold = HoldReason.NoGunner;
+            return;
+        }
 
         Vector2 target;
+        float dt = TickManager.TickDeltaTime;
 
         // 방향 잠금이 표적 탐색을 이긴다. 방향을 자기 위치 기준 먼 점으로 바꿔서
         // 기존 Slew(점을 겨눈다)를 그대로 쓴다 - 자기에서 뻗은 점이라 각도 오차가 없다.
@@ -285,11 +460,13 @@ public class Gun : Thing, IDamageable
         else if (!TryGetTarget(out target))
         {
             _pending = 0f;
+            Hold = HoldReason.NoTarget;
+            // 휴지 자세 = 마운트 전방. 없으면 스폰 각도(위)에 영원히 서 있는다.
+            Slew((Vector2)_turret.position + MountForward() * 1000f, dt, out _);
             return;
         }
 
-        float dt = TickManager.TickDeltaTime;
-        float error = Slew(target, dt);
+        float error = Slew(target, dt, out bool inArc);
 
         // 장전은 WantsToFire보다 **위**에 있어야 한다. 방아쇠를 당기는 동안에만 차오르게
         // 하면, 아래 LineIsClear 주석이 약속하는 "막혀서 안 쏜 발은 _pending을 소모하지
@@ -300,14 +477,43 @@ public class Gun : Thing, IDamageable
         // 한꺼번에 쏟아지는 것을 막는다. 대신 틱당 최대 한 발 - 3600 RPM이 천장이다.
         _pending = Mathf.Min(_pending + roundsPerMinute / 60f * dt, 1f);
 
-        if (!WantsToFire)
+        if (!inArc)
+        {
+            Hold = HoldReason.OutOfArc;
             return;
+        }
+
+        if (!WantsToFire)
+        {
+            Hold = HoldReason.Trigger;
+            return;
+        }
 
         // LineIsClear가 맨 뒤인 것은 성능이 아니라 의미다. 앞의 둘이 통과했을 때만
         // "이 틱에 정말 쏜다"이고, 그때의 포신 방향이 탄이 실제로 갈 선이다.
         // 막혀서 안 쏜 발은 _pending을 소모하지 않으므로 사선이 열리는 순간 나간다.
-        if ((!AimNotRequired && error > fireArc) || _pending < 1f || !LineIsClear())
+        //
+        // 세 줄로 편 것은 단락 평가 순서를 그대로 두면서 이유를 갈라 적기 위해서다 -
+        // 조건 하나였을 때 셋이 전부 "포탑이 안 쏜다" 하나로 보였다.
+        if (!AimNotRequired && error > fireArc)
+        {
+            Hold = HoldReason.Slewing;
             return;
+        }
+
+        if (_pending < 1f)
+        {
+            Hold = HoldReason.Reloading;
+            return;
+        }
+
+        if (!LineIsClear())
+        {
+            Hold = HoldReason.LineBlocked;
+            return;
+        }
+
+        Hold = HoldReason.None;
 
         _pending -= 1f;
         Fire();
@@ -392,7 +598,7 @@ public class Gun : Thing, IDamageable
         direction = launch.sqrMagnitude > 1e-6f ? launch.normalized : barrel;
     }
 
-    private bool LineIsClear()
+    protected virtual bool LineIsClear()
     {
         if (owner == null)
             return true;
@@ -413,9 +619,46 @@ public class Gun : Thing, IDamageable
         return blocking == null || blocking.team != owner.team;
     }
 
-    /// <summary>포신을 목표 쪽으로 slewRate만큼 돌리고, 남은 조준 오차를 도 단위로 준다.</summary>
-    private float Slew(Vector2 target, float dt)
+    /// <summary>
+    /// 마운트 전방의 월드 방향 = 판 기준 배치 rot을 부모(판·선체)의 회전으로 돌린 것.
+    /// </summary>
+    private Vector2 MountForward()
     {
+        // 기준은 판이 아니라 **선체**다. 포는 판 밑으로 재부모화되는데(경사판이면 45도)
+        // 배치 rot은 선체 기준이라, 부모 판을 기준으로 돌리면 경사판 위 포의 사각이 45도 틀어진다.
+        Vector3 local = Quaternion.Euler(0f, 0f, _mountLocalZ) * Vector3.right;
+        Transform hull = owner != null ? owner.transform : transform.parent;
+        return hull != null
+            ? ((Vector2)hull.TransformVector(local)).normalized
+            : (Vector2)local;
+    }
+
+    /// <summary>Slew의 want와 같은 눈금(포신이 up이라 -90)으로 잰 마운트 전방.</summary>
+    private float MountWant()
+    {
+        Vector2 f = MountForward();
+        return Mathf.Atan2(f.y, f.x) * Mathf.Rad2Deg - 90f;
+    }
+
+    /// <summary>이 점이 사각 안인가. traverse 0이면 언제나 참.</summary>
+    private bool InArc(Vector2 worldPoint)
+    {
+        if (traverse <= 0f)
+            return true;
+
+        Vector2 d = worldPoint - (Vector2)_turret.position;
+        float want = Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg - 90f;
+        return Mathf.Abs(Mathf.DeltaAngle(MountWant(), want)) <= traverse;
+    }
+
+    /// <summary>
+    /// 포신을 목표 쪽으로 slewRate만큼 돌리고, 남은 조준 오차를 도 단위로 준다.
+    /// 사각 밖이면 한계각까지만 돌고 inArc가 false다 - 오차는 한계각 기준이라 포탑은
+    /// 거기 도달해 선다.
+    /// </summary>
+    private float Slew(Vector2 target, float dt, out bool inArc)
+    {
+        inArc = true;
         Vector2 toTarget = target - (Vector2)_turret.position;
 
         if (toTarget.sqrMagnitude < 1e-6f)
@@ -423,6 +666,18 @@ public class Gun : Thing, IDamageable
 
         // -90도: 포신이 transform.up이라 0도가 오른쪽이 아니라 위다
         float want = Mathf.Atan2(toTarget.y, toTarget.x) * Mathf.Rad2Deg - 90f;
+        float mount = traverse > 0f ? MountWant() : 0f;
+
+        if (traverse > 0f)
+        {
+            float off = Mathf.DeltaAngle(mount, want);
+
+            if (Mathf.Abs(off) > traverse)
+            {
+                inArc = false;
+                want = mount + Mathf.Clamp(off, -traverse, traverse);
+            }
+        }
 
         // **선회는 월드 기준이다. 안정화 마운트라서 그렇다.**
         //
@@ -439,6 +694,14 @@ public class Gun : Thing, IDamageable
         // 그 둘은 다른 질문이라 같은 좌표계일 이유가 없다.
         float have = _turret.eulerAngles.z;
         float next = Mathf.MoveTowardsAngle(have, want, slewRate * dt);
+
+        // **want를 자른 것만으로는 안 끝난다.** mount는 선체를 따라 매 틱 움직이는데
+        // MoveTowardsAngle은 지난 틱의 have에서 출발한다 - 배가 slewRate보다 빨리 돌면
+        // have가 "지난 틱 경계" 근처에 있다가 mount가 반대로 움직여, 거기서 이번 틱
+        // want로 가는 중간값(next)이 지금 사각을 넘어선 채로 찍힐 수 있다. 결과 next
+        // 자체를 다시 지금 mount 기준으로 자른다 - 화면에 실제로 걸리는 값이 이거다.
+        if (traverse > 0f)
+            next = mount + Mathf.Clamp(Mathf.DeltaAngle(mount, next), -traverse, traverse);
 
         _turret.rotation = Quaternion.Euler(0f, 0f, next);
 
@@ -498,6 +761,6 @@ public class Gun : Thing, IDamageable
         // 빈 이름이면 VfxOneShot이 알아서 무시한다. -90: 그래프가 +x로 뿜는데 포신은 +y다.
         // 수명 1초: 발사 연출은 순간이고, 3600 RPM이면 초당 60개가 태어난다 - 기본 4초로
         // 두면 동시 240개가 산다.
-        VfxOneShot.Play(muzzleVfx, muzzle, 1f, _turret.eulerAngles.z - 90f);
+        VfxOneShot.Play(muzzleVfx, muzzle, 1f, _turret.eulerAngles.z - 90f, muzzleFirePower, muzzleColor);
     }
 }

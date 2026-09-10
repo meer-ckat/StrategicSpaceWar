@@ -66,19 +66,28 @@ public static class SpallResolver
         [ReadOnly] public NativeArray<FragmentInput> inputs;
         [ReadOnly] public NativeArray<TraceWorld.JobEntry> world;
         [ReadOnly] public NativeArray<byte> active;
-        [WriteOnly] public NativeArray<TraceWorld.JobHit> results;
 
-        /// <summary>world는 용량대로 잡혀 있다 - 실제로 쓰는 것은 여기까지.</summary>
-        public int worldCount;
+        // NEW
+        [ReadOnly] public NativeArray<TraceWorld.JobHull> hulls;
+        public int hullCount;
+
+        [WriteOnly] public NativeArray<TraceWorld.JobHit> results;
 
         public void Execute(int index)
         {
             FragmentInput input = inputs[index];
+
             results[index] = TraceWorld.TraceJob(
-                world, active, worldCount, input.start, input.direction, input.range, input.mask);
+                world,
+                active,
+                hulls,
+                hullCount,
+                input.start,
+                input.direction,
+                input.range,
+                input.mask);
         }
     }
-
     private enum Kind { Miss, Armor, Module }
 
     private struct Event
@@ -429,16 +438,20 @@ public static class SpallResolver
     /// </summary>
     private static void ComputeParallel(int fragmentCount)
     {
+        // 세계 배열은 TraceWorld가 살려 두는 것이라 여기서 만들지도, 치우지도 않는다.
+        // **TempJob 할당보다 먼저** 부른다 - 여기서 던지면 try 밖이라 두 배열이 그대로
+        // 새고, 진짜 예외는 4프레임 뒤의 TempJob 누수 경고에 묻힌다.
+        TraceWorld.GetJobSnapshot(
+            out NativeArray<TraceWorld.JobEntry> world,
+            out NativeArray<byte> active,
+            out _,
+            out NativeArray<TraceWorld.JobHull> hulls,
+            out int hullCount);
+
         var inputs = new NativeArray<FragmentInput>(
             fragmentCount, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
         var results = new NativeArray<TraceWorld.JobHit>(
             fragmentCount, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-
-        // 세계 배열은 TraceWorld가 살려 두는 것이라 여기서 만들지도, 치우지도 않는다.
-        TraceWorld.GetJobSnapshot(
-            out NativeArray<TraceWorld.JobEntry> world,
-            out NativeArray<byte> active,
-            out int worldCount);
 
         try
         {
@@ -458,7 +471,10 @@ public static class SpallResolver
                 inputs = inputs,
                 world = world,
                 active = active,
-                worldCount = worldCount,
+
+                hulls = hulls,
+                hullCount = hullCount,
+
                 results = results,
             };
 
@@ -546,6 +562,7 @@ public static class SpallResolver
         var active = new NativeArray<byte>(2, Allocator.TempJob);
         var inputs = new NativeArray<FragmentInput>(3, Allocator.TempJob);
         var results = new NativeArray<TraceWorld.JobHit>(3, Allocator.TempJob);
+        var hulls = new NativeArray<TraceWorld.JobHull>(2, Allocator.TempJob);
 
         try
         {
@@ -572,6 +589,21 @@ public static class SpallResolver
             };
             active[0] = 1;
             active[1] = 1;
+            hulls[0] = new TraceWorld.JobHull
+            {
+                min = new float2(4.5f, -0.5f),
+                max = new float2(5.5f, 0.5f),
+                start = 0,
+                count = 1,
+            };
+
+            hulls[1] = new TraceWorld.JobHull
+            {
+                min = new float2(7.5f, -0.5f),
+                max = new float2(8.5f, 0.5f),
+                start = 1,
+                count = 1,
+            };
 
             inputs[0] = new FragmentInput
             {
@@ -600,7 +632,10 @@ public static class SpallResolver
                 inputs = inputs,
                 world = world,
                 active = active,
-                worldCount = world.Length,
+
+                hulls = hulls,
+                hullCount = hulls.Length,
+
                 results = results,
             }.Schedule(3, 1).Complete();
 
@@ -614,6 +649,7 @@ public static class SpallResolver
         {
             results.Dispose();
             inputs.Dispose();
+            hulls.Dispose();
             active.Dispose();
             world.Dispose();
         }
@@ -717,10 +753,7 @@ public static class SpallResolver
 
             case Kind.Module:
                 if (e.targetBody != null)
-                {
                     e.target.TakeDamage(e.energy);
-                    DamageLog.Hit(e.targetBody.transform, e.energy, e.target);
-                }
                 break;
         }
     }

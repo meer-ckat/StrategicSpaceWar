@@ -6,14 +6,8 @@
   ],
   "layer": "Module",
   "collider": {
-    "size": {
-      "x": 1.6,
-      "y": 1.6
-    },
-    "offset": {
-      "x": 0,
-      "y": 0
-    }
+    "size": { "x": 1.6, "y": 2 },
+    "offset": { "x": 0, "y": 0 }
   },
   "projectile": "백만볼트",
   "muzzleSpeed": 300000000,
@@ -21,9 +15,10 @@
   "aim": 0,
   "slewRate": 30,
   "fireArc": 2,
+  "traverse": 90,
   "AimNotRequired": true,
   "muzzleVfx": "Beam",
-  "muzzleOffset": 1.6,
+  "muzzleOffset": 2,
   "friendlyCheckRange": 200,
   "maxHealth": 500,
   "tint": {

@@ -129,7 +129,7 @@ public sealed class ContactView : MonoBehaviour
     private void Update()
     {
         // 격파 시퀀스 중에는 접촉 마커가 즉시 꺼진다. 선언을 그만두는 것이 곧 지우는 것이다.
-        if (GameManager.GuiHidden)
+        if (GameManager.GuiHidden || CutSceneManager.ControlsPlayer)
             return;
 
         ImGui.Begin();
@@ -151,6 +151,97 @@ public sealed class ContactView : MonoBehaviour
 
             Draw(cam, eye, other);
         }
+
+        DrawGate(cam, eye);
+        DrawSignals(cam, eye);
+        DrawRefitPrompt();
+    }
+
+    /// <summary>
+    /// 들판의 신호. **방위만이다** - 거리를 주면 항해가 지도 클릭이 된다. 같은 방위(<see cref="SignalFold"/>
+    /// 도 안)는 하나로 접어 "신호 ×3"이다 - 가장자리 마커는 같은 방향이면 같은 픽셀에 쌓인다.
+    /// 식별 거리 안에 들어오면 지운다: 거기서부터는 접촉 마커와 눈이 답한다.
+    /// </summary>
+    private static void DrawSignals(Camera cam, Vector2 eye)
+    {
+        Campaign campaign = Campaign.current;
+
+        if (campaign == null || campaign.Signals.Count == 0)
+            return;
+
+        _bearings.Clear();
+
+        foreach (Vector2 at in campaign.Signals)
+        {
+            Vector2 d = at - eye;
+
+            if (d.sqrMagnitude <= IdentifyRange * IdentifyRange)
+                continue;
+
+            _bearings.Add(Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg);
+        }
+
+        if (_bearings.Count == 0)
+            return;
+
+        _bearings.Sort();
+
+        int k = 0;
+
+        for (int i = 0; i < _bearings.Count;)
+        {
+            float first = _bearings[i];
+            int n = 1;
+
+            while (i + n < _bearings.Count && _bearings[i + n] - first <= SignalFold)
+                n++;
+
+            float mid = (first + _bearings[i + n - 1]) * 0.5f * Mathf.Deg2Rad;
+            Vector2 far = eye + new Vector2(Mathf.Cos(mid), Mathf.Sin(mid)) * SignalReach;
+
+            EdgeMarker(cam, far, "signal_" + k, n > 1 ? $"신호 ×{n}" : "신호", StyleFor(UnknownColor, ref _unknownStyle));
+
+            i += n;
+            k++;
+        }
+    }
+
+    private const float SignalFold = 6f;
+    private const float SignalReach = 100000f;   // 화면 밖 아무 곳. EdgeMarker가 가장자리로 자른다
+    private static readonly System.Collections.Generic.List<float> _bearings = new();
+
+    /// <summary>
+    /// 들판의 출구. 센서 거리와 무관하게 언제나 그린다 - 60 km 밖이라도 방향은 알아야 항해가 된다.
+    /// </summary>
+    private static void DrawGate(Camera cam, Vector2 eye)
+    {
+        Vector2? gate = Campaign.current?.Gate;
+
+        if (gate == null)
+            return;
+
+        float distance = Vector2.Distance(eye, gate.Value);
+        string text = distance >= 1000f ? $"출구  {distance / 1000f:0.0} km" : $"출구  {distance:0} m";
+
+        EdgeMarker(cam, gate.Value, "gate", text, StyleFor(FriendlyColor, ref _friendlyStyle));
+    }
+
+    private static GUIStyle _promptStyle;
+
+    /// <summary>정비 잔해 옆. 한 줄이면 된다 - 키 하나를 알리는 것이 전부다.</summary>
+    private static void DrawRefitPrompt()
+    {
+        if (Campaign.current == null || !Campaign.current.RefitSpotNear || RefitScreen.IsOpen)
+            return;
+
+        const float w = 160f, h = 26f;
+        GUIBoxLabel prompt = ImGui.BoxLabel(
+            "refit_prompt",
+            new Rect((GUIManager.LogicalWidth - w) * 0.5f, GUIManager.LogicalHeight - 120f, w, h),
+            "R  정비",
+            StyleFor(FriendlyColor, ref _promptStyle));
+
+        prompt.Layer = MarkerLayer;
     }
 
     /// <summary>
@@ -163,6 +254,11 @@ public sealed class ContactView : MonoBehaviour
         float distance = Vector2.Distance(eye, at);
 
         if (distance > SensorRange)
+            return;
+
+        // 잠든 배는 식별 거리 밖에서 안 그린다. 잔해밭 속 매복이 1200 m에서 "접촉 ×3"으로
+        // 읽히면 겉과 속이 같은 것이다.
+        if (other.dormant && distance > IdentifyRange)
             return;
 
         Vector3 screen = cam.WorldToScreenPoint(at);
@@ -187,6 +283,25 @@ public sealed class ContactView : MonoBehaviour
             return;
         }
 
+        string text = identified
+            ? $"{Name(other)}  {distance:0} m"
+            : $"접촉  {distance:0} m";
+
+        GUIStyle style = !identified ? StyleFor(UnknownColor, ref _unknownStyle)
+            : other.team == Ship.Team.Enemy ? StyleFor(HostileColor, ref _hostileStyle)
+            : StyleFor(FriendlyColor, ref _friendlyStyle);
+
+        // id는 GetInstanceID다. Thing.stableId는 def의 배치 인덱스라 배끼리 겹친다 -
+        // 그걸 쓰면 두 접촉이 같은 위젯을 두고 매 프레임 싸운다.
+        EdgeMarker(cam, at, Track(other).id, text, style);
+    }
+
+    /// <summary>화면 가장자리의 브래킷 하나. 화면 안 좌표가 들어오면 그 자리에 그대로 그린다.</summary>
+    private static void EdgeMarker(Camera cam, Vector2 at, string id, string text, GUIStyle style)
+    {
+        Vector3 screen = cam.WorldToScreenPoint(at);
+        Vector2 logical = (Vector2)screen / GUIManager.UiScale;
+
         // GUI 좌표는 y가 아래로 증가한다. 스크린 좌표는 위로 증가하므로 여기서 뒤집는다.
         Vector2 point = new(logical.x, GUIManager.LogicalHeight - logical.y);
 
@@ -199,22 +314,7 @@ public sealed class ContactView : MonoBehaviour
         float y = Mathf.Clamp(point.y - MarkerHeight * 0.5f,
             EdgeInset, GUIManager.LogicalHeight - MarkerHeight - EdgeInset);
 
-        string text = identified
-            ? $"{Name(other)}  {distance:0} m"
-            : $"접촉  {distance:0} m";
-
-        GUIStyle style = !identified ? StyleFor(UnknownColor, ref _unknownStyle)
-            : other.team == Ship.Team.Enemy ? StyleFor(HostileColor, ref _hostileStyle)
-            : StyleFor(FriendlyColor, ref _friendlyStyle);
-
-        // id는 GetInstanceID다. Thing.stableId는 def의 배치 인덱스라 배끼리 겹친다 -
-        // 그걸 쓰면 두 접촉이 같은 위젯을 두고 매 프레임 싸운다.
-        GUIBoxLabel marker = ImGui.BoxLabel(
-            Track(other).id,
-            new Rect(x, y, MarkerWidth, MarkerHeight),
-            text,
-            style);
-
+        GUIBoxLabel marker = ImGui.BoxLabel(id, new Rect(x, y, MarkerWidth, MarkerHeight), text, style);
         marker.Layer = MarkerLayer;
     }
 

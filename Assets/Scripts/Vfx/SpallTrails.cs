@@ -14,7 +14,7 @@ using UnityEngine;
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public sealed class SpallTrails : MonoBehaviour
 {
-    public enum Kind { Miss = 0, Armor = 1, Module = 2, Vent = 3 }
+    public enum Kind { Miss = 0, Armor = 1, Module = 2, Vent = 3, Shell = 4 }
 
     /// <summary>
     /// 선분 상한. 한 발이 만드는 파편은 SpallMaxCount x MaxSpallDepth로 막혀 있지만,
@@ -28,12 +28,29 @@ public sealed class SpallTrails : MonoBehaviour
     [SerializeField] private float width = 0.1f;      // m
     [SerializeField] private int sortingOrder = 100;
 
+    /// <summary>
+    /// 탄의 꼬리만 따로 짧게. 파편과 같은 0.3초를 주면 1400 m/s짜리 탄이 420 m짜리
+    /// 선을 끌고 다녀서, CIWS가 초당 23발을 쏘는 순간 화면이 통째로 선이 된다.
+    /// </summary>
+    [SerializeField] private float shellLifetime = 0.05f;
+
+    /// <summary>
+    /// 선이 가져야 할 최소 화면 두께(px). **줌아웃하면 0.1 m가 서브픽셀이라 그냥 안 보인다** -
+    /// 탄이 안 보인다는 것도 파편선이 안 보인다는 것도 같은 원인 하나다. 월드 굵기와
+    /// 이 값 중 큰 쪽을 쓰므로, 가까이서는 실제 굵기 그대로고 멀어질 때만 두꺼워진다.
+    /// </summary>
+    [SerializeField] private float minScreenWidth = 2.2f;
+
     [Header("Colour")]
     [SerializeField] private Color armorHit = new(1f, 0.92f, 0.65f, 1f);
     [SerializeField] private Color moduleHit = new(1f, 0.55f, 0.25f, 1f);
 
     /// <summary>맞은 것만 그리면 부채꼴이 안 보이고 "왜 쟤만 맞았지"가 남는다.</summary>
     [SerializeField] private Color miss = new(0.6f, 0.65f, 0.7f, 0.35f);
+
+    /// <summary>탄의 꼬리. 예광 색과 따로 두는 이유는 이게 def마다 갈리면 안 되기 때문이다 -
+    /// 이 선이 답하는 질문은 "무엇이 날아갔나"가 아니라 "어디로 지나갔나"다.</summary>
+    [SerializeField] private Color shell = new(1f, 0.86f, 0.55f, 0.75f);
 
     /// <summary>파공에서 새는 공기. 탄과 헷갈리면 안 되니 따뜻한 계열을 다 피한다 - 얼음
     /// 낀 김 같은 차가운 흰색.</summary>
@@ -132,7 +149,16 @@ public sealed class SpallTrails : MonoBehaviour
     {
         float now = Time.time;
         float life = Mathf.Max(1e-3f, lifetime);
-        float half = width * 0.5f;
+        float shellLife = Mathf.Max(1e-3f, shellLifetime);
+
+        // 화면 한 픽셀이 몇 미터인가. 직교 카메라라 orthographicSize x 2가 세로 높이다.
+        Camera cam = Camera.main;
+        float worldPerPixel = cam != null && cam.orthographic && Screen.height > 0
+            ? cam.orthographicSize * 2f / Screen.height
+            : 0f;
+
+        float drawn = Mathf.Max(width, minScreenWidth * worldPerPixel);
+        float half = drawn * 0.5f;
 
         for (int i = 0; i < Capacity; i++)
         {
@@ -142,7 +168,10 @@ public sealed class SpallTrails : MonoBehaviour
             Vector2 delta = _to[i] - _from[i];
             float length = delta.magnitude;
 
-            if (age >= life || length < 1e-5f)
+            // 탄만 짧게 산다. 판정과 색을 같은 수명으로 읽어야 아래 fade가 안 어긋난다.
+            float thisLife = _kind[i] == Kind.Shell ? shellLife : life;
+
+            if (age >= thisLife || length < 1e-5f)
             {
                 // 죽은 선분: 사각형을 한 점으로 접는다. 면적이 0이라 아무것도 안 그려진다.
                 _vertices[v + 0] = _vertices[v + 1] = _vertices[v + 2] = _vertices[v + 3] =
@@ -163,11 +192,12 @@ public sealed class SpallTrails : MonoBehaviour
                 Kind.Armor => armorHit,
                 Kind.Module => moduleHit,
                 Kind.Vent => vent,
+                Kind.Shell => shell,
                 _ => miss,
             };
 
             // 제곱으로 죽여야 '번쩍'으로 읽힌다. 선형이면 흐릿하게 오래 남아 지저분하다.
-            float fade = 1f - age / life;
+            float fade = 1f - age / thisLife;
             c.a *= fade * fade;
 
             _colours[v + 0] = _colours[v + 1] = _colours[v + 2] = _colours[v + 3] = c;

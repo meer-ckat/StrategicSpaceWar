@@ -109,6 +109,31 @@ public static class RunStateSelfTest
                 File.ReadAllText(prog) == "76",
                 "완전한 세이브는 ValidateOrClear가 건드리지 않음"
             );
+
+
+            // ---------------------------------------------------------
+            // 5) 정비 플래그 왕복
+            // SetPendingFork(refit) → PendingRefit; CommitLane이 같이 지운다.
+            // 장 경계(CommitChapter)도 플래그를 들고, ClearPendingRefit이 지운다.
+            // ---------------------------------------------------------
+
+            ClearTestFiles();
+
+            RunState.SetPendingFork(0, refit: true);
+            Check(RunState.PendingRefit && RunState.PendingLeg == 0,
+                "SetPendingFork(refit)는 PendingRefit을 켠다");
+
+            RunState.CommitLane(0, 1);
+            Check(!RunState.PendingRefit && RunState.PendingLeg < 0,
+                "CommitLane이 pendingLeg와 pendingRefit을 한 번에 지운다");
+
+            RunState.CommitChapter(2, refit: true);
+            Check(RunState.PendingRefit && RunState.Sector == 2 && RunState.Leg == 0,
+                "CommitChapter(refit)는 장을 넘기면서 정비 플래그를 든다");
+
+            RunState.ClearPendingRefit();
+            Check(!RunState.PendingRefit,
+                "ClearPendingRefit이 지운다");
         }
         finally
         {

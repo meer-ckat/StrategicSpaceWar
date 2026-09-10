@@ -18,8 +18,12 @@ using UnityEngine;
 /// </summary>
 public sealed class BackPlateView : MonoBehaviour
 {
-    // hull png가 이미 어두운 회색조라 0.5를 곱하면 우주 배경에 묻힌다.
-    private const float MineDarken = 0.35f;
+    // 내 배 후면의 어둡기. 화면에 남는 밝기는 (1 - 이 값)이다.
+    //
+    // **0.35(밝기 65%)에서 내려왔다.** 그때는 hull png가 어두운 회색조라 더 누르면 우주
+    // 배경에 묻힌다고 봤는데, 실제로는 살아 있는 판과 구분이 안 되는 쪽이 문제였다 -
+    // 후면은 "여기 뚫렸다"를 말해야 하는 면이라 판보다 확실히 어두워야 한다.
+    private const float MineDarken = 0.75f;
     private const int MineOrder = -10;
 
     private const float SkinDarken = 0f;
@@ -410,7 +414,8 @@ public sealed class BackPlateView : MonoBehaviour
             meshType: SpriteMeshType.FullRect);
 
         // 소속 판정. 잔해·Hulk는 Ship이 없으니 저절로 외피 쪽으로 떨어진다.
-        overlay.mine = false;//structure.TryGetComponent(out Ship ship) && ship.IsPlayerControlled;
+        overlay.mine =
+            structure.TryGetComponent(out Ship ship) && ship.IsPlayerControlled;
 
         overlay.renderer = go.AddComponent<SpriteRenderer>();
         overlay.renderer.sprite = overlay.sprite;

@@ -35,6 +35,13 @@ public sealed class ShipStatusHud : MonoBehaviour
     private static readonly Color LeadColor =
         new(0.78f, 0.90f, 1.00f, 0.60f);
 
+    /// <summary>
+    /// 미사일 잠금. 계기의 파랑에서 유일하게 벗어나는 색이다 - 리드 마커와 같은 십자
+    /// 모양이라 색으로 갈리지 않으면 둘이 섞인다.
+    /// </summary>
+    private static readonly Color LockColor =
+        new(1.00f, 0.45f, 0.30f, 0.85f);
+
     private const float Margin = 16f;
 
     private const float AirframeWidth = 300f;
@@ -43,11 +50,23 @@ public sealed class ShipStatusHud : MonoBehaviour
     private const float FlightWidth = 240f;
     private const float FlightHeight = 122f;
 
-    private const float WeaponWidth = 300f;
+    private const float WeaponWidth = 340f;
+
+    /// <summary>WPN 행의 정지 사유 칸. "LINE BLOCKED"가 제일 긴 문자열이다.</summary>
+    private const float HoldWidth = 100f;
+
+    /// <summary>WPN 행의 문 수 칸.</summary>
+    private const float CountWidth = 45f;
 
     private const float HeaderHeight = 26f;
     private const float RowHeight = 21f;
     private const float Padding = 10f;
+
+    // "SUPERDUPER ENGINE OUT"이 제일 긴 줄이다 - 모듈 이름이 defName 그대로 오므로
+    // 판정 문구(SHELL SHATTERED)보다 길어질 수 있다.
+    private const float GutterWidth = 250f;
+    private const float GutterRowHeight = 20f;
+    private const float GutterTagWidth = 38f;
 
     private const float VelocityPixelsPerSpeed = 2f;
     private const float MaxVelocityLineLength = 180f;
@@ -58,17 +77,20 @@ public sealed class ShipStatusHud : MonoBehaviour
 
     private const float LeadMarkerSize = 6f;
 
-    private const float MinVisibleSpeed = 0.05f;
+    /// <summary>잠금 십자. 팔이 리드 마커보다 길고 가운데가 비어서 표적을 안 가린다.</summary>
+    private const float LockMarkerArm = 16f;
+    private const float LockMarkerGap = 5f;
 
-    // 탄약 시스템이 아직 없다 - 가짜 숫자 대신 지금의 사실(무한)을 적는다.
-    // 실제 탄약이 들어오면 여기만 교체하면 된다.
-    private const string InfiniteAmmo = "∞";
+    /// <summary>화면 밖 표지를 접을 때 가장자리에서 띄우는 여백(실제 픽셀).</summary>
+    private const float MarkerEdgeInset = 8f;
+
+    private const float MinVisibleSpeed = 0.05f;
 
     private readonly List<WeaponHudEntry> _weapons = new();
 
     private static GUIStyle _titleStyle;
+    private static GUIStyle _titleRightStyle;
     private static GUIStyle _leftStyle;
-    private static GUIStyle _centerStyle;
     private static GUIStyle _rightStyle;
 
 
@@ -76,6 +98,12 @@ public sealed class ShipStatusHud : MonoBehaviour
     {
         public string projectile;
         public int guns;
+
+        /// <summary>이 줄에서 제일 무거운 정지 사유. <see cref="anyReady"/>면 안 그린다.</summary>
+        public Gun.HoldReason hold;
+
+        /// <summary>한 문이라도 쏘고 있으면 이 줄은 멀쩡한 것이다.</summary>
+        public bool anyReady;
     }
 
 
@@ -96,6 +124,12 @@ public sealed class ShipStatusHud : MonoBehaviour
     private void OnGUI()
     {
         if (Event.current.type != EventType.Repaint)
+            return;
+
+        // 함선 선택 화면 위로 계기판이 뚫고 나온다. 이 파일은 GUIManager 밖에서 GUI.*를
+        // 직접 부르므로 ImGui Layer로는 못 가린다 - 다른 OnGUI 콜백이라 실행 순서가
+        // 곧 그리기 순서다. 화면이 열려 있으면 그리지 않는 것이 유일한 문이다.
+        if (ShipSelectScreen.IsOpen || LogisticsScreen.IsOpen || RefitScreen.IsOpen || CutSceneManager.ControlsPlayer)
             return;
 
         Ship ship = GameManager.Player();
@@ -119,6 +153,7 @@ public sealed class ShipStatusHud : MonoBehaviour
             DrawVelocityVector(ship, cam);
             DrawGunAimVectors(ship, cam);
             DrawLeadMarkers(ship, cam);
+            DrawLockMarkers(ship, cam);
         }
 
         // 이 파일은 GUIManager를 거치지 않고 GUI.*를 직접 부른다 - 그 중앙 OnGUI가
@@ -133,6 +168,8 @@ public sealed class ShipStatusHud : MonoBehaviour
             GUI.matrix = Matrix4x4.Scale(new Vector3(uiScale, uiScale, 1f));
 
         // 소등 순서: 무장 -> 비행 -> 함체. 선체 그림이 마지막 숨이다.
+        if (BeginSection(ship, 0)) DrawHitGutter();
+        if (BeginSection(ship, 0)) DrawContactPanel(ship);
         if (BeginSection(ship, 2)) DrawAirframePanel(ship);
         if (BeginSection(ship, 1)) DrawFlightPanel(ship);
         if (BeginSection(ship, 0)) DrawWeaponPanel(ship);
@@ -233,10 +270,141 @@ public sealed class ShipStatusHud : MonoBehaviour
 
 
     // ------------------------------------------------------------
+    // HIT GUTTER
+    // ------------------------------------------------------------
+
+    /// <summary>
+    /// 관통 판정 몇 줄. **화면 구석에 쌓고 위로 밀어 올린다** - 중앙 토스트로 띄우면
+    /// 교전 한복판에서 시야를 가리고, 워썬더 해군 유저의 불만이 정확히 그것이었다.
+    /// AIRFRAME 바로 위에 붙는 것은 그 패널이 "내 배가 어떻게 되고 있나"이고 이 줄들이
+    /// 그 이유라서다.
+    ///
+    /// 색은 셋뿐이다: 세운 것은 흐리게, 내가 뚫은 것은 밝게, 내가 뚫린 것은 빨갛게.
+    /// 방향은 태그(OUT/IN)가 말하므로 색까지 방향을 또 말할 필요가 없다.
+    /// </summary>
+    private static void DrawHitGutter()
+    {
+        float now = Time.time;
+
+        // AIRFRAME 패널의 윗변. 여기서부터 위로 쌓는다.
+        float top = GUIManager.LogicalHeight - AirframeHeight - Margin;
+
+        for (int i = 0; i < HitReadout.Count; i++)
+        {
+            HitReadout.Line line = HitReadout.Get(i);
+
+            float age = now - line.time;
+
+            // 목록이 시간순이라 하나가 늙었으면 그 뒤는 전부 늙었다.
+            if (age >= HitReadout.HoldSeconds)
+                break;
+
+            float alpha = Mathf.Clamp01(
+                (HitReadout.HoldSeconds - age) / HitReadout.FadeSeconds);
+
+            Color color =
+                line.minor ? DimColor :
+                line.incoming ? CriticalColor : HudColor;
+
+            color.a *= alpha;
+
+            Color tagColor = DimColor;
+            tagColor.a *= alpha;
+
+            Color bg = PanelBg;
+            bg.a *= alpha;
+
+            Rect row = new(
+                Margin,
+                top - Padding - GutterRowHeight * (i + 1),
+                GutterWidth,
+                GutterRowHeight
+            );
+
+            DrawRect(row, bg);
+
+            DrawText(
+                new Rect(row.x + Padding, row.y, GutterTagWidth, row.height),
+                line.incoming ? "IN" : "OUT",
+                tagColor,
+                _leftStyle
+            );
+
+            DrawText(
+                new Rect(
+                    row.x + Padding + GutterTagWidth,
+                    row.y,
+                    row.width - Padding * 2f - GutterTagWidth,
+                    row.height
+                ),
+                // 대문자는 여기서 만든다 - 모듈 이름은 defName이라 "Fuel Tank"처럼
+                // 섞여 있고, 판정 문구는 이미 대문자다. 명중마다 도는 자리가 아니라
+                // 보이는 다섯 줄만이라 문자열 값이 여기서는 싸다.
+                (line.count > 1 ? $"{line.text} x{line.count}" : line.text)
+                    .ToUpperInvariant(),
+                color,
+                _leftStyle
+            );
+        }
+    }
+
+
+    // ------------------------------------------------------------
     // AIRFRAME
     // ------------------------------------------------------------
 
     private static void DrawAirframePanel(Ship ship)
+        => DrawGridPanel(
+            ship,
+            new Rect(
+                Margin,
+                GUIManager.LogicalHeight - AirframeHeight - Margin,
+                AirframeWidth,
+                AirframeHeight
+            ),
+            "AIRFRAME",
+            showHits: true);
+
+
+    /// <summary>
+    /// 적함 미니뷰. **줌아웃이 아니라 두 번째 프레임이다** - 화면 폭이 36~64 m인데
+    /// FightDistance가 120~420 m라 적이 화면에 들어오는 경우가 구조적으로 없다. 넓히면
+    /// 서브셀이 2px이 돼서 이 게임의 핵심이 안 보인다(Cosmoteer가 같은 문제를 PiP로 풀었다).
+    ///
+    /// 표적은 <c>NearestHostile</c> 하나다 - 포탑이 겨누는 것도 FLIGHT의 접근속도가
+    /// 재는 것도 같은 배라, 세 자리가 다른 적을 말하면 화면이 거짓말을 한다.
+    ///
+    /// 그림은 AIRFRAME과 **같은 함수**다. 적함 손상을 따로 그리기 시작하면 내 배와
+    /// 적 배의 "부서졌다"가 두 벌이 되고, 언젠가 한쪽만 고친다.
+    /// </summary>
+    private static void DrawContactPanel(Ship ship)
+    {
+        Ship target = ship.NearestHostile();
+
+        if (target == null)
+            return;
+
+        string name = string.IsNullOrEmpty(target.shipDefName)
+            ? target.name
+            : target.shipDefName;
+
+        DrawGridPanel(
+            target,
+            new Rect(Margin, Margin, AirframeWidth, AirframeHeight),
+            $"CONTACT  {name.ToUpperInvariant()}",
+            showHits: false);
+    }
+
+
+    /// <summary>
+    /// 설계도 격자를 그리고 죽은 칸을 빨갛게 칠한다. 내 배(AIRFRAME)와 적함(CONTACT)이
+    /// 같은 그림을 쓴다.
+    ///
+    /// **칸마다 DrawRect다.** 배 한 척이 수백 칸이라 두 척이면 그만큼 두 배인데,
+    /// 텍스처로 굽는 길(ShipSelectScreen.BuildSchematic)은 판이 죽을 때마다 다시 구워야
+    /// 해서 여기 오면 오히려 비싸다. 프레임이 모자라면 그때 손상 마스크만 굽는다.
+    /// </summary>
+    private static void DrawGridPanel(Ship ship, Rect panel, string title, bool showHits = false)
     {
         ShipGrid.Map design = ship.DesignMap;
         ShipGrid.Map current = ship.Map;
@@ -244,14 +412,52 @@ public sealed class ShipStatusHud : MonoBehaviour
         if (design == null || current == null)
             return;
 
-        Rect panel = new(
-            Margin,
-            GUIManager.LogicalHeight - AirframeHeight - Margin,
-            AirframeWidth,
-            AirframeHeight
-        );
+        int currentWidth = current.cells.GetLength(0);
+        int currentHeight = current.cells.GetLength(1);
 
-        DrawPanel(panel, "AIRFRAME");
+        // Stamp는 살아 있는 판의 bounding으로 origin을 다시 잡는다 - 가장자리 판이
+        // 죽으면 current 격자가 통째로 밀린다. 칸 번호가 아니라 배 로컬 위치가 같은
+        // 자리다: design의 (0,0)이 current의 어느 칸인지가 곧 그 차이다.
+        // (ToLocal/ToCell이 각자의 origin을 이미 반영한다.)
+        Vector2Int shift = current.ToCell(design.ToLocal(0, 0));
+
+        // **세는 술어와 그리는 술어가 하나여야 한다.** 헤더 숫자와 모자이크가 갈라지면
+        // 어느 쪽을 믿어야 하는지가 사라지고, 그게 계기가 죽는 방식이다.
+        // HullStructure.AliveCount를 빌려 쓰지 않는 이유도 이것이다 - 저쪽은 설계도가
+        // 아니라 실물을 세므로 이 그림과 분모가 다르다.
+        bool Alive(int col, int row)
+        {
+            int c = col + shift.x;
+            int r = row + shift.y;
+
+            return c >= 0 && r >= 0 && c < currentWidth && r < currentHeight
+                && ShipGrid.Solid(current.cells[c, r]);
+        }
+
+        int total = 0;
+        int alive = 0;
+
+        for (int col = 0; col < design.width; col++)
+        {
+            for (int row = 0; row < design.height; row++)
+            {
+                if (!ShipGrid.Solid(design.cells[col, row]))
+                    continue;
+
+                total++;
+
+                if (Alive(col, row))
+                    alive++;
+            }
+        }
+
+        float intact = total > 0 ? (float)alive / total : 1f;
+
+        DrawPanel(
+            panel,
+            title,
+            $"{alive}/{total}",
+            intact >= 0.66f ? HudColor : intact >= 0.33f ? WarnColor : CriticalColor);
 
         Rect area = new(
             panel.x + Padding,
@@ -283,35 +489,12 @@ public sealed class ShipStatusHud : MonoBehaviour
         float drawSize =
             Mathf.Max(0.5f, cellSize - gap);
 
-        int currentWidth =
-            current.cells.GetLength(0);
-
-        int currentHeight =
-            current.cells.GetLength(1);
-
-        // Stamp는 살아 있는 판의 bounding으로 origin을 다시 잡는다 - 가장자리 판이
-        // 죽으면 current 격자가 통째로 밀린다. 칸 번호가 아니라 배 로컬 위치가 같은
-        // 자리다: design의 (0,0)이 current의 어느 칸인지가 곧 그 차이다.
-        // (ToLocal/ToCell이 각자의 origin을 이미 반영한다.)
-        Vector2Int shift =
-            current.ToCell(design.ToLocal(0, 0));
-
         for (int col = 0; col < design.width; col++)
         {
             for (int row = 0; row < design.height; row++)
             {
                 if (!ShipGrid.Solid(design.cells[col, row]))
                     continue;
-
-                int currentCol = col + shift.x;
-                int currentRow = row + shift.y;
-
-                bool alive =
-                    currentCol >= 0 &&
-                    currentRow >= 0 &&
-                    currentCol < currentWidth &&
-                    currentRow < currentHeight &&
-                    ShipGrid.Solid(current.cells[currentCol, currentRow]);
 
                 DrawRect(
                     new Rect(
@@ -320,10 +503,119 @@ public sealed class ShipStatusHud : MonoBehaviour
                         drawSize,
                         drawSize
                     ),
-                    alive ? HudColor : CriticalColor
+                    Alive(col, row) ? HudColor : CriticalColor
                 );
             }
         }
+
+        if (!showHits)
+            return;
+
+        // **칸 루프가 아니라 마크를 돈다.** 칸마다 마크를 조회하면 이사리비(95x55 = 5,225칸)
+        // 에서 프레임당 12만 번 비교가 된다. 마크는 최대 24개라 이쪽이 세 자릿수 싸다.
+        // 덧그리는 사각형이 최대 24개 느는데, 위 루프가 이미 수천 개를 그리므로 묻힌다.
+        float now = Time.time;
+
+        foreach (DamageLog.ArmorMark mark in DamageLog.Armors)
+        {
+            if (mark.ship != ship)
+                continue;
+
+            float alpha = HitEnvelope(now - mark.time, HitLife(mark));
+
+            if (alpha <= 0f)
+                continue;
+
+            int col = mark.cell.x;
+            int row = mark.cell.y;
+
+            if (col < 0 || row < 0 || col >= design.width || row >= design.height)
+                continue;
+
+            // 아래 칸 색과 섞는다 - 온셋(alpha 1)만 완전히 덮고 잔광에서는 선체 상태가
+            // 비쳐 보인다. 덮어쓰기만 하면 "살았나 죽었나"를 그 시간 동안 못 읽는다.
+            Color under = Alive(col, row) ? HudColor : CriticalColor;
+
+            DrawRect(
+                new Rect(
+                    startX + col * cellSize,
+                    startY + row * cellSize,
+                    drawSize,
+                    drawSize
+                ),
+                Color.Lerp(under, HitColor(mark), alpha)
+            );
+        }
+    }
+
+    // ------------------------------------------------------------
+    // 명중 하이라이트
+    // ------------------------------------------------------------
+
+    /// <summary>
+    /// 관통이 빨강이 아닌 이유: 죽은 칸이 이미 CriticalColor(빨강)라 겹치면 안 보인다.
+    /// 관통은 판을 죽이는 일이 잦아서 그 충돌이 상시다. 백열은 산 칸(연청)·죽은 칸(빨강)
+    /// 어느 배경에서도 튀고, 적열(Heat)의 은유와도 맞는다.
+    ///
+    /// 도탄은 HUD에 이미 있는 WarnColor를 그대로 쓴다 - 색 어휘를 안 늘린다.
+    /// </summary>
+    private static Color HitColor(in DamageLog.ArmorMark mark)
+    {
+        // 충각은 판정 셋과 다른 사건이다 - 뚫린 것도 튕긴 것도 아니고 갈리는 것이라
+        // 주황으로 따로 둔다. 접촉하는 동안 계속 켜져 있으므로 채도를 낮게 잡는다.
+        if (mark.ram)
+            return new Color(1.00f, 0.55f, 0.20f, 1f);
+
+        return mark.outcome switch
+        {
+            HitOutcome.Penetrated => new Color(1.00f, 0.98f, 0.92f, 1f),
+            HitOutcome.Ricochet => WarnColor,
+            _ => new Color(0.35f, 0.85f, 1.00f, 1f),
+        };
+    }
+
+    /// <summary>
+    /// 판정마다 다른 수명. **색이 아닌 둘째 채널이다** - 이사리비는 셀이 2.1px이라
+    /// 테두리도 아이콘도 못 그린다. 색을 못 읽어도 "오래 남았다 = 나쁜 일"이 남는다.
+    /// </summary>
+    private static float HitLife(in DamageLog.ArmorMark mark)
+    {
+        // 충각은 짧다. 접촉 중에는 매 틱 갱신돼서 계속 켜져 있고, 떨어지는 순간
+        // 꺼져야 "지금 긁히는 중"이 정확히 읽힌다 - 길게 잡으면 이미 떨어진 뒤에도
+        // 남아서 접촉이 끝난 줄 모른다.
+        if (mark.ram)
+            return 0.25f;
+
+        return mark.outcome switch
+        {
+            HitOutcome.Penetrated => 1.2f,
+            HitOutcome.Ricochet => 0.3f,
+            _ => 0.6f,
+        };
+    }
+
+    /// <summary>
+    /// 강하게 한 번 나타나고 조용히 남는다. **깜빡이지 않는다** - 6.7Hz 점멸은 주의를
+    /// 납치해서 본 작업(조준·기동)을 방해하고, 빨강 고대비 다중 셀 동시 점멸은 광과민성
+    /// 조건에 가까워질 이유가 없다. 시선을 끈 뒤에는 salience를 유지할 필요가 없다.
+    /// </summary>
+    private static float HitEnvelope(float age, float life)
+    {
+        if (age < 0f || age >= life)
+            return 0f;
+
+        if (age < 0.10f)
+            return age / 0.10f;          // 온셋
+
+        if (age < 0.25f)
+            return 1f;                   // 읽히는 구간
+
+        float fadeStart = Mathf.Max(0.25f, life - 0.35f);
+
+        if (age < fadeStart)
+            return 0.55f;                // 잔광
+
+        return Mathf.Lerp(0.55f, 0f, (age - fadeStart) / Mathf.Max(0.01f, life - fadeStart));
     }
 
 
@@ -511,7 +803,16 @@ public sealed class ShipStatusHud : MonoBehaviour
             height
         );
 
-        DrawPanel(panel, "WPN");
+        int guns = 0;
+
+        for (int i = 0; i < _weapons.Count; i++)
+            guns += _weapons[i].guns;
+
+        DrawPanel(
+            panel,
+            "WPN",
+            guns > 0 ? $"{guns}" : null,
+            guns > 0 ? HudColor : CriticalColor);
 
         float y =
             panel.y + HeaderHeight;
@@ -548,7 +849,7 @@ public sealed class ShipStatusHud : MonoBehaviour
                 new Rect(
                     x,
                     y,
-                    width - 100f,
+                    width - CountWidth - HoldWidth,
                     RowHeight
                 ),
                 entry.projectile,
@@ -556,26 +857,31 @@ public sealed class ShipStatusHud : MonoBehaviour
                 _leftStyle
             );
 
-            DrawText(
-                new Rect(
-                    x + width - 100f,
-                    y,
-                    45f,
-                    RowHeight
-                ),
-                $"×{entry.guns}",
-                DimColor,
-                _centerStyle
-            );
+            // 한 문이라도 쏘고 있으면 빈칸이다. 멀쩡한 것에 이름표를 붙이면 이름표가
+            // 배경이 되고, 진짜 막혔을 때 그것이 안 보인다.
+            if (!entry.anyReady)
+            {
+                DrawText(
+                    new Rect(
+                        x + width - CountWidth - HoldWidth,
+                        y,
+                        HoldWidth,
+                        RowHeight
+                    ),
+                    HoldLabel(entry.hold),
+                    entry.hold >= Gun.HoldReason.LineBlocked ? WarnColor : DimColor,
+                    _leftStyle
+                );
+            }
 
             DrawText(
                 new Rect(
-                    x + width - 55f,
+                    x + width - CountWidth,
                     y,
-                    55f,
+                    CountWidth,
                     RowHeight
                 ),
-                InfiniteAmmo,
+                $"×{entry.guns}",
                 DimColor,
                 _rightStyle
             );
@@ -626,20 +932,62 @@ public sealed class ShipStatusHud : MonoBehaviour
 
                 entry.guns++;
 
+                Merge(ref entry, gun.Hold);
+
                 _weapons[found] = entry;
             }
             else
             {
-                _weapons.Add(
-                    new WeaponHudEntry
-                    {
-                        projectile = projectile,
-                        guns = 1
-                    }
-                );
+                WeaponHudEntry entry = new()
+                {
+                    projectile = projectile,
+                    guns = 1
+                };
+
+                Merge(ref entry, gun.Hold);
+
+                _weapons.Add(entry);
             }
         }
     }
+
+
+    /// <summary>
+    /// 포 한 문의 사유를 줄에 접는다. **제일 무거운 것 하나만 남긴다** - 열두 문이
+    /// 저마다 다른 이유로 멈춰 있어도 함장이 할 일은 하나고, 그것은 제일 큰 이유다.
+    /// <see cref="Gun.HoldReason"/>의 선언 순서가 그 무게다.
+    ///
+    /// 세는 대신 최댓값인 이유: 여섯 문이 선회 중이고 여섯 문이 사선에 막혔으면
+    /// 다수결은 "선회"라고 말하는데, 배를 돌려야 한다는 사실은 그대로다.
+    /// </summary>
+    private static void Merge(ref WeaponHudEntry entry, Gun.HoldReason hold)
+    {
+        if (hold == Gun.HoldReason.None)
+        {
+            entry.anyReady = true;
+            return;
+        }
+
+        if (hold > entry.hold)
+            entry.hold = hold;
+    }
+
+
+    private static string HoldLabel(Gun.HoldReason hold) => hold switch
+    {
+        // 방아쇠·컷신 사격중지·미사일 잠금 실패가 전부 여기다. 셋 다 "지금은 안 쏜다"고
+        // 스스로 정한 것이라 함장이 고칠 것이 없다.
+        Gun.HoldReason.Trigger => "HOLD",
+        Gun.HoldReason.Reloading => "RELOAD",
+        Gun.HoldReason.Slewing => "SLEWING",
+        Gun.HoldReason.NoTarget => "NO TARGET",
+        Gun.HoldReason.LineBlocked => "LINE BLOCKED",
+        Gun.HoldReason.OutOfArc => "OUT OF ARC",
+        Gun.HoldReason.NoGunner => "NO GUNNER",
+
+        // Adrift/Destroyed는 BuildWeaponEntries가 이미 걸러서 여기 안 온다.
+        _ => "",
+    };
 
 
     // ------------------------------------------------------------
@@ -743,14 +1091,15 @@ public sealed class ShipStatusHud : MonoBehaviour
 
         for (int i = 0; i < _leadSpeeds.Count; i++)
         {
-            if (!InterceptTime(d, relativeVelocity, _leadSpeeds[i], out float t))
+            if (!Ballistics.InterceptTime(d, relativeVelocity, _leadSpeeds[i], out float t))
                 continue;
 
             Vector2 aim =
                 (Vector2)target.transform.position
                 + relativeVelocity * t;
 
-            Vector2 p = WorldToGui(cam, aim);
+            Vector2 p = ClampToScreen(
+                WorldToGui(cam, aim), LeadMarkerSize + MarkerEdgeInset);
 
             DrawLine(
                 p + Vector2.left * LeadMarkerSize,
@@ -769,45 +1118,74 @@ public sealed class ShipStatusHud : MonoBehaviour
     }
 
 
-    /// <summary>|d + v·t| = s·t 를 푼다. 최소 양수 근이 요격 시각. 못 따라잡으면 false.</summary>
-    private static bool InterceptTime(
-        Vector2 d,
-        Vector2 v,
-        float speed,
-        out float t
+    /// <summary>
+    /// 미사일이 잠근 표적마다 십자 하나. **판이 아니라 몸에 찍힌다** - Launcher가
+    /// Rigidbody의 transform을 잡기 때문이고, 그래서 잠긴 판이 죽어도 표시가 안 사라진다.
+    ///
+    /// 발사대가 여럿이면 전부 같은 조준점(커서)을 보므로 대개 같은 것을 잠근다. 겹쳐
+    /// 그리면 알파가 쌓여 유독 진한 십자가 되므로 한 번만 그린다.
+    ///
+    /// 여기서 <c>Launcher.Acquire</c>를 안 부르는 것이 중요하다 - 400m OverlapCircle이
+    /// 틱(6틱마다)이 아니라 프레임을 타면 그것만으로 프레임이 죽는다. 캐시된 값만 읽는다.
+    /// </summary>
+    private static readonly List<Transform> _locks = new();
+
+    private static void DrawLockMarkers(
+        Ship ship,
+        Camera cam
     )
     {
-        float a = v.sqrMagnitude - speed * speed;
-        float b = 2f * Vector2.Dot(d, v);
-        float c = d.sqrMagnitude;
+        _locks.Clear();
 
-        t = -1f;
-
-        // 탄속과 상대속도가 같은 퇴화: 선형식 bt + c = 0.
-        if (Mathf.Abs(a) < 1e-4f)
+        for (int i = 0; i < ship.shipGuns.Count; i++)
         {
-            if (b >= -1e-6f)
-                return false;
+            // 부서진 포와 잔해로 간 포는 아무것도 안 잠근다 - WPN 목록과 같은 필터다.
+            if (ship.shipGuns[i] is not Launcher launcher
+                || launcher.Neutralized
+                || !Ship.StillAboard(launcher, ship))
+                continue;
 
-            t = -c / b;
-            return t > 0f;
+            Transform locked = launcher.Locked;
+
+            if (locked == null || _locks.Contains(locked))
+                continue;
+
+            _locks.Add(locked);
         }
 
-        float disc = b * b - 4f * a * c;
+        for (int i = 0; i < _locks.Count; i++)
+        {
+            Vector2 p = ClampToScreen(
+                WorldToGui(cam, _locks[i].position), LockMarkerArm + MarkerEdgeInset);
 
-        if (disc < 0f)
-            return false;
+            DrawLine(
+                p + Vector2.left * LockMarkerArm,
+                p + Vector2.left * LockMarkerGap,
+                LockColor,
+                1f
+            );
 
-        float root = Mathf.Sqrt(disc);
+            DrawLine(
+                p + Vector2.right * LockMarkerGap,
+                p + Vector2.right * LockMarkerArm,
+                LockColor,
+                1f
+            );
 
-        float t0 = (-b - root) / (2f * a);
-        float t1 = (-b + root) / (2f * a);
+            DrawLine(
+                p + Vector2.up * LockMarkerArm,
+                p + Vector2.up * LockMarkerGap,
+                LockColor,
+                1f
+            );
 
-        if (t0 > t1)
-            (t0, t1) = (t1, t0);
-
-        t = t0 > 0f ? t0 : t1;
-        return t > 0f;
+            DrawLine(
+                p + Vector2.down * LockMarkerGap,
+                p + Vector2.down * LockMarkerArm,
+                LockColor,
+                1f
+            );
+        }
     }
 
 
@@ -861,9 +1239,18 @@ public sealed class ShipStatusHud : MonoBehaviour
     // GUI
     // ------------------------------------------------------------
 
+    /// <summary>
+    /// 패널 하나. <paramref name="value"/>는 헤더 오른쪽 끝에 붙는 **그 패널의 한 줄 요약**이다.
+    ///
+    /// 이게 있어야 하는 이유: FLIGHT만 라벨+숫자+단위를 주고 AIRFRAME·CONTACT·WPN은
+    /// 그림이거나 단어라 "얼마나"를 못 답했다. 네 패널이 네 문법을 쓰면 플레이어가 매번
+    /// 새로 읽는다. 제목 옆 숫자 하나가 그 넷을 같은 문법으로 만든다.
+    /// </summary>
     private static void DrawPanel(
         Rect rect,
-        string title
+        string title,
+        string value = null,
+        Color? valueColor = null
     )
     {
         DrawRect(
@@ -902,6 +1289,21 @@ public sealed class ShipStatusHud : MonoBehaviour
             title,
             HudColor,
             _titleStyle
+        );
+
+        if (string.IsNullOrEmpty(value))
+            return;
+
+        DrawText(
+            new Rect(
+                rect.x + Padding,
+                rect.y,
+                rect.width - Padding * 2f,
+                HeaderHeight
+            ),
+            value,
+            valueColor ?? DimColor,
+            _titleRightStyle
         );
     }
 
@@ -1063,18 +1465,18 @@ public sealed class ShipStatusHud : MonoBehaviour
                 clipping = TextClipping.Clip
             };
 
+        _titleRightStyle =
+            new GUIStyle(_titleStyle)
+            {
+                alignment = TextAnchor.MiddleRight
+            };
+
         _leftStyle =
             new GUIStyle(GUI.skin.label)
             {
                 fontSize = 13,
                 alignment = TextAnchor.MiddleLeft,
                 clipping = TextClipping.Clip
-            };
-
-        _centerStyle =
-            new GUIStyle(_leftStyle)
-            {
-                alignment = TextAnchor.MiddleCenter
             };
 
         _rightStyle =
@@ -1088,6 +1490,26 @@ public sealed class ShipStatusHud : MonoBehaviour
     // ------------------------------------------------------------
     // COORDINATES
     // ------------------------------------------------------------
+
+    /// <summary>
+    /// 화면 밖 조준 표지를 가장자리로 접는다.
+    ///
+    /// 안 접으면 <c>GUI.DrawTexture</c>가 조용히 아무것도 안 그린다 - 예외도 로그도
+    /// 없어서 "약속만 하고 안 뜨는 계기"가 된다. `DrawLeadMarkers`의 주석은 "마우스를
+    /// 이 십자에 두면 맞는다"고 말하는데, 교전거리 120~420 m에 화면 반폭이 17.8~32 m라
+    /// **그 약속이 지켜지는 거리가 교전거리 안에 없었다.**
+    ///
+    /// <see cref="ContactView"/>가 접촉 표지에 이미 하는 일이다. 조준선만 안 하고 있었다.
+    /// 접힌 십자는 위치가 아니라 방위를 뜻한다 - "그쪽으로 겨눠라"가 화면 밖 표적에
+    /// 대해 할 수 있는 유일하게 정직한 말이다.
+    ///
+    /// **배율 행렬 밖이라 실제 화면 픽셀이다**(OnGUI 참고). GUIManager.Logical*이 아니다.
+    /// </summary>
+    private static Vector2 ClampToScreen(Vector2 p, float inset)
+        => new(
+            Mathf.Clamp(p.x, inset, Screen.width - inset),
+            Mathf.Clamp(p.y, inset, Screen.height - inset));
+
 
     private static Vector2 WorldToGui(
         Camera cam,

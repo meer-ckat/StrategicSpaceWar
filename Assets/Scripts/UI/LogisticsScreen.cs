@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using IMGUI;
@@ -22,17 +23,18 @@ public sealed class LogisticsScreen : MonoBehaviour
     const float RowH = 22f;      // 라벨/값 한 줄
 
     // 팔레트. 역할별로 하나씩이고 값은 여기서만 고친다. 화면의 대부분은 Obsidian·Panel·White고, 색은 상태를 말할 때만 쓴다.
-    static readonly Color Obsidian = new(0.06f, 0.065f, 0.075f);   // 바닥
-    static readonly Color Panel = new(0.085f, 0.095f, 0.105f);      // 패널
-    static readonly Color Ink = new(0.12f, 0.13f, 0.145f);          // 지나온·현재 노드
-    static readonly Color Surface = new(0.17f, 0.185f, 0.205f);     // 고를 수 있는 노드, 통신 카드
-    static readonly Color White = new(0.96f, 0.97f, 1f);            // 글자
-    static readonly Color Dim = new(0.55f, 0.57f, 0.60f);           // 보조 글자
-    static readonly Color Blue = new(0.25f, 0.47f, 0.95f);          // 항로: 선택·연결선
-    static readonly Color BlueDim = new(0.18f, 0.24f, 0.36f);       // 고르지 않은 가지선
-    static readonly Color Green = new(0.30f, 0.80f, 0.45f);         // 가능·획득
-    static readonly Color Orange = new(1.00f, 0.55f, 0.15f);        // 주의·hover·표적 시설
-    static readonly Color Red = new(0.92f, 0.30f, 0.28f);           // 손상·불가·적
+    // RefitScreen이 같은 값을 쓴다 - 두 화면이 한 목소리여야 한다.
+    internal static readonly Color Obsidian = new(0.06f, 0.065f, 0.075f);   // 바닥
+    internal static readonly Color Panel = new(0.085f, 0.095f, 0.105f);      // 패널
+    internal static readonly Color Ink = new(0.12f, 0.13f, 0.145f);          // 지나온·현재 노드
+    internal static readonly Color Surface = new(0.17f, 0.185f, 0.205f);     // 고를 수 있는 노드, 통신 카드
+    internal static readonly Color White = new(0.96f, 0.97f, 1f);            // 글자
+    internal static readonly Color Dim = new(0.55f, 0.57f, 0.60f);           // 보조 글자
+    internal static readonly Color Blue = new(0.25f, 0.47f, 0.95f);          // 항로: 선택·연결선
+    internal static readonly Color BlueDim = new(0.18f, 0.24f, 0.36f);       // 고르지 않은 가지선
+    internal static readonly Color Green = new(0.30f, 0.80f, 0.45f);         // 가능·획득
+    internal static readonly Color Orange = new(1.00f, 0.55f, 0.15f);        // 주의·hover·표적 시설
+    internal static readonly Color Red = new(0.92f, 0.30f, 0.28f);           // 손상·불가·적
 
     // 항로도. 노드는 짧은 직사각형, 한 줄에 하나, x는 난수, y는 살짝 흔들림. 배지는 노드 바로 위 한 줄.
     public static readonly Vector2 NodeSize = new(130f, 32f);
@@ -41,40 +43,40 @@ public sealed class LogisticsScreen : MonoBehaviour
     const float BadgeH = 14f;
     const float LineWidth = 2f;
     const float ScrollbarWidth = 20f;
-    const float DisabledOpacity = 0.35f;
 
     // 모션. 전체 열림 < 0.5초. 읽는 패널은 안 움직이고 지도만 산다.
     const float OpenFade = 0.22f;
     const float OpenStagger = 0.08f;
     const float NodeWave = 0.18f;
     const float NodeWaveStep = 0.035f;
-    const float PunchAmount = 0.12f;
-    const float CountUp = 0.3f;
+    internal const float PunchAmount = 0.12f;
+    internal const float DisabledOpacity = 0.35f;
+    internal const float CountUp = 0.3f;
     const float MagnetRadius = 90f;  // 항로점이 마우스에 끌리기 시작하는 거리
     const float MagnetPx = 4f;       // 그 거리 끝에서의 최대 이동
     const float ParallaxPx = 4f;     // 마우스가 화면 끝에서 끝까지 갈 때 항로도가 따라가는 최대 거리
     const float BarkSeconds = 4f;
 
     // Resources/Sound/<이름>.mp3. 없으면 SoundManager가 이름당 한 번 경고하고 넘어간다.
-    const string SfxHover = "UI_Hover", SfxSelect = "UI_Select", SfxClick = "UI_Click", SfxDepart = "UI_Depart";
+    internal const string SfxHover = "UI_Hover", SfxSelect = "UI_Select", SfxClick = "UI_Click", SfxDepart = "UI_Depart";
 
     static LogisticsScreen instance;
 
     GUIGroup window, nav, info, comms;
-    GUILabel infoTitle, infoKind, plateValue, materialValue, serviceValue, commsSpeaker, commsText;
+    GUILabel infoTitle, infoKind, plateValue, materialValue, commsSpeaker, commsText;
     readonly List<GUIItem> infoRows = new();
-    readonly List<GUIItem> repairUi = new();
-    GUIButton[] laneButtons, repairButtons;
+    GUIButton[] laneButtons;
     GUIBoxLabel[] laneStubs;
     GUIButton depart;
     GUIStyle candidate, selected, line, lineDim, rowLabel, rowValue;
-    GUIBoxLabel black;
+    GUIBoxLabel black, flash;                // 워프 연출 덮개. 초안 - 색·서체·문구는 오너가 고친다
+    GUILabel caption;
+    GUIGroup card;
     SectorDef[] lanes;
     int lane;
     float scrollMax;
     float barkUntil;
     bool ready;                              // 등장 모션이 끝났다. 그 전엔 입력을 안 받는다
-    Action<GUIItem, float> counting;         // 진행 중인 카운트업. 연타하면 교체한다
     Comms commsDef;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -135,9 +137,7 @@ public sealed class LogisticsScreen : MonoBehaviour
 
         if (window != null)
             GUIManager.Unregister(window);
-        counting = null;
         infoRows.Clear();
-        repairUi.Clear();
         window = Widget.SetLayer(Widget.Window("", screen, "Logistics", ground), WindowLayer);
         window.whenTick += (_, __) => Keys();
 
@@ -221,31 +221,12 @@ public sealed class LogisticsScreen : MonoBehaviour
         Widget.Label(info, "←→ 항로   Enter 출항", new Rect(infoIn.x, infoIn.yMax - 16f, infoIn.width, 16f), eyebrow);
         Hoverable(depart);
 
-        // Ship Status: 언제나 쓸모 있는 상태 셋. 정비 조작은 정비 노드에서만 내려온다 - 못 쓰는 버튼을 늘어놓지 않는다.
+        // Ship Status: 읽기만. 정비는 정비 노드의 RefitScreen이다 - 여기서 고치면 배가 안 보이는 채로 숫자만 바뀐다.
         GUIGroup status = Widget.Window(window, "", statusRect, "Status", panel);
         Rect stIn = Inset(statusRect, Padding);
         Widget.Label(status, "함선 상태", new Rect(stIn.x, stIn.y, stIn.width, 16f), eyebrow);
         plateValue = Row(status, stIn, 0, "손상 판", "");
         materialValue = Row(status, stIn, 1, "보유 자재", "");
-        serviceValue = Row(status, stIn, 2, "정비", "");
-
-        float ry = stIn.y + 20f + RowH * 3 + Gap * 2;
-        float bw = (stIn.width - Gap * 2f) / 3f;
-        repairButtons = new[]
-        {
-            Widget.Button(status, "수리 1", new Rect(stIn.x, ry, bw, 40f), null, button),
-            Widget.Button(status, "수리 10", new Rect(stIn.x + bw + Gap, ry, bw, 40f), null, button),
-            Widget.Button(status, "전량", new Rect(stIn.x + (bw + Gap) * 2f, ry, bw, 40f), null, button),
-        };
-        repairButtons[0].callBack = () => Repair(1, repairButtons[0]);
-        repairButtons[1].callBack = () => Repair(10, repairButtons[1]);
-        repairButtons[2].callBack = () => Repair(RunState.Materials, repairButtons[2]);
-        foreach (GUIButton b in repairButtons)
-        {
-            Hoverable(b);
-            repairUi.Add(b);
-        }
-        repairUi.Add(Widget.Label(status, "R 수리 1   Shift+R 전량", new Rect(stIn.x, ry + 40f + Gap, stIn.width, 16f), eyebrow));
 
         // COMMS: 항로도 좌상단에 잠깐 뜨는 카드. 레이아웃 요소가 아니라 위에 얹히는 것이라 항로가 길어져도 자리를 안 뺏는다.
         // 84였는데 본문 자리가 26px라 두 줄째가 그룹 마스크에 잘렸다. 15px 한글 두 줄 = 38.
@@ -443,7 +424,7 @@ public sealed class LogisticsScreen : MonoBehaviour
         infoRows.Add(Widget.Label(info, value, new Rect(area.x + area.width * 0.5f, y, area.width * 0.5f, RowH), rowValue));
     }
 
-    static string Tint(string text, Color c) => $"<color=#{ColorUtility.ToHtmlStringRGB(c)}>{text}</color>";
+    internal static string Tint(string text, Color c) => $"<color=#{ColorUtility.ToHtmlStringRGB(c)}>{text}</color>";
 
     // 적 함선만, 함급(defName)별로 등장 순서대로. 중립·아군·시설은 여기 없다.
     public static List<(string ship, int n)> Ships(SectorDef s)
@@ -492,65 +473,13 @@ public sealed class LogisticsScreen : MonoBehaviour
         return parts.Count > 0 ? string.Join("  ", parts) : "CLEAR";
     }
 
-    void RenderStatus(int damaged, int materials)
-    {
-        plateValue.Content.text = Tint(damaged.ToString(), damaged > 0 ? Red : Green);
-        materialValue.Content.text = $"<b>{materials}</b>";
-        serviceValue.Content.text = Campaign.current.CanRefit ? Tint("가능", Green) : Tint("시설 없음", Red);
-    }
-
     void RefreshStatus()
     {
-        Campaign c = Campaign.current;
-        Ship p = c.Player;
-        int damaged = p != null ? p.DamagedPlateCount() : 0;
-        bool can = damaged > 0 && RunState.Materials > 0;
-
-        RenderStatus(damaged, RunState.Materials);
-        foreach (GUIItem item in repairUi)
-            item.isVisible = item.isInteractable = c.CanRefit;
-        foreach (GUIButton b in repairButtons)
-        {
-            b.isEnabled = b.isInteractable = c.CanRefit && can;
-            b.Opacity = can ? 1f : DisabledOpacity;
-        }
-    }
-
-    // 배가 실제로 쓴 만큼만 뺀다. RepairPlates가 고칠 판이 모자라면 예산을 덜 쓰고 돌려준다.
-    void Repair(int want, GUIButton pressed)
-    {
         Ship p = Campaign.current.Player;
-        if (p == null || !pressed.isInteractable)
-            return;
+        int damaged = p != null ? p.DamagedPlateCount() : 0;
 
-        int d0 = p.DamagedPlateCount(), m0 = RunState.Materials;
-        RunState.Materials -= p.RepairPlates(Mathf.Min(want, RunState.Materials));
-        int d1 = p.DamagedPlateCount(), m1 = RunState.Materials;
-
-        Sfx(SfxClick);
-        Punch(pressed);
-        RefreshStatus();
-        Tween01(x => RenderStatus(Mathf.RoundToInt(Mathf.Lerp(d0, d1, x)), Mathf.RoundToInt(Mathf.Lerp(m0, m1, x))));
-    }
-
-    // 0→1을 CountUp 동안 흘린다. 라벨을 모르므로 호출자가 문자열을 만든다. 연타하면 앞 것을 버린다.
-    void Tween01(Action<float> onX)
-    {
-        if (counting != null)
-            window.whenTick -= counting;
-
-        float t = 0f;
-        counting = (_, dt) =>
-        {
-            t += dt;
-            float x = Mathf.Clamp01(t / CountUp);
-            onX(TweenHelper.EaseOutQuad(x));
-            if (x < 1f)
-                return;
-            window.whenTick -= counting;
-            counting = null;
-        };
-        window.whenTick += counting;
+        plateValue.Content.text = Tint(damaged.ToString(), damaged > 0 ? Red : Green);
+        materialValue.Content.text = $"<b>{RunState.Materials}</b>";
     }
 
     // ---- COMMS ------------------------------------------------------------
@@ -588,14 +517,21 @@ public sealed class LogisticsScreen : MonoBehaviour
         }
     }
 
-    // 열릴 때: 고칠 게 있는데 못 고치는 상황이 제일 먼저. 아니면 고른 갈래 이야기.
+    // 열릴 때: 고칠 게 있는데 앞의 갈래 어디에도 정비가 없는 상황이 제일 먼저. 아니면 고른 갈래 이야기.
     string OpeningBark()
     {
-        Campaign c = Campaign.current;
-        Ship p = c.Player;
-        if (p != null && p.DamagedPlateCount() > 0 && !c.CanRefit)
+        Ship p = Campaign.current.Player;
+        if (p != null && p.DamagedPlateCount() > 0 && !AnyRefit())
             return "noservice";
         return lane >= 0 ? LaneBark(lanes[lane]) : null;
+    }
+
+    bool AnyRefit()
+    {
+        foreach (SectorDef s in lanes)
+            if (s != null && s.refit)
+                return true;
+        return false;
     }
 
     static string LaneBark(SectorDef s)
@@ -631,7 +567,7 @@ public sealed class LogisticsScreen : MonoBehaviour
     // ---- 상호작용 ----------------------------------------------------------
 
     // 연타해도 커진 채 안 남는다. PunchScale은 현재 RenderScale을 기준으로 잡아서 그대로 두면 누적된다.
-    static void Punch(GUIItem item)
+    internal static void Punch(GUIItem item)
     {
         GUITween.Kill(item);
         item.RenderScale = Vector2.one;
@@ -690,7 +626,7 @@ public sealed class LogisticsScreen : MonoBehaviour
         };
     }
 
-    static void Sfx(string name) => SoundManager.AudioShot(name, 0.6f);
+    internal static void Sfx(string name) => SoundManager.AudioShot(name, 0.6f);
 
     void Scroll(float dy) => nav.ScrollPosition.y = Mathf.Clamp(nav.ScrollPosition.y + dy, 0f, scrollMax);
 
@@ -706,10 +642,6 @@ public sealed class LogisticsScreen : MonoBehaviour
             Step(1);
         else if (k.enterKey.wasPressedThisFrame && depart.isVisible)
             Depart();
-        else if (k.rKey.wasPressedThisFrame && k.shiftKey.isPressed)
-            Repair(RunState.Materials, repairButtons[2]);
-        else if (k.rKey.wasPressedThisFrame)
-            Repair(1, repairButtons[0]);
         else if (k.upArrowKey.wasPressedThisFrame)
             Scroll(-NodeStep);
         else if (k.downArrowKey.wasPressedThisFrame)
@@ -733,7 +665,7 @@ public sealed class LogisticsScreen : MonoBehaviour
             Select(k, announce: true);
     }
 
-    // 암전 → (항로 확정 + 텔레포트) → 걷힘. 다 덮인 순간에 세계를 푼다.
+    // 출항. 창을 걷고 나머지는 워프 연출이 한다 - IsOpen과 틱은 연출이 도착 순간에 푼다.
     void Depart()
     {
         if (!ready)
@@ -748,20 +680,128 @@ public sealed class LogisticsScreen : MonoBehaviour
         GUIManager.Unregister(window);
         window = null;
 
-        black.isVisible = true;
         black.Opacity = 0f;
-        black.FadeTo(1f, 0.45f, ease: TweenHelper.EaseInQuad, onComplete: () =>
-        {
-            c.Depart(chosen);
-            IsOpen = false;
-            Core.TickManager.Paused = false;
-            Time.timeScale = 1f;
-            black.FadeTo(0f, 0.45f, ease: TweenHelper.EaseOutQuad, onComplete: () => black.isVisible = false);
-        });
+        Coroutine run = StartCoroutine(WarpTransition.Run(this, c, chosen));
+        StartCoroutine(WarpTransition.Watchdog(this, c, run));
     }
 
+    // ---- 워프 연출 덮개 ----------------------------------------------------
+    // 검정·섬광·캡션·카드. WarpTransition이 부르고 여기는 그리기만 안다. 층은 검정 +10, 캡션·카드 +11, 섬광 +12.
+
+    // 검정 덮개. 워프 연출이 to=1로 덮고 0으로 걷는다. 트윈이 끝날 때까지 기다린다.
+    public IEnumerator Cover(float to, float seconds)
+    {
+        Fade(to, seconds);
+        yield return new WaitForSecondsRealtime(seconds + 0.02f);
+    }
+
+    // 논리 화면 전체. LogicalWidth는 매 프레임 Screen에서 나오는 값이라 만들 때 박아 두면 창 크기가 바뀔 때 어긋난다 - 쓰기 직전에 다시 잰다.
+    static Rect FullScreen() => new Rect(0f, 0f, GUIManager.LogicalWidth, GUIManager.LogicalHeight);
+
+    // 기다리지 않는 덮개. 도착은 걷히는 도중에 틱을 풀어야 슬라이드가 보인다.
+    public void Fade(float to, float seconds)
+    {
+        if (black == null)
+            return;
+        black.SetRect(FullScreen());
+        black.isVisible = true;
+        black.FadeTo(to, seconds, ease: to > 0.5f ? TweenHelper.EaseInQuad : TweenHelper.EaseOutQuad,
+            onComplete: () => { if (to <= 0f) black.isVisible = false; });
+    }
+
+    // 흰 섬광. alpha에서 seconds 동안 사라진다. 점프와 도착에 한 번씩 - 연달아 터뜨리지 않는다.
+    public void Flash(float alpha, float seconds)
+    {
+        if (flash == null)
+        {
+            flash = Widget.SetLayer(Widget.BoxLabel("", FullScreen(), GUIStyleMaker.Box(Color.white)), WindowLayer + 12);
+            flash.isInteractable = false;
+        }
+        GUITween.Kill(flash);
+        flash.SetRect(FullScreen());
+        flash.isVisible = true;
+        flash.Opacity = Mathf.Clamp01(alpha);
+        flash.FadeTo(0f, seconds, ease: TweenHelper.EaseOutQuad, onComplete: () => flash.isVisible = false);
+    }
+
+    // 충전 문구. text가 비면 지운다. 진행은 엔진 불빛·카메라 밀기·흔들림이 말한다 - 자라는 선은 카드에 하나면 된다.
+    public void Caption(string text)
+    {
+        if (caption == null)
+        {
+            caption = Widget.SetLayer(Widget.Label("", new Rect(0f, 0f, 1f, 24f), GUIStyleMaker.Label(White, 14, TextAnchor.MiddleCenter).Font(14, FontStyle.Bold)), WindowLayer + 11);
+            caption.isInteractable = false;
+        }
+        Rect full = FullScreen();
+        caption.SetRect(new Rect(0f, full.height * 0.78f, full.width, 24f));
+        bool show = !string.IsNullOrEmpty(text);
+        caption.isVisible = show;
+        caption.Content.text = show ? text : "";
+    }
+
+    // 이동 카드. 눈썹·이름·종류·배지가 시차로 들어오고, 밑줄이 seconds 동안 0에서 폭까지 자란다.
+    public void ShowCard(SectorDef sector, string eyebrow, float seconds)
+    {
+        ClearCard();
+        if (sector == null)
+            return;
+
+        float w = GUIManager.LogicalWidth, h = GUIManager.LogicalHeight;
+        string[] lines = CardLines(sector, eyebrow);
+        GUIStyle[] styles =
+        {
+            GUIStyleMaker.Label(Dim, 13, TextAnchor.MiddleCenter).Font(13, FontStyle.Bold),
+            GUIStyleMaker.Label(White, 34, TextAnchor.MiddleCenter).Font(34, FontStyle.Bold),
+            GUIStyleMaker.Label(Dim, 13, TextAnchor.MiddleCenter).Font(13, FontStyle.Bold),
+            GUIStyleMaker.Label(White, 13, TextAnchor.MiddleCenter).Font(13, FontStyle.Bold).RichText(),
+        };
+        float[] heights = { 18f, 44f, 18f, 18f };
+
+        card = Widget.SetLayer(Widget.Window("", new Rect(0f, 0f, w, h), "WarpCard", GUIStyle.none), WindowLayer + 11);
+        card.Mask = false;
+        card.isInteractable = false;
+
+        float y = h * 0.5f - 64f;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            GUILabel label = Widget.Label(card, lines[i], new Rect(0f, y, w, heights[i]), styles[i]);
+            label.isInteractable = false;
+            label.FadeIn(0.25f, i * 0.08f, TweenHelper.EaseOutQuad);
+            y += heights[i] + 4f;
+        }
+
+        GUIBoxLabel rule = Widget.BoxLabel(card, "", new Rect(w * 0.5f, y + 8f, 0f, 2f), GUIStyleMaker.Box(Blue));
+        rule.isInteractable = false;
+        float ruleY = y + 8f, t = 0f;
+        rule.whenTick += (_, dt) =>
+        {
+            t += dt;
+            float ruleW = w * 0.24f * Mathf.Clamp01(t / Mathf.Max(0.01f, seconds));
+            rule.SetRect(new Rect((w - ruleW) * 0.5f, ruleY, ruleW, 2f));
+        };
+    }
+
+    // Unregister는 트윈을 모른다. 워프마다 새로 지으므로 여기서 같이 죽여야 표에 죽은 아이템이 안 쌓인다.
+    public void ClearCard()
+    {
+        if (card == null)
+            return;
+        KillTree(card);
+        GUIManager.Unregister(card);
+        card = null;
+    }
+
+    // 카드 네 줄: 눈썹, 이름, 종류, 배지. 순수 함수라 셀프테스트가 읽는다.
+    public static string[] CardLines(SectorDef s, string eyebrow) => new[]
+    {
+        eyebrow ?? "",
+        s.name ?? "",
+        string.IsNullOrEmpty(s.kind) ? "본구역" : s.kind.ToUpperInvariant(),
+        Badge(s),
+    };
+
     // Unregister는 트윈을 모른다. 진행 중인 것을 안 끊으면 GUITween의 표에 죽은 아이템이 남는다.
-    static void KillTree(GUIItem item)
+    internal static void KillTree(GUIItem item)
     {
         GUITween.Kill(item);
         if (item is GUIGroup g)
@@ -769,5 +809,5 @@ public sealed class LogisticsScreen : MonoBehaviour
                 KillTree(child);
     }
 
-    static Rect Inset(Rect r, float p) => new Rect(r.x + p, r.y + p, r.width - p * 2f, r.height - p * 2f);
+    internal static Rect Inset(Rect r, float p) => new Rect(r.x + p, r.y + p, r.width - p * 2f, r.height - p * 2f);
 }

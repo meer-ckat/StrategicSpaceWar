@@ -20,9 +20,6 @@ public sealed class ArmorSkin : MonoBehaviour
     // 이제 그림 해상도가 아니라 erode 노이즈의 눈금이다. def JSON이 이 키를 쓰므로 이름 유지.
     [SerializeField] private float pixelsPerUnit = 48f;
 
-    /// <summary>안 쓴다. def JSON이 이 키를 적어 두어서 지우면 검증이 def를 통째로 거부한다.</summary>
-    [SerializeField] private int maxTextureSize = 256;
-
     [SerializeField] private Color healthy = Color.white;
     [SerializeField] private Color damaged = new(0.35f, 0.33f, 0.32f, 1f);
     [SerializeField, Range(0f, 1f)] private float erodeBelow = 0.6f;
@@ -54,6 +51,9 @@ public sealed class ArmorSkin : MonoBehaviour
     private static readonly int GrainSeedId = Shader.PropertyToID("_GrainSeed");
     private static readonly int GrainPpuId = Shader.PropertyToID("_GrainPpu");
     private static readonly int HeatId = Shader.PropertyToID("_Heat");
+    private static readonly int SrcBlendId = Shader.PropertyToID("_SrcBlend");
+    private static readonly int DstBlendId = Shader.PropertyToID("_DstBlend");
+    private static readonly int ZWriteId = Shader.PropertyToID("_ZWrite");
 
     private Armor _armor;
     private Collider2D _collider;
@@ -75,6 +75,75 @@ public sealed class ArmorSkin : MonoBehaviour
     /// 안 뜨거운 판이 절대 다수라 그 판들은 float 비교 하나로 끝난다.
     /// </summary>
     private float _sentHeat = -1f;
+
+    /// <summary>
+    /// **배칭 실험 스위치.** 켜면 판마다 다른 것을 전부 끈다 - MaterialPropertyBlock도,
+    /// 6x6 마스크 텍스처도, 폴리곤 실루엣도. 남는 것은 공유 머티리얼과 공유 흰 텍스처뿐이라
+    /// 판 전부가 같은 상태로 그려진다.
+    ///
+    /// 답이 필요한 질문 하나를 위해 있다: **판별 유니폼을 없애면 스프라이트 배칭이 실제로
+    /// 붙는가.** 붙으면 드로우콜이 수천에서 몇 개로 떨어지고, 그러면 판별 렌더러를 그대로
+    /// 두고 값만 배 단위 공유 텍스처로 옮기는 작은 고침으로 끝난다. 안 붙으면 배 한 척을
+    /// 메시 하나로 합치는 큰 고침밖에 없다.
+    ///
+    /// 그림은 통째로 틀리게 나온다(판이 전부 흰 사각형). 그것이 요점이다 - 재는 것은
+    /// Stats 창의 Batches 숫자 하나뿐이다.
+    /// </summary>
+    public static bool BatchProbe;
+
+#if UNITY_EDITOR
+    [UnityEditor.MenuItem("Tools/Rendering/판 배칭 실험 토글")]
+    private static void ToggleBatchProbe()
+    {
+        BatchProbe = !BatchProbe;
+
+        foreach (ArmorSkin skin in FindObjectsByType<ArmorSkin>(FindObjectsSortMode.None))
+            skin.Rebuild();
+
+        Debug.Log($"[ArmorSkin] 배칭 실험 {(BatchProbe ? "켬 - Stats 창의 Batches를 봐라" : "끔")}");
+    }
+#endif
+
+    /// <summary>
+    /// **불투명 큐 실험.** 판을 투명 큐에서 알파테스트 큐로 옮기고 블렌딩을 끈다.
+    ///
+    /// 판은 사실상 불투명한데 지금 투명 큐에 있다. 그래서 겹치는 픽셀이 전부 읽고-섞고-쓰기를
+    /// 하고 깊이 기각도 없다. 큰 배가 화면을 채우면 이 대역폭이 드로우콜보다 클 수 있고,
+    /// **메시 통합은 이걸 하나도 안 고친다** - 드로우콜만 줄이고 같은 픽셀을 똑같이 태운다.
+    ///
+    /// 어느 쪽이 진짜인지 여기서 갈린다. 프레임이 돌아오면 필레이트가 범인이고, 안 돌아오면
+    /// 드로우콜이라 메시 통합으로 간다.
+    ///
+    /// **discard는 그대로 남는다** - 알파테스트가 곧 discard라 없앨 수 없고, 그래서 early-Z는
+    /// 여전히 안 붙는다. 이 실험이 없애는 것은 블렌딩과 큐 순서지 discard가 아니다. 판이
+    /// 전부 z=0 근처라 깊이 기각도 기대할 게 별로 없다 - 2D는 깊이가 아니라 sortingOrder로
+    /// 겹치기 때문이다. **그래서 이 실험이 노리는 것은 사실상 블렌딩 대역폭 하나다.**
+    /// 그것만으로 프레임이 움직이면 답이 나온 것이고, 안 움직여도 30분에 후보 하나가 지워진다.
+    /// </summary>
+    public static bool OpaqueProbe;
+
+#if UNITY_EDITOR
+    [UnityEditor.MenuItem("Tools/Rendering/판 불투명 큐 실험 토글")]
+    private static void ToggleOpaqueProbe()
+    {
+        if (_sharedMaterial == null)
+        {
+            Debug.LogWarning("[ArmorSkin] 공유 머티리얼이 아직 없다. 플레이 모드에서 눌러라.");
+            return;
+        }
+
+        OpaqueProbe = !OpaqueProbe;
+
+        // One/Zero = 섞지 않고 덮어쓴다. 2450은 URP의 AlphaTest 큐 - 불투명 뒤, 투명 앞.
+        _sharedMaterial.SetFloat(SrcBlendId, OpaqueProbe ? 1f : 5f);    // One : SrcAlpha
+        _sharedMaterial.SetFloat(DstBlendId, OpaqueProbe ? 0f : 10f);   // Zero : OneMinusSrcAlpha
+        _sharedMaterial.SetFloat(ZWriteId, OpaqueProbe ? 1f : 0f);
+        _sharedMaterial.renderQueue = OpaqueProbe ? 2450 : 3000;
+
+        Debug.Log($"[ArmorSkin] 불투명 큐 실험 {(OpaqueProbe ? "켬" : "끔")} - "
+            + "Stats의 Batches가 아니라 **프레임 시간**을 봐라. 그림이 깨져도 정상이다.");
+    }
+#endif
 
     private void Start()
     {
@@ -103,7 +172,7 @@ public sealed class ArmorSkin : MonoBehaviour
 
     private void LateUpdate()
     {
-        if (!_built)
+        if (!_built || BatchProbe)
             return;
 
         if (_armor.DamageVersion != _paintedVersion)
@@ -167,6 +236,17 @@ public sealed class ArmorSkin : MonoBehaviour
 
         _renderer.sprite = _sprite;
         _renderer.sharedMaterial = _sharedMaterial;
+
+        // 실험 모드: 여기서 끝낸다. 판별 유니폼도 마스크도 안 붙이므로 판 전부가 같은
+        // 상태고, 스프라이트 배칭이 붙을 수 있으면 여기서 붙는다.
+        if (BatchProbe)
+        {
+            _renderer.SetPropertyBlock(null);
+            _built = true;
+            _paintedVersion = _armor.DamageVersion;
+            _sentHeat = 0f;
+            return;
+        }
 
         if (_mask == null)
         {

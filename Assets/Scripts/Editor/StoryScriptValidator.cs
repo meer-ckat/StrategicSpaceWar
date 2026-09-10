@@ -74,7 +74,7 @@ public static class StoryScriptValidator
     [MenuItem("Tools/Dialogue/Validate All Scripts")]
     public static void ValidateAll()
     {
-        string folder = Path.Combine(Application.streamingAssetsPath, "대사");
+        string folder = ScriptManager.ScriptFolder;
         if (!Directory.Exists(folder))
         {
             Debug.LogWarning($"[Dialogue Validator] 대사 폴더가 없다: {folder}");
@@ -203,7 +203,7 @@ public static class StoryScriptValidator
 
         string style = string.IsNullOrWhiteSpace(line.style) ? "radio" : line.style.Trim();
         if (!RuntimeKnowsStyle(style))
-            report.Error(file, $"{at}.style '{line.style}'은 현재 StoryScriptManager가 모르는 style이다.");
+            report.Error(file, $"{at}.style '{line.style}'은 현재 DialogueManager가 모르는 style이다.");
 
         if (script.pickOne && line.wait > 0f)
             report.Warn(file, $"{at}.wait={line.wait}지만 pickOne=true에서는 사용되지 않는다.");
@@ -250,6 +250,8 @@ public static class StoryScriptValidator
         var set = new HashSet<string>(StringComparer.Ordinal);
         AddPublicFields(_scriptType, set);
         AddPublicFields(_lineType, set);
+        // cue 배열의 키는 DialogueCue 것이다. 안 넣으면 act/name/at 전부 오타로 찍힌다.
+        AddPublicFields(typeof(DialogueCue), set);
         return set;
     }
 
@@ -291,7 +293,7 @@ public static class StoryScriptValidator
 
         foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
         {
-            _managerType ??= assembly.GetType("StoryScriptManager", false);
+            _managerType ??= assembly.GetType("DialogueManager", false);
             _scriptType ??= assembly.GetType("DialogueScript", false);
             _lineType ??= assembly.GetType("DialogueLine", false);
         }

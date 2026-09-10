@@ -10,7 +10,7 @@
   "doorRate": 1,
   "crews": 3,
   "FightDistance": 180,
-  "DetectionDistance": 300,
+  "DetectionDistance": 2000,
   "breakawaySpeed": 2,
   "placements": [
     { "def": "Armor mk5", "col": 26, "row": -2, "rot": 0.0, "size": { "x": 1.0, "y": 1.0 }, "shape": [{ "x": -0.5, "y": -0.2071 }, { "x": -0.2071, "y": -0.5 }, { "x": 0.2071, "y": -0.5 }, { "x": 0.5, "y": -0.2071 }, { "x": 0.5, "y": 0.5 }, { "x": -0.2071, "y": 0.5 }, { "x": -0.5, "y": 0.2071 }], "mountCol": -1, "mountRow": -1 },

@@ -1,0 +1,16 @@
+{
+  "defName": "Mini Engine",
+  "thingClass": "Engine",
+  "comps": [
+    "SolidSkin"
+  ],
+  "layer": "Module",
+  "collider": {
+    "size": { "x": 0.8, "y": 0.8 },
+    "offset": { "x": 0, "y": 0 }
+  },
+  "maxHealth": 30,
+  "MaxPower": 520,
+  "MaxReversePower": 520,
+  "tint": { "r": 0.55, "g": 0.58, "b": 0.62, "a": 1 }
+}

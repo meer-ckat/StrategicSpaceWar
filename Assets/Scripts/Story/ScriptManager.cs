@@ -60,6 +60,7 @@ public class DialogueLine
     /// 비우면 순수하게 기다리기만 한다.
     /// </summary>
     public string awaitRammer;
+
 }
 
 /// <summary>
@@ -180,8 +181,48 @@ public class ScriptManager : MonoBehaviour
         UnityEngine.SceneManagement.Scene scene,
         UnityEngine.SceneManagement.LoadSceneMode mode) => BeginOpening();
 
+    /// <summary>
+    /// **앞서 시작한 대기 코루틴을 먼저 죽인다.** 이 오브젝트는 DontDestroyOnLoad라 코루틴이
+    /// 씬 리로드를 살아남는다 - Start가 띄운 대기가 함선 선택 뒤 리로드에서도 살아 있고,
+    /// OnSceneLoaded가 하나 더 띄우면 둘이 같은 프레임에 IsOpen이 풀린 것을 보고 각자
+    /// Play를 불러 프롤로그가 두 번 나온다. 예전 주석은 "리로드되면 이 코루틴도 함께
+    /// 죽는다"였는데 그 전제가 틀렸다.
+    /// </summary>
+    private Coroutine _opening;
+
     private void BeginOpening()
     {
+        if (_opening != null)
+            StopCoroutine(_opening);
+
+        _opening = StartCoroutine(BeginOpeningWhenChosen());
+    }
+
+    /// <summary>
+    /// **배 선택이 닫힐 때까지 프롤로그를 안 튼다.** 씬 로드 즉시 틀었더니 선택 화면
+    /// 위로 대사가 흘렀다 - 대본 코루틴이 WaitForSecondsRealtime이라 timeScale 0도
+    /// 무시하고, 다 흐르고 나면 EndCutsceneWhenOpeningDone이 빈 화면을 보고 선택이
+    /// 끝나기도 전에 런을 시작했다.
+    ///
+    /// 선택을 확정하면 씬이 리로드된다. 이 코루틴은 리로드를 살아남으므로(DDOL) BeginOpening이
+    /// 새로 띄우기 전에 죽인다 - 안 그러면 둘이 같이 깨어나 프롤로그가 두 번 나온다.
+    /// </summary>
+    private IEnumerator BeginOpeningWhenChosen()
+    {
+        bool wasOpen = false;
+
+        while (ShipSelectScreen.IsOpen)
+        {
+            wasOpen = true;
+            yield return null;
+        }
+
+        // 선택 화면이 닫히는 것은 확정이고, 확정은 씬을 다시 연다. 리로드 전 마지막 프레임에
+        // 여기서 틀면 리로드 뒤 OnSceneLoaded가 또 틀어 프롤로그가 두 번 나온다(로그 0.08초 간격).
+        // 이번 판은 리로드 쪽에 맡긴다.
+        if (wasOpen)
+            yield break;
+
         // 여는 대본이 없으면 기다릴 것도 없다. **그래도 반드시 한 번은 열어야 한다** -
         // Campaign이 waitForCutscene으로 멈춰 서 있으면, 여기서 안 부르는 순간 그 씬은
         // 영영 전투가 시작되지 않는다. 증상이 "아무 일도 안 일어남"이라 제일 비싸다.
@@ -192,7 +233,7 @@ public class ScriptManager : MonoBehaviour
         if (string.IsNullOrWhiteSpace(openingScript) || alreadyRunning)
         {
             CutSceneManager.EndAndStartRun();
-            return;
+            yield break;
         }
 
         // 지난 판의 컷신 배를 걷어낸다. 목록이 static이라 씬을 다시 시작해도 살아남는다.
@@ -258,7 +299,7 @@ public class ScriptManager : MonoBehaviour
 
     /// <summary>대본 폴더. def와 같은 자리에 산다.</summary>
     public static string ScriptFolder =>
-        Path.Combine(Application.streamingAssetsPath, "대사");
+        Path.Combine(Application.streamingAssetsPath, "Dialogue");
 
     /// <summary>
     /// 대본을 읽는다. **없으면 null이고 그것이 정상이다** - 아직 안 쓴 사건의 대사가 없다고
@@ -385,6 +426,12 @@ public class ScriptManager : MonoBehaviour
         if (!OffCooldown(scriptName, script))
             return true;
 
+        // 진단. 같은 대본이 두 번 뜨는 보고가 있는데 코드에서는 원인이 안 보인다 - 누가
+        // 언제 부르는지가 콘솔에 남아야 다음 보고가 데이터를 들고 온다. 잡히면 지운다.
+        Debug.Log($"[대사] Play '{scriptName}' t={Time.unscaledTime:0.00} running={_running} " +
+                  $"from {new System.Diagnostics.StackTrace(1, false).GetFrame(0)?.GetMethod()?.DeclaringType?.Name}." +
+                  $"{new System.Diagnostics.StackTrace(1, false).GetFrame(0)?.GetMethod()?.Name}");
+
         // 죽은 자리의 줄은 후보에서 빠진다. 하나도 안 남으면 시스템이 대신 읽는다.
         bool viaSystem = CollectSpeakable(script) == 0;
 
@@ -474,6 +521,13 @@ public class ScriptManager : MonoBehaviour
     /// 씬이 넘어가면 안 된다.</summary>
     public bool IsRunning => _running > 0;
 
+    /// <summary>
+    /// 대본이 줄을 넘기는 중이거나 그 줄이 아직 화면에 있는가. **IsRunning보다 늦게 꺼진다** -
+    /// 마지막 줄을 넘긴 뒤에도 duration만큼 화면에 남는데, 그 사이에 적이 뜨면 마지막
+    /// 문장을 못 읽는다. Campaign이 이걸 보고 소환을 미룬다.
+    /// </summary>
+    public bool IsBusy => _running > 0 || LinesOnScreen > 0;
+
     private int _running;
 
     /// <summary>
@@ -539,6 +593,7 @@ public class ScriptManager : MonoBehaviour
             // 읽히는 동안 창이 날아가고, 다 읽은 뒤에 그 결과를 기다린다.
             if (!string.IsNullOrWhiteSpace(line.awaitWreck))
                 yield return DramaManager.AwaitWreck(line.awaitWreck, line.awaitRammer);
+
         }
         }
         finally

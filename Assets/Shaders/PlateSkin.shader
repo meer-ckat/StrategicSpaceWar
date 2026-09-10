@@ -31,6 +31,15 @@ Shader "SUPERRADIANCE/PlateSkin"
         _GrainPpu("Grain PPU", Float) = 48
         _Heat("Heat", Float) = 0
 
+        // **불투명 큐 실험용 스위치.** 기본값은 지금까지의 투명 설정 그대로다.
+        // C#(ArmorSkin.ToggleOpaqueProbe)이 이 셋과 renderQueue를 함께 갈아끼워서
+        // "판을 불투명으로 그리면 프레임이 돌아오는가"를 잰다. 블렌딩이 사라지면
+        // ROP가 읽고-고쳐-쓰기 대신 쓰기만 하므로 대역폭이 줄고, 깊이를 쓰면 뒤에
+        // 오는 것들이 기각될 수 있다.
+        [HideInInspector] _SrcBlend("Src Blend", Float) = 5      // SrcAlpha
+        [HideInInspector] _DstBlend("Dst Blend", Float) = 10     // OneMinusSrcAlpha
+        [HideInInspector] _ZWrite("ZWrite", Float) = 0
+
         // Sprite-Lit-Default과 같은 레거시 호환 속성
         [HideInInspector] _Color("Tint", Color) = (1,1,1,1)
         [HideInInspector] _RendererColor("RendererColor", Color) = (1,1,1,1)
@@ -42,9 +51,9 @@ Shader "SUPERRADIANCE/PlateSkin"
     {
         Tags {"Queue" = "Transparent" "RenderType" = "Transparent" "RenderPipeline" = "UniversalPipeline" }
 
-        Blend SrcAlpha OneMinusSrcAlpha, One OneMinusSrcAlpha
+        Blend [_SrcBlend] [_DstBlend], One OneMinusSrcAlpha
         Cull Off
-        ZWrite Off
+        ZWrite [_ZWrite]
 
         Pass
         {

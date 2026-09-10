@@ -93,10 +93,26 @@ public static class DefDatabase
 
     public static void Reload()
     {
+        // 옛 원본을 먼저 버린다. 안 버리면 옛 수치를 든 GameObject가 씬에 계속 떠 있고,
+        // 다시 지은 배가 그것을 복제한다 - 증상이 "Reload를 눌렀는데 안 바뀐다"뿐이다.
+        if (_defs != null)
+            foreach (ThingDef old in _defs.Values)
+                old.DiscardPrototype();
+
         _defs = new Dictionary<string, ThingDef>();
         LoadDefs();
 
         Debug.Log($"[DefDatabase] def {_defs.Count}개.");
+    }
+
+    public static ThingDef Inspect(string defName)
+    {
+        if(_defs.Count > 0 && _defs.ContainsKey(defName))
+        {
+            return _defs[defName];
+        }
+        Debug.LogAssertion("[DefDataBase] Error 404:" + defName);
+        return null;
     }
 
     // ponytail: File 직접 읽기. ShipDef와 같은 이유로 데스크톱 전용이다.

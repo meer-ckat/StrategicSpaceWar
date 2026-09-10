@@ -85,6 +85,11 @@ public abstract class Armor : Thing
     /// <summary>m². 폴리곤이 없으면 <see cref="_cellArea"/>와 같다.</summary>
     private float _shapeArea = 1f;
 
+    // 서브셀 최대 체력의 합. HealthFraction의 분모다 - PlateHp(넓이 x 단가)와 수학적으로 같지만
+    // 폴리곤 판은 clamp01과 합 순서 때문에 1e-6쯤 어긋나서, 새 판이 0.9999999로 "손상"으로 읽혔다.
+    // 증상: 정비 화면이 다 고친 배에서도 수리 버튼을 켜 두고 자재를 계속 받았다.
+    private float _fullHp = 1f;
+
     public float PlateThickness => plateThickness;
 
     /// <summary>
@@ -122,7 +127,7 @@ public abstract class Armor : Thing
             for (int i = 0; i < SubCount; i++)
                 total += _hp[i];
 
-            return PlateHp > 0f ? total / PlateHp : 0f;
+            return _fullHp > 0f ? total / _fullHp : 0f;
         }
     }
 
@@ -198,8 +203,12 @@ public abstract class Armor : Thing
 
         BakeShape();
 
+        _fullHp = 0f;
         for (int i = 0; i < SubCount; i++)
+        {
             _hp[i] = MaxHpAt(i);
+            _fullHp += _hp[i];
+        }
 
         RebuildAliveMask();
     }
@@ -354,6 +363,15 @@ public abstract class Armor : Thing
     /// <summary>구멍을 뚫은 그 명중에서 걸린다. 그래서 기압 계산이 서브셀을 훑을 일이 없다.</summary>
     public bool AnyBreached { get; private set; }
 
+    /// <summary>
+    /// 이 판은 죽었다. <see cref="Die"/>가 세우고 다시 눕지 않는다.
+    ///
+    /// **콜라이더가 꺼진 것으로는 죽음을 알 수 없다** - 안쪽 판은 살아서도 꺼져 있다
+    /// (ShipBuilder의 Exterior 판정). TraceWorld가 이 플래그로 둘을 가른다. Unity의
+    /// 가짜 null은 프레임 끝에야 서는데 틱은 프레임 안에서 여러 번 도므로 그것으로는 못 막는다.
+    /// </summary>
+    public bool Dying { get; private set; }
+
     /// <summary>Awake에서 읽은 실제 콜라이더 크기. X선 오버레이가 이걸로 자기 크기를 잡는다.</summary>
     public Vector2 CellSize => _cellSize;
 
@@ -407,6 +425,34 @@ public abstract class Armor : Thing
     public bool SameBodyAs(Armor other)
         => other != null && ReferenceEquals(other.CachedBody, CachedBody);
 
+
+    /// <summary>
+    /// 이 판을 물리 세계에 넣거나 뺀다. **탄도는 이 스위치를 안 본다** -
+    /// <see cref="TraceWorld"/>가 몸이 아니라 계층에서 콜라이더를 읽으므로 파묻힌 판도
+    /// 여전히 맞고 뚫린다.
+    ///
+    /// 왜 있나: Box2D는 픽스처를 붙이거나 뗄 때마다 **그 몸의 픽스처 전부를 다시 건다.**
+    /// 그래서 콜라이더 하나가 몸을 옮기는 값이 그 몸의 판 수에 비례하고, 판 2268장짜리
+    /// 배에서는 그 곱셈이 틱의 절반을 먹었다(SyncTransformChanges 21 ms 중 20 ms가
+    /// CreateShapes/DestroyShapes). 파묻힌 판은 아무것도 안 부딪히므로 빼도 잃는 것이 없고,
+    /// 곱셈의 한쪽이 4배 작아진다. 레이캐스트·충각 스윕·브로드페이즈도 같이 싸진다.
+    ///
+    /// **되묻지는 않는다.** 이웃이 죽어 한 번 드러난 판은 계속 켜져 있다 - 다시 묻히는
+    /// 경우(수리)가 드물고, 틀리는 방향이 "쓸데없이 켜져 있다"(비용)이지 "있어야 할 벽이
+    /// 없다"(버그)가 아니어야 한다.
+    /// </summary>
+    public void SetBuried(bool buried)
+    {
+        if (TryGetComponent(out Collider2D col))
+            col.enabled = !buried;
+    }
+
+    /// <summary>이 판이 바깥에 드러났다. 이웃이 죽거나 잔해로 떨어져 나갈 때.</summary>
+    public void Surface()
+    {
+        if (TryGetComponent(out Collider2D col) && !col.enabled)
+            col.enabled = true;
+    }
     /// <summary>
     /// 판 **로컬** 좌표의 한 점이 들어 있는 서브셀. 바깥에서 "격자가 어디냐"를 물어도 되는
     /// 유일한 자리다 - 콜라이더 기반 격자로 갈아끼울 때 이 메서드 본문만 바꾸면 된다.
@@ -509,6 +555,9 @@ public abstract class Armor : Thing
         _heatTick = TickManager.currentTick;
     }
 
+    /// <summary>워프를 건너온 판은 식어 있다. Campaign이 도착 암전 밑에서 부른다.</summary>
+    public void Cool() => _heat0 = 0f;
+
     // 판은 자기 뒤 후면을 안 데운다. 한번 넣어봤다가 뺐다 - 내 배의 후면은
     // sortingOrder -10에 0.35까지 어둡게 깔리므로, 살아 있는 판 밑은 그 판이 가려서
     // 화면에 아무것도 안 나온다. 후면이 빛나는 자리는 판이 없는 자리뿐이고, 거기로
@@ -544,13 +593,21 @@ public abstract class Armor : Thing
 
     private int _lastPenetrateSoundFrame = -1;
 
-    public void ApplyDamage(int subIndex, float amount)
+    public void ApplyDamage(int subIndex, float amount, float heatScale = 1f)
     {
         if (amount <= 0f || _collapsed)
             return;
 
         // 맞은 만큼 달아오른다. 서브셀 하나를 통째로 날리는 피해가 기준.
-        AddHeat(amount / Mathf.Max(1e-3f, SubCellFullHp) * Ballistics.HeatFromDamage);
+        //
+        // heatScale은 **전도된 피해를 식히려고** 있다. 충격 전도는 구조가 갈라지는
+        // 것이지 타는 것이 아니다 - 열은 탄착점에서 나오지 10 m 떨어진 격벽에서 나오지
+        // 않는다. 그런데 충각 한 번이 판 열 장어치를 축방향 11 m까지 퍼뜨리므로, 같은
+        // 눈금으로 달구면 선체 절반이 한꺼번에 하얗게 된다. 갈라진 자리는 여전히 빛난다 -
+        // 죽은 판의 이웃이 HeatFromExposure를 받는 길은 그대로 살아 있고, 그게 원래
+        // 열의 제일 큰 원천이다(CLAUDE.md).
+        if (heatScale > 0f)
+            AddHeat(amount / Mathf.Max(1e-3f, SubCellFullHp) * Ballistics.HeatFromDamage * heatScale);
         foreach (Armor neighbour in Neighbours)
         {
             if (neighbour != null && SameBodyAs(neighbour))
@@ -580,7 +637,18 @@ public abstract class Armor : Thing
         // 서지 않았다가 서는 순간만 방의 파공 캐시를 무효화한다. 매번 올리면 전투 중
         // 매 틱 오르는 것과 같아서 캐시가 있으나 마나다.
         if (!AnyBreached)
+        {
             Ship.BreachVersion++;
+
+            // 함내 보고. **걸쇠 안이라 판당 한 번이다** - 같은 판에 백 발이 더 박혀도
+            // 안 온다. 초당 100발이 초당 100줄이 되지 않는 자리가 여기다.
+            //
+            // 화면 표시(맞은 자리 경고)는 따로 안 낸다 - HitReadout.Hit이 이미 매 관통
+            // 명중마다 이 정보를 정확한 명중점(_surfaces.hitPoint)에 낸다. 여기서 또
+            // 내면 같은 판이 처음 뚫리는 순간 "관통"이 두 자리에 뜬다 - 하나는 판 중심
+            // (여기), 하나는 진짜 명중점(HitReadout). RunLog는 기록(엔딩 판정)이라 남는다.
+            RunLog.Penetrated(this);
+        }
 
         AnyBreached = true;
         _dead++;
@@ -673,6 +741,17 @@ public abstract class Armor : Thing
         GetComponentInParent<Ship>()?.RecalcMass();
         GetComponentInParent<HullStructure>()?.ReportPlateLost(transform, Heat);
 
+        // **내가 죽으면 이웃이 바깥이 된다.** 파묻혀서 꺼둔 이웃을 여기서 켠다 - 안 켜면
+        // 뚫린 구멍 안쪽 벽이 물리적으로 없어서 잔해가 선체를 통과한다. 같은 몸에 있는
+        // 이웃만 - 잔해로 갈라진 뒤에도 Neighbours 참조는 살아 있다.
+        foreach (Armor neighbour in Neighbours)
+        {
+            if (neighbour != null && neighbour.SameBodyAs(this))
+                neighbour.Surface();
+        }
+
+        Dying = true;
+
         GetComponentsInChildren(_dyingColliders);
 
         for (int i = 0; i < _dyingColliders.Count; i++)
@@ -688,7 +767,7 @@ public abstract class Armor : Thing
     /// </summary>
     private static readonly Unity.Profiling.ProfilerMarker _mDamageEvenly = new("Armor.DamageEvenly");
 
-    public void ApplyDamageEvenly(float amount)
+    public void ApplyDamageEvenly(float amount, float heatScale = 1f)
     {
         if (amount <= 0f)
             return;
@@ -713,7 +792,7 @@ public abstract class Armor : Thing
             // 위에서부터 훑는 도중 판이 무너져 사라질 수 있다. ApplyDamage가 _collapsed로
             // 막아주므로 남은 반복은 조용히 아무 일도 안 한다.
             for (int i = 0; i < SubCount; i++)
-                ApplyDamage(i, share);
+                ApplyDamage(i, share, heatScale);
         }
         finally
         {
@@ -923,4 +1002,41 @@ public abstract class Armor : Thing
             Ballistics.Hash((stableId < 0)? GetInstanceID() : stableId, TickManager.currentTick, SubCount),
             debrisLayer);
     }
+
+#if UNITY_EDITOR
+    /// <summary>
+    /// **콜라이더 실험.** 판 콜라이더를 전부 끄고 `Physics2D.SyncTransformChanges`가
+    /// 줄어드는지 본다.
+    ///
+    /// 가설: 판은 선체 Rigidbody2D의 자식 콜라이더라, 배가 움직이면 Unity가 자식
+    /// Transform 전부를 dirty로 찍고 SyncTransforms가 그걸 하나씩 걸어서 Box2D 픽스처에
+    /// 다시 민다. 그러면 비용이 판 수에 정비례한다.
+    ///
+    /// 꺼진 콜라이더는 픽스처가 없으니 그 목록에서 빠진다. 숫자가 무너지면 가설이 맞고,
+    /// 안 무너지면 판 콜라이더는 무죄다 - 지금까지 렌더로 두 번 헛짚었으니 이번엔
+    /// 짓기 전에 끊어본다.
+    ///
+    /// **게임은 망가진다** - 충각도 함선 충돌도 사라지고 배가 서로 통과한다. 재는 것은
+    /// Profiler의 SyncTransformChanges 한 줄뿐이다.
+    /// </summary>
+    [UnityEditor.MenuItem("Tools/Ballistics/판 콜라이더 끄기 실험")]
+    private static void ToggleColliderProbe()
+    {
+        Armor[] plates = FindObjectsByType<Armor>(FindObjectsSortMode.None);
+        int on = 0;
+
+        foreach (Armor plate in plates)
+            if (plate.TryGetComponent(out Collider2D col) && col.enabled)
+                on++;
+
+        bool turnOff = on > 0;
+
+        foreach (Armor plate in plates)
+            if (plate.TryGetComponent(out Collider2D col))
+                col.enabled = !turnOff;
+
+        Debug.Log($"[Armor] 판 콜라이더 {plates.Length}장 {(turnOff ? "끔" : "켬")} - "
+            + "Profiler의 Physics2D.SyncTransformChanges를 봐라.");
+    }
+#endif
 }

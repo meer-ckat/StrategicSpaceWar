@@ -26,6 +26,17 @@ public class Room
     public int breaches;
     public int breachVersion = -1;
 
+    /// <summary>
+    /// 이 방의 벽을 이미 물리 세계로 돌려보냈나. 판이 **통째로** 없어져 방이 우주로
+    /// 열린 순간 한 번만 선다 (<see cref="Ship.Atmosphere"/>).
+    ///
+    /// **관통(AnyBreached)으로는 안 선다.** 서브셀 하나는 17cm짜리 구멍이라 잔해가
+    /// 못 지나가고, 탄은 콜라이더를 안 보므로(TraceWorld가 계층에서 읽는다) 벽을 켤
+    /// 이유가 없다. 파공 하나마다 켜면 전투가 길어질수록 켜진 콜라이더가 늘어서
+    /// 절감분이 조용히 증발한다.
+    /// </summary>
+    public bool wallsSurfaced;
+
     public Room(List<Vector2Int> cells)
     {
         this.cells = cells;

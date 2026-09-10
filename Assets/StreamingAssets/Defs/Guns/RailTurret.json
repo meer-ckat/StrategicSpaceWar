@@ -5,24 +5,22 @@
     "SolidSkin"
   ],
   "layer": "Module",
+  "skinTexture": "rail.png",
   "collider": {
-    "size": {
-      "x": 1.6,
-      "y": 1.6
-    },
-    "offset": {
-      "x": 0,
-      "y": 0
-    }
+    "size": { "x": 1.6, "y": 3 },
+    "offset": { "x": 0, "y": 0 }
   },
   "projectile": "Sunkiller",
   "muzzleSpeed": 10000,
-  "muzzleVfx": "ShipIncoming",
+  "muzzleVfx": "MuzzleFlash",
+  "muzzleFirePower": 1.0,
+  "muzzleColor": { "r": 0.6, "g": 0.8, "b": 1, "a": 1 },
   "roundsPerMinute": 20,
   "aim": 0,
   "slewRate": 8,
   "fireArc": 0.8,
-  "muzzleOffset": 1.6,
+  "traverse": 90,
+  "muzzleOffset": 5,
   "friendlyCheckRange": 200,
   "maxHealth": 500,
   "tint": {

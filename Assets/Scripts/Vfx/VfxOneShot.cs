@@ -36,20 +36,38 @@ public static class VfxOneShot
     /// 변환되므로, 코드가 좌표를 어트리뷰트로 따로 실어 보낼 이유가 없다.
     /// </param>
     public static void Play(string name, Vector2 at, float lifeSeconds = 4f, float rotationDeg = 0f)
-        => Spawn(name, at, lifeSeconds, 0f, 0f, withAttributes: false, rotationDeg);
+        => Spawn(name, at, lifeSeconds, rotationDeg, null);
 
     /// <summary>
     /// Duration/Power를 **이벤트 어트리뷰트**로 실어서 띄운다. Explosion.vfx가 이 둘을
     /// 소스 어트리뷰트로 읽는다 - 블랙보드 노출 프로퍼티가 아니라서 SetFloat로는 안 간다.
-    /// 자동 OnPlay를 끄고(initialEventName 비움) 어트리뷰트를 실은 이벤트를 직접 쏜다 -
-    /// 안 끄면 켜지는 순간 빈 어트리뷰트로 한 번 더 터진다.
     /// </summary>
     public static void Play(string name, Vector2 at, float lifeSeconds, float duration, float power)
-        => Spawn(name, at, lifeSeconds, duration, power, withAttributes: true, 0f);
+        => Spawn(name, at, lifeSeconds, 0f, attr =>
+        {
+            attr.SetFloat("Duration", duration);
+            attr.SetFloat("Power", power);
+        });
 
+    /// <summary>
+    /// 포구 섬광 전용. firePower(커스텀 어트리뷰트, 0~1)와 color(VFX Graph 내장 어트리뷰트)를
+    /// 실어서 회전까지 준다 - 방향 있는 이펙트라 Explosion 경로와 하나로 못 묶는다.
+    /// 두 이름 다 소문자 시작이다 - 내장은 API가 원래 소문자, firePower는 그래프에 그렇게 있다.
+    /// </summary>
+    public static void Play(string name, Vector2 at, float lifeSeconds, float rotationDeg, float firePower, Color color)
+        => Spawn(name, at, lifeSeconds, rotationDeg, attr =>
+        {
+            attr.SetFloat("firePower", firePower);
+            attr.SetVector3("color", new Vector3(color.r, color.g, color.b));
+        });
+
+    /// <summary>
+    /// 어트리뷰트가 있으면 자동 OnPlay를 끄고(initialEventName 비움) 실어서 직접 쏜다 -
+    /// 안 끄면 켜지는 순간 빈 어트리뷰트로 한 번 더 터진다. 없으면(<paramref name="setAttributes"/>
+    /// null) 그래프의 OnPlay가 인스턴스 활성화만으로 재생한다.
+    /// </summary>
     private static void Spawn(
-        string name, Vector2 at, float lifeSeconds, float duration, float power, bool withAttributes,
-        float rotationDeg)
+        string name, Vector2 at, float lifeSeconds, float rotationDeg, System.Action<VFXEventAttribute> setAttributes)
     {
         if (string.IsNullOrEmpty(name))
             return;
@@ -76,7 +94,7 @@ public static class VfxOneShot
         var vfx = go.AddComponent<VisualEffect>();
         vfx.visualEffectAsset = asset;
 
-        if (withAttributes)
+        if (setAttributes != null)
             vfx.initialEventName = string.Empty;
 
         // **정리 예약을 켜기 전에 건다.** 예전에는 맨 아래에 있었는데, 그러면 아래
@@ -87,13 +105,10 @@ public static class VfxOneShot
 
         go.SetActive(true);
 
-        if (withAttributes)
+        if (setAttributes != null)
         {
             VFXEventAttribute attr = vfx.CreateVFXEventAttribute();
-
-            attr.SetFloat("Duration", duration);
-            attr.SetFloat("Power", power);
-
+            setAttributes(attr);
             vfx.SendEvent(VisualEffectAsset.PlayEventID, attr);
         }
     }

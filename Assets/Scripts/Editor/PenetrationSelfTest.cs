@@ -26,6 +26,27 @@ public static class PenetrationSelfTest
         Check("ram sweep capsule keeps contacts, drops the rear", RamImpact.SweptCircleSelfTest());
 
         {
+            // 정면 후퇴: 200 m 앞의 표적이 탄과 같은 선 위를 20 m/s로 멀어진다.
+            // 1100 m/s 탄은 (1100-20) m/s로 좁히므로 t = 200/1080.
+            Check("intercept closes at the speed difference",
+                Ballistics.InterceptTime(Vector2.right * 200f, Vector2.right * 20f, 1100f, out float closing)
+                // 판별식이 1.9e11이라 float 유효숫자가 7자리다. 허용오차가 이 이하일 이유가 없다.
+                && Mathf.Abs(closing - 200f / 1080f) < 1e-3f);
+
+            // 순수 횡단: 조준점은 표적 앞이고, 리드 거리는 상대속도 x t다.
+            // 이 값이 fireArc보다 크다는 것이 리드 조준을 넣은 이유 그 자체다.
+            bool cross = Ballistics.InterceptTime(
+                Vector2.right * 200f, Vector2.up * 30f, 1100f, out float t);
+
+            Check("crossing target leads ahead of its own position",
+                cross && t > 0f && 30f * t > 5f);
+
+            // 탄보다 빠른 표적은 못 잡는다. Gun이 이 경우 리드를 아예 안 거는 근거.
+            Check("no solution when the target outruns the shell",
+                !Ballistics.InterceptTime(Vector2.right * 200f, Vector2.right * 50f, 40f, out _));
+        }
+
+        {
             const float shellMass = 5f;
             Vector2 incoming = Vector2.right * 900f;
             Vector2 fastExit = Ballistics.ImpactImpulse(

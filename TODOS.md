@@ -125,3 +125,18 @@ STORY.md의 핵심 테마가 연속성이다 — CAPTAIN A가 죽으면 CAPTAIN 
 것이라 그 규칙 **밖**에 둬야 한다.
 
 **의존** — 보여줄 자리. ACT II의 항로 화면이나 시작 화면이 생기면 그때가 할 때다.
+
+## 함선 표시명이 없다
+
+**무엇** — 물류창 Info가 적 구성을 `frigate ×2`처럼 보여주는데, 그 이름은 `SpawnDef.ship`
+= 설계도 defName이다. 테스트 함선(`newship`, `aaaaaa`)이 캠페인에 들어오면 그대로 노출된다.
+
+**왜 지금 안 하나** — 함선 JSON 20개에 필드를 넣는 일이고 이름은 오너 목소리다.
+Claude가 채우면 다시 고치게 된다(CLAUDE.md "Claude가 만든 UI는 초안"). UI는 defName을
+그대로 쓰고 있어서 필드가 생기는 순간 한 줄만 바꾸면 된다.
+
+**어떻게** — `ShipDef.displayName` 필드 하나(비면 defName). `DefKeys` 검증은 리플렉션이라
+자동으로 통과한다. 읽는 자리는 `LogisticsScreen.Composition` 한 곳이고, 나중에 피격 표시·대사가
+같은 필드를 쓴다.
+
+**의존** — 없음.

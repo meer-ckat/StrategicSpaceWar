@@ -37,7 +37,12 @@ public static class ModuleSkinTemplate
         public float muzzleOffset;
         public Vector2 skinSize;
         public string skinTexture;
+        public string turretTexture;
+        public Vector2 turretSize;
     }
+
+    // StreamingAssets 밖이고 폴더 끝의 ~는 Unity가 임포트를 건너뛰게 한다 - 8160px 밑판을 텍스처로 굽지도, 4:3 그림을 큐브맵으로 오인하지도 않는다.
+    public static string TemplateDirectory => Path.Combine(Application.dataPath, "Art", "Templates~", "Modules");
 
     [MenuItem("Tools/Defs/Export Module Skin Templates")]
     public static void Run()
@@ -59,7 +64,7 @@ public static class ModuleSkinTemplate
 
         AssetDatabase.Refresh();
 
-        Debug.Log($"[ModuleSkinTemplate] 템플릿 {made}장을 {DefDatabase.DefDirectory}에 썼다. "
+        Debug.Log($"[ModuleSkinTemplate] 템플릿 {made}장을 {TemplateDirectory}에 썼다. "
                 + $"({skipped}개는 SolidSkin을 안 쓴다)");
     }
 
@@ -86,19 +91,36 @@ public static class ModuleSkinTemplate
 
         // 콜라이더가 곧 물리 판정 범위다. 없는 것(탄)은 SolidSkin이 skinSize로 그리므로
         // 여기서도 같은 값을 봐야 템플릿과 결과가 맞는다.
-        Vector2 size = def.collider != null && def.collider.size.x > 0f && def.collider.size.y > 0f
+        bool hasCollider = def.collider != null && def.collider.size.x > 0f && def.collider.size.y > 0f;
+        Vector2 size = hasCollider
             ? def.collider.size
             : (peek.skinSize.x > 0f && peek.skinSize.y > 0f ? peek.skinSize : NoColliderSize);
+        Vector2 offset = hasCollider ? def.collider.offset : Vector2.zero;
 
         // 포신은 도는 것에만 있다. 안 도는 모듈은 캔버스가 콜라이더와 같은 크기다.
         bool isGun = def.MainType != null && typeof(Gun).IsAssignableFrom(def.MainType);
         float barrel = isGun ? Mathf.Max(0f, peek.muzzleOffset) : 0f;
 
+        // 2단 포탑: 포대(_base)는 콜라이더 크기에 포신 없이, 터렛(_turret)은 turretSize에 포신.
+        // 둘 다 원점이 회전축이라 십자가 같은 자리다.
+        if (isGun && !string.IsNullOrEmpty(peek.turretTexture))
+        {
+            Vector2 turret = peek.turretSize.x > 0f && peek.turretSize.y > 0f ? peek.turretSize : Vector2.one;
+            bool okBase = Write(def, "_base", size, 0f, offset);
+            bool okTurret = Write(def, "_turret", turret, barrel, Vector2.zero);
+            return okBase && okTurret;
+        }
+
+        return Write(def, "", size, barrel, offset);
+    }
+
+    private static bool Write(ThingDef def, string suffix, Vector2 size, float barrel, Vector2 offset)
+    {
         Vector2Int want = SolidSkin.WantedPixels(size, barrel);
 
         if (want.x <= 0 || want.y <= 0 || want.x > MaxSide || want.y > MaxSide)
         {
-            Debug.LogError($"[ModuleSkinTemplate] {def.defName}: {want.x}x{want.y}는 못 뽑는다.");
+            Debug.LogError($"[ModuleSkinTemplate] {def.defName}{suffix}: {want.x}x{want.y}는 못 뽑는다.");
             return false;
         }
 
@@ -137,10 +159,10 @@ public static class ModuleSkinTemplate
                 pixels[i] = grid;
         }
 
-        // 회전 중심 = 오브젝트 원점 = 콜라이더 한가운데. 여기가 어긋나면 포탑이 선회할 때
-        // 그림이 제자리에서 안 돈다.
-        int cx = want.x / 2;
-        int cy = bodyH / 2;
+        // 회전 중심 = 오브젝트 원점. 콜라이더가 offset만큼 밀려 있으면 원점은 콜라이더
+        // 한가운데에서 그 반대로 밀린 자리다. 여기가 어긋나면 포탑이 선회할 때 그림이 제자리에서 안 돈다.
+        int cx = want.x / 2 - Mathf.RoundToInt(offset.x * ppu);
+        int cy = bodyH / 2 - Mathf.RoundToInt(offset.y * ppu);
         int arm = Mathf.Max(6, ppu / 3);
 
         for (int d = -arm; d <= arm; d++)
@@ -166,13 +188,14 @@ public static class ModuleSkinTemplate
         texture.SetPixels32(pixels);
         texture.Apply(false);
 
-        string path = Path.Combine(DefDatabase.DefDirectory, $"{Safe(def.defName)}_template.png");
+        string path = Path.Combine(TemplateDirectory, $"{Safe(def.defName)}{suffix}_template.png");
+        Directory.CreateDirectory(TemplateDirectory);
         File.WriteAllBytes(path, texture.EncodeToPNG());
         UnityEngine.Object.DestroyImmediate(texture);
 
         string barrelNote = barrel > 0f ? $", 포신 {barrel} m" : "";
-        Debug.Log($"[ModuleSkinTemplate] {def.defName}: {want.x}x{want.y} "
-                + $"(콜라이더 {size.x}x{size.y} m{barrelNote})");
+        Debug.Log($"[ModuleSkinTemplate] {def.defName}{suffix}: {want.x}x{want.y} "
+                + $"({size.x}x{size.y} m{barrelNote})");
 
         return true;
     }

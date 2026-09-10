@@ -152,7 +152,30 @@ public abstract partial class Projectile : Thing, ITickLate
     /// 한 틱치 시간을 다 쓸 때까지 앞으로 훑는다. 판을 뚫으면 남은 시간으로 계속 가므로
     /// 한 틱 안에서 외벽을 뚫고 안쪽 격벽까지 맞을 수 있다.
     /// </summary>
+    /// <summary>
+    /// 이번 틱에 지나간 선을 남긴다. **탄 스프라이트는 줌아웃하면 서브픽셀이라 그냥 안
+    /// 보인다** - 22mm는 0.12 m다. 꼬리는 길이가 있어서 화면에 남는다.
+    ///
+    /// try/finally인 이유는 아래 루프의 탈출 경로가 넷이기 때문이다(수명 만료, 스톨,
+    /// 파쇄, 정상 종료). 자리마다 한 줄씩 넣으면 새 return이 생기는 날 조용히 빠지고,
+    /// 증상은 "가끔 꼬리가 없다"라 원인이 안 보인다. 제일 중요한 선분이 명중으로 끝나는
+    /// 마지막 하나라 더 그렇다.
+    /// </summary>
     public override void OnTick()
+    {
+        Vector2 from = transform.position;
+
+        try
+        {
+            TickBody();
+        }
+        finally
+        {
+            SpallTrails.Add(from, transform.position, SpallTrails.Kind.Shell);
+        }
+    }
+
+    private void TickBody()
     {
         if (TickManager.currentTick - spawnTick >= lifeTick) //Dead man's switch
         {

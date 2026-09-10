@@ -24,6 +24,8 @@ public static class SolidSkinSelfTest
         {
             Check("pivot: 같은 높이면 0.5",
                 Mathf.Approximately(SolidSkin.PivotY(1f, ppu), 0.5f));
+            Check("pivot: ppu가 달라도 같은 비율이면 같다",
+                Mathf.Approximately(SolidSkin.PivotY(1f, 100, 100f), 0.5f));
         }
 
         // 포신이 자란 만큼 회전축이 아래로 내려간다. 1 m 몸통 + 1 m 포신이면 아래에서 1/4.
@@ -40,13 +42,14 @@ public static class SolidSkinSelfTest
                 SolidSkin.PivotY(1f, ppu * 4) < SolidSkin.PivotY(1f, ppu * 2));
         }
 
-        // 가로는 딱 맞아야 한다. 안 맞는데 늘려 쓰면 증상이 "좀 어긋난다"뿐이라 못 찾는다.
+        // 가로는 비율로 맞춘다(배치가 콜라이더를 덮어쓴다). 세로만 모자라면 거부.
         {
             Vector2 one = Vector2.one;
 
             Check("fits: 딱 맞는 그림", SolidSkin.Fits(one, ppu, ppu, out _));
             Check("fits: 세로가 남는 것은 포신이다", SolidSkin.Fits(one, ppu, ppu * 3, out _));
-            Check("fits: 가로가 다르면 거부", !SolidSkin.Fits(one, ppu * 2, ppu * 2, out _));
+            Check("fits: 가로가 달라도 비율로 맞춘다", SolidSkin.Fits(one, ppu * 2, ppu * 2, out _));
+            Check("fits: 비율로 재서 세로가 모자라면 거부", !SolidSkin.Fits(one, ppu * 2, ppu, out _));
             Check("fits: 세로가 모자라면 거부", !SolidSkin.Fits(one, ppu, ppu / 2, out _));
             Check("fits: 반 픽셀은 봐준다", SolidSkin.Fits(one, ppu + 1, ppu, out _));
         }
@@ -58,8 +61,9 @@ public static class SolidSkinSelfTest
                 SolidSkin.WantedPixels(Vector2.one, 1f) == new Vector2Int(ppu, ppu * 2));
             Check("wanted: 포신 없으면 콜라이더 그대로",
                 SolidSkin.WantedPixels(Vector2.one, 0f) == new Vector2Int(ppu, ppu));
-            Check("wanted: pd20 0.6x0.6 + 0.6 -> 58x115",
-                SolidSkin.WantedPixels(new Vector2(0.6f, 0.6f), 0.6f) == new Vector2Int(58, 115));
+            Check("wanted: pd20 0.6x0.6 + 0.6 (PPU 96이면 58x115, 48이면 29x58)",
+                SolidSkin.WantedPixels(new Vector2(0.6f, 0.6f), 0.6f)
+                == new Vector2Int(Mathf.RoundToInt(0.6f * ppu), Mathf.RoundToInt(1.2f * ppu)));
 
             Vector2Int m7 = SolidSkin.WantedPixels(Vector2.one, 1f);
             Check("wanted: 뽑은 크기는 검사를 통과한다",

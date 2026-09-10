@@ -31,5 +31,14 @@ public static class TraceWorldMenu
         RamImpact.RamLog = !RamImpact.RamLog;
         Debug.Log($"[RamImpact] 충각 로그 {(RamImpact.RamLog ? "켬" : "끔")}");
     }
+
+#if UNITY_EDITOR
+    [UnityEditor.MenuItem("Tools/Ballistics/콜라이더 churn 로그")]
+    private static void ToggleChurnLog()
+    {
+        TraceWorld.ChurnLog = !TraceWorld.ChurnLog;
+        Debug.Log($"[churn] 로그 {(TraceWorld.ChurnLog ? "켬 - Console을 봐라" : "끔")}");
+    }
+#endif
 }
 #endif

@@ -37,7 +37,7 @@ namespace IMGUI
         public Vector2 Pos => Rect.position; //some helpers
         public Vector2 Size => Rect.size;
 
-        public string Parent;
+        public GUIGroup Parent;
 
         /// <summary>
         /// 입력을 아예 안 받는 종류인가. GUI.Label·GUI.Box·GUI.DrawTexture는 이벤트를
@@ -93,10 +93,12 @@ namespace IMGUI
         }
 
 
-        public virtual void SetGroup(string parent)
+        public virtual void SetGroup(GUIGroup parent)
         {
             Parent = parent;
         }
+
+        public void DetachFromParent() => Parent?.Remove(this);
 
 
         public virtual void Tick(float deltaTime) //이 GUI가 Update()동안 뭘 하는지
@@ -239,7 +241,7 @@ namespace IMGUI
 
             childrens.Add(item);
 
-            item.SetGroup(GroupName);
+            item.SetGroup(this);
             item.SetLayer(Layer);
         }
 
@@ -251,7 +253,7 @@ namespace IMGUI
 
             childrens.Remove(item);
 
-            if (item.Parent == GroupName)
+            if (item.Parent == this)
             {
                 item.SetGroup(null);
             }

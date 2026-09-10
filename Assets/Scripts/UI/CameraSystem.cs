@@ -87,6 +87,13 @@ public class CameraSystem : MonoBehaviour
     private float _savedMoveSmooth;
     private float _savedZoomSmooth;
     private float _savedRatio;
+    private Vector2 _cutsceneMoveVelocity;
+    private float _cutsceneZoomVelocity;
+    private float _cutsceneSize;
+    private const float ReturnDuration = 3f;
+    private float _returnRemaining;
+    private Vector2 _returnOffset;
+    private float _returnSize;
 
     /// <summary>
     /// 따라가는 속도. 클수록 느긋하다(SmoothDamp의 시간 상수라 **작을수록 빠르다**).
@@ -117,7 +124,7 @@ public class CameraSystem : MonoBehaviour
     /// 컷신에 너무 크다** - 300 m 떨어진 두 배를 그 값으로 담으면 화면이 840 m 폭이라
     /// 배가 점이 된다.
     /// </param>
-    public static void CutsceneFrame(Transform a, Transform b, float zoom = 0f)
+    public static void CutsceneFrame(Transform a, Transform b, float zoom = 0f, float size = 0f)
     {
         if (_instance == null || a == null)
             return;
@@ -127,6 +134,7 @@ public class CameraSystem : MonoBehaviour
         _instance.A = a;
         _instance.B = b;
         _instance.myType = b != null ? TrackingType.Centering : TrackingType.Following;
+        _instance._cutsceneSize = Mathf.Max(0f, size);
 
         if (zoom > 0f)
             _instance.ratio = zoom;
@@ -138,12 +146,16 @@ public class CameraSystem : MonoBehaviour
             return;
 
         _cutsceneHeld = true;
+        _returnRemaining = 0f;
         _savedType = myType;
         _savedA = A;
         _savedB = B;
         _savedMoveSmooth = moveSmooth;
         _savedZoomSmooth = zoomSmooth;
         _savedRatio = ratio;
+        _cutsceneMoveVelocity = Vector2.zero;
+        _cutsceneZoomVelocity = 0f;
+        _cutsceneSize = 0f;
     }
 
     /// <summary>
@@ -151,7 +163,11 @@ public class CameraSystem : MonoBehaviour
     /// 지운 뒤에 남은 참조로 position을 읽으면 그 자리에서 예외가 난다. 안 빌렸으면
     /// 아무 일도 안 일어난다.
     /// </summary>
-    public static void ReleaseCutscene()
+    /// <param name="blend">
+    /// false면 3초 복귀 블렌드 없이 그 자리에서 놓는다. 워프가 쓴다 - 암전 밑에서 배가
+    /// 다른 구역으로 순간이동한 뒤라, 블렌드하면 옛 앵커에서 새 자리까지 수천 m를 팬한다.
+    /// </param>
+    public static void ReleaseCutscene(bool blend = true)
     {
         if (_instance == null || !_instance._cutsceneHeld)
             return;
@@ -163,6 +179,14 @@ public class CameraSystem : MonoBehaviour
         _instance.moveSmooth = _instance._savedMoveSmooth;
         _instance.zoomSmooth = _instance._savedZoomSmooth;
         _instance.ratio = _instance._savedRatio;
+        _instance._returnRemaining = 0f;
+        if (blend && _instance.myType == TrackingType.Aim && _instance.A != null)
+        {
+            _instance._returnOffset = (Vector2)(_instance.transform.position - _instance.A.position);
+            _instance._returnSize = _instance.cam.orthographicSize;
+            _instance._returnRemaining = ReturnDuration;
+            _instance.zoomVelocity = 0f;
+        }
     }
 
     void Following()
@@ -170,7 +194,10 @@ public class CameraSystem : MonoBehaviour
         if (A == null)
             return;
 
-        transform.position = Vector2.Lerp((Vector2)transform.position, (Vector2)A.position, 0.1f);
+        if (_cutsceneHeld)
+            MoveCutscene(A.position, _cutsceneSize > 0f ? _cutsceneSize : cam.orthographicSize, Time.unscaledDeltaTime);
+        else
+            transform.position = Vector2.Lerp((Vector2)transform.position, (Vector2)A.position, 0.1f);
     }
 
     void Centering()
@@ -182,14 +209,43 @@ public class CameraSystem : MonoBehaviour
             Transform alive = A != null ? A : B;
 
             if (alive != null)
-                transform.position = Vector2.Lerp((Vector2)transform.position, (Vector2)alive.position, 0.1f);
+            {
+                if (_cutsceneHeld)
+                    MoveCutscene(alive.position, _cutsceneSize > 0f ? _cutsceneSize : cam.orthographicSize, Time.unscaledDeltaTime);
+                else
+                    transform.position = Vector2.Lerp((Vector2)transform.position, (Vector2)alive.position, 0.1f);
+            }
 
             return;
         }
 
         Vector2 center = (A.position + B.position) / 2;
-        cam.orthographicSize = Mathf.Max(10f, (A.position - B.position).magnitude * ratio);
+        float size = Mathf.Max(10f, (A.position - B.position).magnitude * ratio);
+        if (_cutsceneHeld)
+        {
+            MoveCutscene(center, _cutsceneSize > 0f ? _cutsceneSize : size, Time.unscaledDeltaTime);
+            return;
+        }
+
+        cam.orthographicSize = size;
         transform.position = Vector2.Lerp((Vector2)transform.position, center, 0.1f);
+    }
+
+    private void MoveCutscene(Vector2 target, float size, float deltaTime)
+    {
+        // 대본의 시계와 맞춘다. 게임 일시정지 중에도 브리핑은 흐른다.
+        deltaTime = Mathf.Min(deltaTime, 0.1f);
+        if (moveSmooth <= 0f)
+            _cutsceneMoveVelocity = Vector2.zero;
+        if (zoomSmooth <= 0f)
+            _cutsceneZoomVelocity = 0f;
+        Vector2 position = moveSmooth <= 0f ? target : Vector2.SmoothDamp(
+            transform.position, target, ref _cutsceneMoveVelocity, moveSmooth,
+            Mathf.Infinity, deltaTime);
+        transform.position = new Vector3(position.x, position.y, transform.position.z);
+        cam.orthographicSize = zoomSmooth <= 0f ? size : Mathf.SmoothDamp(
+            cam.orthographicSize, size, ref _cutsceneZoomVelocity, zoomSmooth,
+            Mathf.Infinity, deltaTime);
     }
 
     [SerializeField] float minZoom = 10f;
@@ -290,5 +346,15 @@ public class CameraSystem : MonoBehaviour
             ref zoomVelocity,
             zoomSmooth
         );
+
+        if (_returnRemaining > 0f)
+        {
+            _returnRemaining = Mathf.Max(0f, _returnRemaining - Time.unscaledDeltaTime);
+            float t = 1f - _returnRemaining / ReturnDuration;
+            t = t * t * (3f - 2f * t);
+            Vector2 position = Vector2.Lerp((Vector2)A.position + _returnOffset, newPosition, t);
+            transform.position = new Vector3(position.x, position.y, transform.position.z);
+            cam.orthographicSize = Mathf.Lerp(_returnSize, targetZoom, t);
+        }
     }
 }

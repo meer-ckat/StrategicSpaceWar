@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -21,6 +22,41 @@ public static class ShipBuilder
     /// 판이 잔해로 넘어갈 때 모듈이 딸려가는 것도 같은 이유로 공짜다.
     /// </summary>
     public static bool IsPlate(Component child) => child != null && StampsGrid(child, out _);
+
+    /// <summary>
+    /// 모듈이 설 수 있는 칸 = 후면이 있는 칸(판이거나 실내). 모듈은 벽에 붙는 것이 아니라
+    /// 후면에 얹히는 것이라 방 한가운데도 된다. 우주에 뜬 자리만 안 된다.
+    /// </summary>
+    public static bool OnRear(ShipGrid.Map map, Vector2Int cell)
+        => map != null && map.Inside(cell) && HullStructure.RearWorthyAt(map, cell.x, cell.y);
+
+    /// <summary>
+    /// 우주에 면해도 되는 것 - 포·발사대·엔진, 그리고 격납고(배가 나갈 문이 우주 쪽이다).
+    /// 발자국에 우주 칸이 섞여도 되고, 대신 옆에 붙을 판이 있어야 한다. 나머지(원자로·
+    /// 탄약고·탱크)는 실내 칸에만 선다.
+    /// </summary>
+    public static bool IsExteriorModule(string defName)
+    {
+        System.Type t = DefDatabase.Get(defName)?.MainType;
+        return t != null
+            && (typeof(Gun).IsAssignableFrom(t) || typeof(Engine).IsAssignableFrom(t) || typeof(Hangar).IsAssignableFrom(t));
+    }
+
+    /// <summary>
+    /// 배치가 덮어쓴 크기·offset을 def와 합쳐 배 좌표의 상자로. Placement.offset은 칸 좌표라
+    /// 그대로, def의 collider.offset은 판 로컬이라 rot으로 돌려 더한다 (ThingDef.Spawn의 역).
+    /// </summary>
+    public static void ModuleBox(
+        string defName, float rot, Vector2 placementSize, Vector2 placementOffset,
+        out Vector2 size, out Vector2 offset)
+    {
+        ThingDef def = DefDatabase.Get(defName);
+        Vector2 defSize = def?.collider != null ? def.collider.size : Vector2.one;
+        Vector2 defOffset = def?.collider != null ? def.collider.offset : Vector2.zero;
+
+        size = placementSize.x > 0f && placementSize.y > 0f ? placementSize : defSize;
+        offset = Ballistics.Rotate(defOffset, rot) + placementOffset;
+    }
 
     /// <summary>
     /// 판이 자기 칸 중심에서 이만큼(m) 넘게 벗어나면 경고한다. 0.5면 반올림이 이웃 칸으로
@@ -69,10 +105,54 @@ public static class ShipBuilder
             return true;
         }
 
+        // 발자국이 있는 모듈(격납고 같은 것). **Vent다** - 실물이라 구조로 이어지고
+        // 쏘면 끊기지만 방은 안 만든다. 개방형 베이의 정의가 그대로 이 칸 종류다.
+        if (child.TryGetComponent(out Thing thing) && HasFootprint(thing.gridSize))
+        {
+            cel = ShipGrid.Cell.Vent;
+            return true;
+        }
+
         // Empty가 아니라 Unset이다. Empty는 "공기 있는 실내"라는 뜻이 이미 있어서,
         // 다음에 누가 bool을 안 보고 cel만 읽으면 조용히 틀린 답을 얻는다.
         cel = ShipGrid.Cell.Unset;
         return false;
+    }
+
+    private static bool HasFootprint(Vector2Int size) => size.x > 0 && size.y > 0;
+
+    /// <summary>
+    /// 이 자식이 격자에서 차지하는 칸 수. 판·문은 언제나 1칸이다 - 그 규칙이 격자
+    /// 전체의 전제라 gridSize를 적어도 무시한다.
+    /// </summary>
+    private static Vector2Int FootprintOf(Transform child)
+        => child.TryGetComponent<Armor>(out _) || child.TryGetComponent<Door>(out _)
+            ? Vector2Int.one
+            : child.TryGetComponent(out Thing thing) && HasFootprint(thing.gridSize)
+                ? thing.gridSize
+                : Vector2Int.one;
+
+    private static Vector2Int FootprintOf(ThingDef def)
+        => def != null && def.MainType != null
+           && !typeof(Armor).IsAssignableFrom(def.MainType)
+           && !typeof(Door).IsAssignableFrom(def.MainType)
+           && HasFootprint(def.gridSize)
+            ? def.gridSize
+            : Vector2Int.one;
+
+    /// <summary>
+    /// 앵커 칸에서 발자국이 덮는 칸들. **대칭으로 퍼지고 짝수는 +쪽으로 한 칸 치우친다** -
+    /// 오브젝트 원점이 그림·콜라이더의 중심이라 발자국도 그 둘레여야 눈과 격자가 맞는다.
+    /// 좌상단 기준으로 하면 4칸짜리가 그림에서 두 칸 왼쪽으로 밀려 보인다.
+    /// </summary>
+    private static void Footprint(Vector2Int anchor, Vector2Int size, System.Action<Vector2Int> each)
+    {
+        int x0 = anchor.x - (size.x - 1) / 2;
+        int y0 = anchor.y - (size.y - 1) / 2;
+
+        for (int dx = 0; dx < size.x; dx++)
+        for (int dy = 0; dy < size.y; dy++)
+            each(new Vector2Int(x0 + dx, y0 + dy));
     }
 
     /// <summary>
@@ -83,7 +163,7 @@ public static class ShipBuilder
     /// 컴포넌트 대신 <see cref="ThingDef.MainType"/>을 본다. 이름이 아니라 타입인 것이
     /// 중요하다 - `Armor`를 상속한 새 판(`BallisticArmor`)이 생겨도 저절로 따라온다.
     /// </summary>
-    private static bool StampsGrid(ThingDef def, out ShipGrid.Cell cel)
+    public static bool StampsGrid(ThingDef def, out ShipGrid.Cell cel)
     {
         cel = ShipGrid.Cell.Unset;
 
@@ -99,6 +179,13 @@ public static class ShipBuilder
         if (typeof(Armor).IsAssignableFrom(def.MainType))
         {
             cel = def.sealsRoom ? ShipGrid.Cell.Wall : ShipGrid.Cell.Vent;
+            return true;
+        }
+
+        // 컴포넌트 경로와 같은 규칙 - 발자국이 있는 모듈은 Vent로 찍는다.
+        if (HasFootprint(def.gridSize))
+        {
+            cel = ShipGrid.Cell.Vent;
             return true;
         }
 
@@ -143,7 +230,15 @@ public static class ShipBuilder
                 continue;
             }
 
-            authored.map.cells[cell.x, cell.y] = cel;
+            ShipGrid.Map target = authored.map;
+
+            // Stamp와 **같은 발자국 규칙**이어야 한다. 갈리면 후면이 전면과 어긋난
+            // 자리에 생긴다 - 이 두 함수가 갈리지 말라는 경고가 위에 이미 있다.
+            Footprint(cell, FootprintOf(DefDatabase.Get(p.def)), at =>
+            {
+                if (target.Inside(at))
+                    target.cells[at.x, at.y] = cel;
+            });
         }
 
         ShipGrid.MarkExterior(authored.map);
@@ -180,10 +275,16 @@ public static class ShipBuilder
             Vector2 p = child.localPosition;
             float rowAxis = -p.y;   // 맵 첫 줄이 위쪽
 
-            minX = Mathf.Min(minX, p.x); //가장 낮은 x값을 찾는 코드
-            maxX = Mathf.Max(maxX, p.x); //가장 높은 x값을 찾는 코드
-            minRow = Mathf.Min(minRow, rowAxis);
-            maxRow = Mathf.Max(maxRow, rowAxis);
+            // 발자국이 큰 모듈은 원점만 재면 맵 밖으로 삐져나간다. 2차 패스가
+            // Inside에서 조용히 걸러내서, 증상이 "격납고 절반이 격자에 없다"가 된다.
+            Vector2Int size = FootprintOf(child);
+            float halfX = (size.x - 1) * 0.5f * ShipGrid.CellSize;
+            float halfRow = (size.y - 1) * 0.5f * ShipGrid.CellSize;
+
+            minX = Mathf.Min(minX, p.x - halfX);
+            maxX = Mathf.Max(maxX, p.x + halfX);
+            minRow = Mathf.Min(minRow, rowAxis - halfRow);
+            maxRow = Mathf.Max(maxRow, rowAxis + halfRow);
             any = true;
         }
 
@@ -228,25 +329,33 @@ public static class ShipBuilder
                     $"벗어나 있다({cell}로 반올림됨). 판 간격은 {ShipGrid.CellSize} m의 " +
                     "정수배여야 한다.", child);
 
-            if (map.cells[cell.x, cell.y] != ShipGrid.Cell.Unset)
-                Debug.LogWarning(
-                    $"[ShipBuilder] {cell}에 판이 둘 이상 겹쳐 있다. 뒤에 오는 것이 이긴다 - " +
-                    $"'{child.name}'.", child);
+            Door door = child.GetComponent<Door>();
+            Armor armor = child.GetComponent<Armor>();
+            Transform owner = child;
 
-            if (cel == ShipGrid.Cell.Door)
+            Footprint(cell, FootprintOf(child), at =>
             {
-                map.cells[cell.x, cell.y] = cel;
-                doorAt[cell] = child.GetComponent<Door>();
-            }
-            else
-            {
-                map.cells[cell.x, cell.y] = cel;
-                armorAt[cell] = child.GetComponent<Armor>();
-            }
+                if (!map.Inside(at))
+                    return;
+
+                if (map.cells[at.x, at.y] != ShipGrid.Cell.Unset)
+                    Debug.LogWarning(
+                        $"[ShipBuilder] {at}에 판이 둘 이상 겹쳐 있다. 뒤에 오는 것이 이긴다 - " +
+                        $"'{owner.name}'.", owner);
+
+                map.cells[at.x, at.y] = cel;
+
+                // 판·문만 목록에 담는다. 발자국 모듈(격납고)은 Armor가 없어서 여기 안
+                // 들어가고, 그래서 방 벽에도 Neighbours에도 안 낀다 - 개방형이라 맞다.
+                if (door != null)
+                    doorAt[at] = door;
+                else if (armor != null)
+                    armorAt[at] = armor;
+            });
         }
 
         ShipGrid.MarkExterior(map);
-        WireNeighbours(armorAt, doorAt);
+        WireNeighbours(armorAt, doorAt, map);
         return map;
     }
 
@@ -269,14 +378,17 @@ public static class ShipBuilder
     /// 씬 경로에서도 강제하는 자리다. 격자를 다 찍은 **뒤에** 도는 것이 요점 - 그 전에
     /// 옮기면 <c>foreach (Transform child in hull)</c> 순회 도중에 계층이 바뀐다.
     ///
-    /// 발밑에 판이 없는 모듈은 **파괴한다.** 경고만 하고 두면 지금 버그가 그대로 남는다 -
-    /// 어디에도 안 매달린 불사 오브젝트가 시뮬레이션 안에 살아 있는 것이 제일 나쁘다.
+    /// 발밑에 판이 없어도 **후면 위(실내)면 산다** - 그 칸의 후면이 죽으면
+    /// HullStructure.KillRear가 죽이고 조각으로 떠나면 Breakaway가 데려간다. 판도 후면도
+    /// 없는 우주에 뜬 모듈만 파괴한다 - 그건 어디에도 안 매달린 불사 오브젝트다. 예전에는
+    /// 판 없는 모듈을 전부 파괴해서 방 한가운데 원자로가 스폰 직후 사라지고 배가 바로 죽었다.
     /// </summary>
     public static void MountLooseModules(
         Transform hull,
         ShipGrid.Map map,
         Dictionary<Vector2Int, Armor> armorAt,
-        Dictionary<Vector2Int, Door> doorAt)
+        Dictionary<Vector2Int, Door> doorAt,
+        bool firstBuild = true)
     {
         if (hull == null || map == null)
             return;
@@ -299,7 +411,7 @@ public static class ShipBuilder
         for (int i = 0; i < _loose.Count; i++)
         {
             Transform module = _loose[i];
-            Vector2Int cell = map.ToCell(module.localPosition);
+            Vector2Int cell = ModulePlacement.CentreCellOf(module, map);   // 자리 = 상자 중심 칸
 
             Transform plate = null;
 
@@ -313,8 +425,14 @@ public static class ShipBuilder
 
             if (plate == null)
             {
+                // 실내면 선체 직속으로 두고 후면이 수명을 맡는다. 파단 뒤 다시 지을 때는
+                // 방이 우주로 열렸어도 후면(설계도 기준)이 살아 있으면 모듈도 산다 - 그때의
+                // 살아 있는 격자 Exterior는 "바닥이 없다"가 아니라 "천장이 뚫렸다"다.
+                if (!firstBuild || OnRear(map, cell))
+                    continue;
+
                 Debug.LogWarning(
-                    $"[ShipBuilder] '{module.name}'의 발밑({cell})에 판이 없다. 어디에도 " +
+                    $"[ShipBuilder] '{module.name}'의 자리({cell})에 판도 후면도 없다(우주). 어디에도 " +
                     "안 매달린 모듈은 불사가 되므로 파괴한다. 배치를 고칠 것.", hull);
 
                 Object.Destroy(module.gameObject);
@@ -345,7 +463,8 @@ public static class ShipBuilder
     /// </summary>
     private static void WireNeighbours(
         Dictionary<Vector2Int, Armor> armorAt,
-        Dictionary<Vector2Int, Door> doorAt)
+        Dictionary<Vector2Int, Door> doorAt,
+        ShipGrid.Map map)
     {
         var plateAt = new Dictionary<Vector2Int, Armor>(armorAt);
 
@@ -371,6 +490,35 @@ public static class ShipBuilder
             }
 
             pair.Value.Neighbours = buffer.ToArray();
+
+            // **우주에 닿은 판만 물리 세계에 남긴다.**
+            //
+            // 이웃 8칸 중 하나라도 Exterior면 이 판은 껍질이다. 하나도 없으면 방을 두르는
+            // 안쪽 격벽이거나 장갑대 속이라 아무것도 안 부딪힌다 - 빼도 잃는 것이 없고,
+            // Box2D의 픽스처 추가/제거 값이 그 몸의 픽스처 수에 비례하므로 그 곱셈의
+            // 한쪽이 작아진다(Armor.SetBuried 참고).
+            //
+            // **"8방향이 전부 판이면 파묻힘"으로는 안 된다.** 재봤더니 이사리비 2302장 중
+            // 57장(2%)뿐이었다 - 배가 두꺼워서가 아니라 속이 비어서다. Exterior 기준이면
+            // 1822장(79%)이다. 큰 배일수록 껍질 비율이 높아서(destroyer 46%, 이사리비 79%)
+            // 이 규칙이 정확히 아픈 쪽에 듣는다.
+            //
+            // 맵 밖은 우주로 센다. 안 그러면 가장자리 판이 통째로 파묻힌다.
+            bool skin = false;
+
+            foreach (Vector2Int dir in Around)
+            {
+                Vector2Int at = pair.Key + dir;
+
+                if (!map.Inside(at) || map.cells[at.x, at.y] == ShipGrid.Cell.Exterior)
+                {
+                    skin = true;
+                    break;
+                }
+            }
+
+            pair.Value.SetBuried(!skin);
+
         }
     }
 
@@ -442,12 +590,35 @@ public static class ShipBuilder
     /// </summary>
     public static void Spawn(Transform hull, ShipDef def)
     {
+        // 한 프레임에 끝내는 길. 코루틴 버전과 **같은 단계를 같은 순서로** 밟는다 -
+        // 갈리면 격납고에서 나온 배와 캠페인이 소환한 배가 다른 물건이 된다.
+        IEnumerator build = SpawnOverTime(hull, def, 0f, null);
 
+        while (build.MoveNext()) { }
+    }
+
+    /// <summary>
+    /// 배치를 <paramref name="perPlateDelay"/>초 간격으로 하나씩 심는다. 0이면
+    /// <see cref="Spawn"/>과 같은 한 프레임 건조다.
+    ///
+    /// **판은 콜라이더를 끄고 태어난다.** 건조 중인 배는 모함 안에 붙어 있는데, 켜져
+    /// 있으면 RamImpact가 매 틱 둘을 갈아서 모함이 자기가 만드는 배를 부순다. 끄면
+    /// 솔버와 충각은 못 보고 **탄도(TraceWorld)는 계층에서 읽으므로 여전히 맞는다** -
+    /// 골조만 선 배를 쏠 수 있다는 뜻이고, 그게 의도다.
+    ///
+    /// 격자·구조·후면은 여기서 안 만든다. 부르는 쪽이 완성 뒤에 Stamp -> Build ->
+    /// SeedRear를 돌린다 - 그때까지 HullStructure._hasMap이 false라 파단 BFS가 안 돌고
+    /// (TrySplitIfBroken의 첫 가드), 방이 없으니 기압도 안 돈다. 반쯤 지어진 배가
+    /// 스스로 조각나는 것을 막는 것이 그 순서다.
+    /// </summary>
+    public static IEnumerator SpawnOverTime(
+        Transform hull, ShipDef def, float perPlateDelay, System.Action<Thing> onPlaced)
+    {
         var temp = AuthoredMap(def);
         if(temp.map == null)
         {
             Debug.LogAssertion($"Fucking Error. Call Opus. hull:{hull.name}");
-            return;
+            yield break;
         }
         // Destroy는 프레임 끝까지 미뤄진다. 그 사이에 Stamp가 돌면 옛 자식과 새 자식을
         // 함께 읽어 칸이 겹친다. 여기서는 즉시 지워야 한다.
@@ -497,6 +668,17 @@ public static class ShipBuilder
                 plateAt[cell] = spawned.transform;
             else
                 modules.Add((p, spawned.transform));
+
+            if (perPlateDelay <= 0f)
+                continue;
+
+            // 건조 중에는 물리 세계 밖이다. 완성 뒤 WireNeighbours가 껍질만 다시 켠다.
+            if (spawned.TryGetComponent(out Collider2D col))
+                col.enabled = false;
+
+            onPlaced?.Invoke(spawned);
+
+            yield return new WaitForSeconds(perPlateDelay);
         }
 
         // 심은 것을 그대로 들고 온다. 위치로 다시 찾으면 판 위에 올라앉은 모듈이 자기 판을
@@ -511,13 +693,11 @@ public static class ShipBuilder
                 ? new Vector2Int(p.mountCol - minCol, p.mountRow - minRow)
                 : new Vector2Int(p.col - minCol, p.row - minRow);
 
+            // 붙을 판이 없으면 선체 직속이다 - 실내 모듈은 그 칸의 후면이 죽을 때
+            // HullStructure.KillRear가 같이 죽이고 조각으로 떠나면 Breakaway가 데려간다.
+            // 자리가 틀린 것은 WarnModuleFits가 한 줄로 말한다.
             if (!plateAt.TryGetValue(mount, out Transform plate))
-            {
-                Debug.LogWarning(
-                    $"[ShipBuilder] '{p.def}'이 붙을 판이 ({mount.x + minCol},{mount.y + minRow})에 없다. " +
-                    "선체 직속으로 둔다 - 이 모듈은 벽이 부서져도 안 죽는다.");
                 continue;
-            }
 
             // 판 밑으로 한 겹 내려간다. 판이 죽으면 같이 죽고, 판이 잔해로 떨어져 나가면
             // 같이 날아간다 - 둘 다 별도 코드 없이 부모 자식 관계 하나로 나온다.
@@ -526,5 +706,72 @@ public static class ShipBuilder
 
         if (missing > 0)
             Debug.LogError($"[ShipBuilder] '{def.defName}'에서 {missing}개를 심지 못했다.");
+
+        WarnModuleFits(def, map, minCol, minRow, modules);
+    }
+
+    /// <summary>
+    /// 자리가 안 맞는 모듈을 배마다 한 줄로. 판정은 <see cref="ModulePlacement.Evaluate"/> -
+    /// 페인터와 같은 함수다. 아직 거부하지 않는다 - 기존 배가 많이 걸려서 거부하면
+    /// 원자로 없는 배로 시작한다. 페인터가 새 배치를 막고, 다 고치면 여기를 거부로 바꾼다.
+    /// </summary>
+    private static void WarnModuleFits(
+        ShipDef def, ShipGrid.Map map, int minCol, int minRow,
+        List<(Placement placement, Transform spawned)> modules)
+    {
+        var plates = new List<ModulePlacement.Plate>();
+        var others = new List<ModulePlacement.Other>();
+
+        foreach (Placement p in def.placements)
+        {
+            var cell = new Vector2Int(p.col - minCol, p.row - minRow);
+
+            if (!StampsGrid(DefDatabase.Get(p.def), out _))
+                continue;
+
+            Vector2[] poly = ModulePlacement.PlatePolygon(cell, p.def, p.rot, p.size, p.offset, p.shape);
+            plates.Add(new ModulePlacement.Plate { cell = cell, poly = poly, area = Mathf.Abs(Ballistics.PolygonArea(poly)) });
+        }
+
+        foreach ((Placement p, Transform _) in modules)
+        {
+            var origin = new Vector2Int(p.col - minCol, p.row - minRow);
+            others.Add(new ModulePlacement.Other
+            {
+                origin = origin,
+                poly = ModulePlacement.ModulePolygon(origin, p.def, p.rot, p.size, p.offset, out _, out _),
+            });
+        }
+
+        var notes = new List<string>();
+        int count = 0, buried = 0;
+
+        foreach ((Placement p, Transform _) in modules)
+        {
+            var origin = new Vector2Int(p.col - minCol, p.row - minRow);
+            ModulePlacement.Result fit = ModulePlacement.Evaluate(
+                p.def, origin, p.rot, p.size, p.offset, c => OnRear(map, c), plates, others);
+
+            if (fit.verdict == ModulePlacement.Verdict.Ok)
+                continue;
+
+            if (fit.verdict == ModulePlacement.Verdict.Buried)
+            {
+                buried++;
+                continue;
+            }
+
+            count++;
+
+            // detail의 좌표는 격자 칸(원점 (0,0) = 판 bbox 왼쪽 위)이라 배치 col/row와 다르다.
+            if (notes.Count < 8)
+                notes.Add($"{p.def}@({p.col},{p.row}) [격자 ({origin.x},{origin.y})] {fit.detail}");
+        }
+
+        if (count > 0)
+            Debug.LogWarning(
+                $"[ShipBuilder] '{def.defName}' 모듈 {count}개의 자리가 안 맞는다. 페인터에서 옮겨라: " +
+                $"{string.Join(" / ", notes)}{(count > notes.Count ? " ..." : "")}" +
+                (buried > 0 ? $"  (배 안에 묻힌 포·엔진 {buried}개)" : ""));
     }
 }

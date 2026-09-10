@@ -1,0 +1,10 @@
+{
+  "defName": "sector-04",
+  "lines": [
+    { "message": "<color=#8fd3ff>왕정군 초계선.</color> 습격대가 아닙니다. 정규 편성입니다.", "author": "전술", "duration": 4.5, "intensity": 1.1, "wait": 3 },
+    { "message": "이 깊이에 정규군이 왜 있습니까.", "author": "통신", "duration": 3.5, "intensity": 1.0 },
+    { "message": "앞 구역 잔해에서 보급 규격을 땄습니다. 초계 한 달치가 아닙니다.", "author": "기관", "duration": 5, "intensity": 1.0 },
+    { "message": "훨씬 큰 것을 먹이고 있습니다.", "author": "기관", "duration": 3.5, "intensity": 1.1, "wait": 3 },
+    { "message": "기록해 두고 지나간다. 답은 앞에 있다.", "author": "함장", "duration": 4, "intensity": 1.0 }
+  ]
+}

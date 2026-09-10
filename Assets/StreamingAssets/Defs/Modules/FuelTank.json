@@ -16,7 +16,7 @@
     }
   },
   "maxHealth": 100,
-  "impulse": 120000,
+  "impulse": 320000,
   "tint": {
     "r": 0.7,
     "g": 0.7,

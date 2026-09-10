@@ -1,0 +1,10 @@
+{
+  "defName": "sector-05",
+  "lines": [
+    { "message": "<color=#8fd3ff>호위 편성.</color> 진형이 바깥을 보고 있습니다.", "author": "전술", "duration": 4, "intensity": 1.1, "wait": 3 },
+    { "message": "우리를 치러 온 게 아닙니다. 뭔가를 끼고 도는 겁니다.", "author": "전술", "duration": 4.5, "intensity": 1.2 },
+    { "message": "호위 대상이 안 잡힙니다. 편대 한가운데가 비어 있습니다.", "author": "통신", "duration": 4.5, "intensity": 1.1, "wait": 3 },
+    { "message": "비어 있는 게 아니라 우리 눈이 거기까지 안 닿는 거다.", "author": "함장", "duration": 4.5, "intensity": 1.0 },
+    { "message": "뚫고 본다.", "author": "함장", "duration": 2.5, "intensity": 1.3 }
+  ]
+}

@@ -10,7 +10,7 @@
   "doorRate": 1,
   "crews": 4,
   "FightDistance": 240,
-  "DetectionDistance": 320,
+  "DetectionDistance": 2000,
   "breakawaySpeed": 2,
   "placements": [
     {
@@ -1954,7 +1954,7 @@
       "mountRow": 10
     },
     {
-      "def": "pd20",
+      "def": "ciws",
       "col": 14,
       "row": 4,
       "rot": 0.0,
@@ -1962,7 +1962,7 @@
       "mountRow": 5
     },
     {
-      "def": "pd20",
+      "def": "ciws",
       "col": 17,
       "row": 4,
       "rot": 0.0,

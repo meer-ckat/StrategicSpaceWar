@@ -1,0 +1,14 @@
+{
+    "sector": 0,
+    "seed": -1237563438,
+    "leg": 0,
+    "lanes": [],
+    "pendingLeg": 0,
+    "pendingRefit": false,
+    "materials": 0,
+    "propellant": 0,
+    "munitions": 0,
+    "flags": [],
+    "wingmen": [],
+    "wingmenSlots": []
+}

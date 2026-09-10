@@ -1,0 +1,10 @@
+{
+  "defName": "sector-02",
+  "lines": [
+    { "message": "<color=grey>감시초소 19.</color> 17과 같습니다. 전력 정상, 응답 없음.", "author": "통신", "duration": 4.5, "intensity": 0.7, "wait": 3 },
+    { "message": "외벽에 관통흔. 안쪽에서 밖으로 뚫린 자국은 없습니다.", "author": "전술", "duration": 4.5, "intensity": 0.9 },
+    { "message": "일방적이었다는 뜻입니다.", "author": "기관", "duration": 3, "intensity": 0.9, "wait": 3 },
+    { "message": "<color=#8fd3ff>접촉 다수.</color> 아직 우리를 안 봤습니다.", "author": "전술", "duration": 3.5, "intensity": 1.3 },
+    { "message": "먼저 본 쪽이 먼저 쏜다.", "author": "함장", "duration": 3, "intensity": 1.2 }
+  ]
+}

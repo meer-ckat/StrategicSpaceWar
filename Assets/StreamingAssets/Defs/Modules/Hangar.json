@@ -1,0 +1,37 @@
+{
+  "defName": "Hangar",
+  "thingClass": "Hangar",
+  "comps": [
+    "SolidSkin"
+  ],
+  "layer": "Module",
+  "gridSize": {
+    "x": 4,
+    "y": 3
+  },
+  "collider": {
+    "size": {
+      "x": 4,
+      "y": 3
+    },
+    "offset": {
+      "x": 0,
+      "y": 0
+    }
+  },
+  "maxHealth": 400,
+  "blastDamage": 900,
+  "providesPower": false,
+  "spawnInterval": 5,
+  "buildSeconds": 3.5,
+  "shipPrefabName": "fly",
+  "tint": {
+    "r": 0.55,
+    "g": 0.62,
+    "b": 0.70,
+    "a": 1
+  },
+  "flashDef": "Blast Flash Large",
+  "blastSound": "Explosion",
+  "blastPitch": 0.7
+}

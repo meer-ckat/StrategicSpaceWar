@@ -40,6 +40,25 @@ public static class RunLog
         /// </summary>
         RoleLost,
 
+        /// <summary>
+        /// 판 하나가 **처음** 뚫렸다. <c>what</c>은 그 판이 있는 구역 이름이다.
+        ///
+        /// **초당 100발이 초당 100줄이 되지 않는 이유가 걸쇠다.** <see cref="Armor.AnyBreached"/>는
+        /// 그 판의 서브셀 하나가 처음 죽을 때만 서고 다시 눕지 않는다 - 같은 판에 백 발이
+        /// 더 박혀도 한 줄이다. 필터를 새로 만든 것이 아니라 시뮬이 이미 들고 있던 걸쇠를
+        /// 읽는 것뿐이다.
+        /// </summary>
+        Penetrated,
+
+        /// <summary>
+        /// 기밀 구획이 우주로 열렸다. <c>what</c>은 구역 이름이다.
+        ///
+        /// 판 소실로 판정한다(관통이 아니라). 서브셀 하나는 17cm짜리 구멍이라 공기는 새도
+        /// 승무원이 "격실이 뚫렸다"고 말할 사건이 아니다 - <see cref="Room.wallsSurfaced"/>가
+        /// 정확히 그 경계에 있는 걸쇠라 그것을 그대로 쓴다.
+        /// </summary>
+        RoomBreached,
+
         /// <summary>구역에 들어섰다. <c>what</c>은 1부터 세는 구역 번호다 - 대본 키가 그대로 쓴다.</summary>
         SectorEntered,
 
@@ -129,6 +148,46 @@ public static class RunLog
         Ship ship = module.GetComponentInParent<Ship>();
 
         Add(Kind.Detonated, module.name, ship != null ? ship.team : Ship.Team.Neutral);
+    }
+
+    /// <summary>
+    /// 판 하나가 처음 뚫렸다.
+    ///
+    /// **내 배만 적는다.** 이 사건을 읽는 쪽이 함내 통신이라 적함 판이 뚫린 것은 승무원이
+    /// 알 수도 없고 말할 일도 없다. 그리고 적함까지 적으면 한 전투에 수백 줄이 쌓이는데
+    /// 그걸 읽는 소비자가 하나도 없다 - 엔딩 판정은 결과를 보지 판을 안 센다.
+    ///
+    /// 걸쇠는 <see cref="Armor.AnyBreached"/>에 이미 있다. 여기서 중복을 막지 않는다.
+    /// </summary>
+    public static void Penetrated(Armor plate)
+    {
+        if (plate == null)
+            return;
+
+        Ship ship = plate.GetComponentInParent<Ship>();
+
+        if (ship == null || !ship.IsPlayerControlled)
+            return;
+
+        Add(Kind.Penetrated, ship.SectionName(plate.transform.localPosition), ship.team);
+    }
+
+    /// <summary>
+    /// 기밀 구획이 우주로 열렸다. 방의 칸 평균으로 구역 이름을 뽑는다 - 방 하나가
+    /// 함수와 함미에 걸치는 일은 없으므로 중심 하나면 충분하다.
+    /// </summary>
+    public static void RoomBreached(Ship ship, Room room)
+    {
+        if (ship == null || room == null || room.cells == null || room.cells.Count == 0
+            || !ship.IsPlayerControlled || ship.Map == null)
+            return;
+
+        Vector2 sum = Vector2.zero;
+
+        for (int i = 0; i < room.cells.Count; i++)
+            sum += ship.Map.ToLocal(room.cells[i].x, room.cells[i].y);
+
+        Add(Kind.RoomBreached, ship.SectionName(sum / room.cells.Count), ship.team);
     }
 
     /// <summary>

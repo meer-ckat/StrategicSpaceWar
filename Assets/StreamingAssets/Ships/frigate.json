@@ -9,8 +9,8 @@
   "leakRate": 2,
   "doorRate": 1,
   "crews": 3,
-  "FightDistance": 160,
-  "DetectionDistance": 300,
+  "FightDistance": 250,
+  "DetectionDistance": 2000,
   "breakawaySpeed": 2,
   "placements": [
     {
@@ -1258,7 +1258,7 @@
       "mountRow": 9
     },
     {
-      "def": "pd20",
+      "def": "ciws",
       "col": 8,
       "row": 3,
       "rot": 0.0,

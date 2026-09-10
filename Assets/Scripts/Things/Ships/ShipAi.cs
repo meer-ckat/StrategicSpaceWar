@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using Core;
 
@@ -137,12 +138,14 @@ public sealed class ShipAi : TickBehaviour
 
         if (_targetPos == null)
         {
-            _ship.SetPilotInput(Vector2.zero, 0f);
+            // 적이 없어도 다른 배와 포개져 있으면 빠져나오게 한다.
+            // 플레이어 입력을 건드리지는 않는다 - 이 벡터를 읽는 것은 ShipAi뿐이다.
+            _ship.SetPilotInput(SeparationOf(_ship) * SeparationWeight, 0f);
             _ship.pilotBoost = false;
             return;
         }
 
-        makeInput((Vector2)_targetPos);
+        MakeInput((Vector2)_targetPos);
     }
 
     /// <summary>
@@ -188,7 +191,28 @@ public sealed class ShipAi : TickBehaviour
     /// "밴드를 완전히 벗어나 한참 뒤처졌다"는 뜻이다 - 편대 간격(60~75 m)보다 커야
     /// 자리에 붙어 있는 동안 안 켜진다.
     /// </summary>
-    private const float BoostDistance = 100f;
+    private const float BoostDistance = 50f;
+
+    // Boids separation. 셀 크기를 반경과 같게 잡아서 자기 셀 + 인접 셀만 보면 된다.
+    // SetPilotInput에 들어가는 값은 힘(N)이 아니라 조종 입력이므로 6000 같은 물리 힘을 쓰지 않는다.
+    private const float SeparationRadius = 120f;
+    private const float SeparationWeight = 5f;
+
+    // 모든 ShipAi가 공유한다. 첫 요청이 이 프레임의 Ship.All을 한 번 훑어 spatial hash를 만들고,
+    // 나머지는 결과만 읽는다. 각 AI가 Ship.All을 다시 훑으면 그대로 O(N²)가 되므로 static이다.
+    private static int _separationFrame = -1;
+    private static readonly Dictionary<Vector2Int, List<Ship>> _separationGrid = new();
+    private static readonly Dictionary<Ship, Vector2> _separation = new();
+    private static readonly Stack<List<Ship>> _bucketPool = new();
+
+    // 한 셀에서 이 네 방향만 보면 8-neighbour pair를 정확히 한 번씩 방문한다.
+    private static readonly Vector2Int[] _pairNeighbourCells =
+    {
+        new(0, 1),
+        new(1, -1),
+        new(1, 0),
+        new(1, 1),
+    };
 
     /// <summary>
     /// 편대장 기준 내 자리. **편대장의 자세로 오프셋을 돌린다** - 편대장이 뱃머리를 틀면
@@ -202,8 +226,6 @@ public sealed class ShipAi : TickBehaviour
         if (_formation == null)
             return _targetPos;
 
-        // 좌우 반전된 편대장(localScale.x = -1)에서도 "오른쪽"이 눈에 보이는 오른쪽이어야
-        // 한다. Ship.NoseDirection이 같은 보정을 들고 있으므로 있으면 그걸 쓴다.
         Vector2 right = _formation.TryGetComponent(out Ship lead)
             ? lead.NoseDirection
             : (Vector2)_formation.right;
@@ -215,11 +237,15 @@ public sealed class ShipAi : TickBehaviour
             + up * _formationOffset.y);
     }
 
-    void makeInput(Vector2 target)
+    void MakeInput(Vector2 target)
     {
         Vector2 toTarget = target - (Vector2)transform.position;
 
-        _ship.SetPilotInput(Thrust(toTarget), Turn(toTarget));
+        // 목표 추력과 separation 모두 같은 조종간 경로를 탄다. 물리에 별도 AddForce를 넣지 않는다.
+        Vector2 thrust = Thrust(toTarget) + SeparationOf(_ship) * SeparationWeight;
+        thrust = Vector2.ClampMagnitude(thrust, 1f);
+
+        _ship.SetPilotInput(thrust, Turn(toTarget));
 
         // **최대 추력으로도 모자랄 때만 켠다.** Approach는 오차를 approachBand로 나눠
         // 자르므로, 1에 붙어 있다는 것은 "이미 전부 밀고 있는데 아직 멀다"는 뜻이다.
@@ -251,6 +277,151 @@ public sealed class ShipAi : TickBehaviour
     {
         return toTarget.normalized * Approach(toTarget);
     }
+
+    /// <summary>
+    /// 이번 프레임의 separation 입력. Ship.All 전체를 매 AI마다 검사하지 않고 spatial hash를
+    /// 딱 한 번 만든 뒤 결과를 캐시한다. 평균 복잡도는 O(N + K), K는 실제 인접 후보 쌍 수다.
+    /// </summary>
+    private static Vector2 SeparationOf(Ship ship)
+    {
+        EnsureSeparationBuilt();
+
+        return _separation.TryGetValue(ship, out Vector2 value)
+            ? Vector2.ClampMagnitude(value, 1f)
+            : Vector2.zero;
+    }
+
+    private static void EnsureSeparationBuilt()
+    {
+        if (_separationFrame == Time.frameCount)
+            return;
+
+        _separationFrame = Time.frameCount;
+        RebuildSeparation();
+    }
+
+    private static void RebuildSeparation()
+    {
+        // 지난 프레임 bucket을 버리지 않고 풀로 되돌린다. 셀 이동 때문에 List를 매 프레임
+        // 새로 만들면 spatial hash로 CPU를 아끼고 GC로 다시 프레임을 태우게 된다.
+        foreach (var pair in _separationGrid)
+        {
+            pair.Value.Clear();
+            _bucketPool.Push(pair.Value);
+        }
+
+        _separationGrid.Clear();
+        _separation.Clear();
+
+        foreach (Ship ship in Ship.All)
+        {
+            if (ship == null)
+                continue;
+
+            Vector2Int cell = SeparationCell(ship.transform.position);
+            if (!_separationGrid.TryGetValue(cell, out List<Ship> bucket))
+            {
+                bucket = _bucketPool.Count > 0 ? _bucketPool.Pop() : new List<Ship>(4);
+                _separationGrid.Add(cell, bucket);
+            }
+
+            bucket.Add(ship);
+        }
+
+        foreach (var cellPair in _separationGrid)
+        {
+            List<Ship> here = cellPair.Value;
+
+            // 같은 셀: i < j라서 한 쌍을 한 번만 처리한다.
+            for (int i = 0; i < here.Count - 1; i++)
+            {
+                Ship a = here[i];
+                for (int j = i + 1; j < here.Count; j++)
+                    AccumulateSeparationPair(a, here[j]);
+            }
+
+            // 다른 셀: 8방향 중 절반인 네 방향만 방문한다. 반대 방향은 상대 셀이 처리하지
+            // 않으므로 A-B와 B-A를 두 번 계산하지 않는다.
+            for (int n = 0; n < _pairNeighbourCells.Length; n++)
+            {
+                Vector2Int neighbourCell = cellPair.Key + _pairNeighbourCells[n];
+                if (!_separationGrid.TryGetValue(neighbourCell, out List<Ship> neighbour))
+                    continue;
+
+                for (int i = 0; i < here.Count; i++)
+                {
+                    Ship a = here[i];
+                    for (int j = 0; j < neighbour.Count; j++)
+                        AccumulateSeparationPair(a, neighbour[j]);
+                }
+            }
+        }
+    }
+
+    private static Vector2Int SeparationCell(Vector2 position)
+    {
+        return new Vector2Int(
+            Mathf.FloorToInt(position.x / SeparationRadius),
+            Mathf.FloorToInt(position.y / SeparationRadius));
+    }
+
+    private static void AccumulateSeparationPair(Ship a, Ship b)
+    {
+        if (a == null || b == null || a == b)
+            return;
+
+        Vector2 delta = (Vector2)a.transform.position - (Vector2)b.transform.position;
+        float sqrDistance = delta.sqrMagnitude;
+        float radiusSqr = SeparationRadius * SeparationRadius;
+
+        if (sqrDistance >= radiusSqr)
+            return;
+
+        Vector2 direction;
+        float strength;
+
+        if (sqrDistance <= 1e-6f)
+        {
+            // 중심이 정확히 같아도 NaN을 만들지 않는다. InstanceID는 방향 선택용일 뿐이고
+            // 한 번 선택된 pair에 +push/-push를 동시에 주므로 쌍방성은 그대로다.
+            direction = a.GetInstanceID() < b.GetInstanceID() ? Vector2.right : Vector2.left;
+            strength = 1f;
+        }
+        else
+        {
+            float distance = Mathf.Sqrt(sqrDistance);
+            direction = delta / distance;
+            strength = 1f - distance / SeparationRadius;
+        }
+
+        Vector2 push = direction * strength;
+
+        // **한쪽씩 따로 판단한다.** 충각선은 적에게서 안 밀려나야 하는데, 그 상대는
+        // 여전히 피해야 하므로 쌍으로 끄면 안 된다.
+        if (!Ignores(a, b))
+        {
+            _separation.TryGetValue(a, out Vector2 aValue);
+            _separation[a] = aValue + push;
+        }
+
+        if (!Ignores(b, a))
+        {
+            _separation.TryGetValue(b, out Vector2 bValue);
+            _separation[b] = bValue - push;
+        }
+    }
+
+    /// <summary>
+    /// <paramref name="self"/>가 <paramref name="other"/>에게서 밀려나기를 거부하는가.
+    ///
+    /// **충각선(FightDistance 0)은 적에게 붙는 것이 무기다.** separation은 팀을 안 가려서
+    /// 120 m 안에서 밀어냈고, 그래서 dart는 자기 조종간과 싸우며 영영 못 붙었다 -
+    /// Approach가 거리 0을 원해도 그 위에 밀어내는 힘이 얹히면 상쇄된다.
+    ///
+    /// 아군끼리는 그대로 민다. 편대가 겹치는 것은 충각과 아무 상관이 없다.
+    /// </summary>
+    private static bool Ignores(Ship self, Ship other)
+        => self.FightDistance <= 0f && self.IsHostileTo(other);
 
     /// <summary>
     /// FightDistance를 유지한다. 안으로 계속 파고들지 않고, 멀어지면 따라붙는다.
@@ -304,7 +475,7 @@ public sealed class ShipAi : TickBehaviour
     }
 
     /// <summary>
-    /// 뱃머리(transform.up)를 적 쪽으로 돌린다. 포탑은 독립 선회하므로 함체 각도가
+    /// 뱃머리(+X)를 적 쪽으로 돌린다. 포탑은 독립 선회하므로 함체 각도가
     /// 정하는 것은 어느 장갑면을 보이느냐와, 나중에 충각이 가능하냐다.
     /// </summary>
     private float Turn(Vector2 toTarget)
@@ -333,9 +504,8 @@ public sealed class ShipAi : TickBehaviour
         if (toTarget.sqrMagnitude < 1e-6f)
             return 0f;
 
-        // -90 아니다 - 뱃머리는 transform.up이 아니라 +X다(NoseDirection 참고, Gun과 다른
-        // 축). 여기서 빼는 180은 각도 보정이 아니라 좌우 반전 배의 거울상 보정이다.
-        float want = Mathf.Atan2(toTarget.y, toTarget.x) * Mathf.Rad2Deg - ((transform.localScale.x < 0)? 180f : 0f);
+        // -90 아니다 - 뱃머리는 transform.up이 아니라 +X다(NoseDirection 참고, Gun과 다른 축).
+        float want = Mathf.Atan2(toTarget.y, toTarget.x) * Mathf.Rad2Deg;
         float error = Mathf.DeltaAngle(_ship.hullAngle, want);
 
         // 지금 각속도로 turnLead초 동안 더 돌 각도를 미리 상쇄한다.

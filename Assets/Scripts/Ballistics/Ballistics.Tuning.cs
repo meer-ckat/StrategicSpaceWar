@@ -11,7 +11,7 @@ public static partial class Ballistics
     // --- 기하 / 루프 ---
     public const float Epsilon = 0.005f;      // m, 명중 후 밀어내는 거리
     public const float EdgeEpsilon = 0.01f;   // m, 동시 접촉으로 볼 창
-    public const float MinSpeed = 20f;        // m/s, 이보다 느리면 탄이 죽는다
+    public const float MinSpeed = 1f;        // m/s, 이보다 느리면 탄이 죽는다
     public const int MaxHitsPerTick = 8;      // 모서리 무한 도탄 방지
     public const float MinCos = 0.15f;        // 유효 RHA 상한 약 6.7배
 
@@ -68,7 +68,13 @@ public static partial class Ballistics
     public const float SpallEnergyFraction = 0.35f;
     public const float SpallEnergyPerFragment = 20f;
     public const float SpallMinEnergy = 5f;
-    public const int SpallMaxCount = 24;
+    /// <summary>
+    /// 관통 명중 하나가 낳는 파편 수. **평시 비용의 주항이다** - 교전 중 초당 수백 발이
+    /// 명중하므로 여기 곱한 것이 그대로 틱 예산이 된다. 24에서 12로 내렸다: 프로파일에서
+    /// 파면 하나가 self 147us였고, 그 대부분이 파편마다 도는 TraceWorld 질의였다.
+    /// 눈에 보이는 것은 명중 지점의 불꽃 개수뿐이다.
+    /// </summary>
+    public const int SpallMaxCount = 12;
     public const int HeavyFragmentCount = 4;
 
     // 부서진 탄의 잔해만 실체 파편으로 승격할 값어치가 있다. 한 번에 24개가 아니라 4개고,
@@ -96,7 +102,17 @@ public static partial class Ballistics
     /// </summary>
     public const float CollapseEnergyFraction = 0.5f;
 
-    public const int CollapseFragmentCount = 6;
+    /// <summary>
+    /// 죽은 서브셀 하나가 낳는 파편 수. **프레임 그래프의 봉우리가 여기서 나온다** -
+    /// 판 한 장이 서브셀 18개쯤을 잃으므로 판당 이 값의 18배고, 유폭이나 파단이 판 수십
+    /// 장을 한 틱에 죽이면 그 곱이 통째로 한 프레임에 떨어진다. 6이면 판당 108발,
+    /// 3이면 54발이다.
+    ///
+    /// 이 값은 "얼마나 부서지나"가 아니라 "부서지는 것을 몇 조각으로 세나"다 - 총
+    /// 에너지는 CollapseEnergyFraction이 정하고 여기서 나눠 갖는다. 줄이면 조각이 굵어지고
+    /// 개수가 준다.
+    /// </summary>
+    public const int CollapseFragmentCount = 3;
 
     /// <summary>
     /// 판이 통째로 무너지는 지점. 36칸을 하나도 남김없이 지워야 사라지게 두면, 마지막
@@ -122,15 +138,19 @@ public static partial class Ballistics
     /// CollapseFragmentCount 6 = 100발 넘게 나오고, 유폭이 판 수십 장을 한 틱에 죽이면
     /// 그 곱이 한 프레임에 통째로 떨어진다.
     ///
-    /// 파편 한 발의 값이 판정 + 채널 + 서브셀 피해 적용으로 대략 15us라, 256이면 틱당
-    /// 4ms 근처다. 2,000발짜리 폭발은 8틱(0.13초)에 걸쳐 들어온다 - 눈에는 거의 안 보이고
-    /// 프레임에는 확실히 보인다.
+    /// 파편 한 발의 값이 판정 + 채널 + 서브셀 피해 적용으로 대략 15us라, 128이면 틱당
+    /// 2ms 근처다. 2,000발짜리 폭발은 16틱에 걸쳐 들어오는데 SpallMaxLagTicks가 8이라
+    /// 그 뒤로는 따라잡기로 넘어간다 - 상한이 아니라 완충이라는 뜻이다.
+    ///
+    /// **평시에 안 걸리는 값이어야 한다.** 256일 때 평시가 틱당 144발이라 예산이 한 번도
+    /// 안 걸렸고, 그래서 눕히려던 봉우리에서만 늦게 걸렸다. SpallMaxCount를 반으로 줄여
+    /// 평시가 72발이 된 지금은 128이 봉우리에만 걸린다.
     ///
     /// 올리면 즉발에 가까워지고 스파이크가 돌아온다. 내리면 평탄해지는 대신 큰 폭발의
     /// 피해가 눈에 띄게 번져 들어온다.
     /// </summary>
     /// <remarks>0이면 예산을 끈다 - 예전처럼 한 틱에 다 처리한다.</remarks>
-    public const int MaxFragmentsPerPump = 256;
+    public const int MaxFragmentsPerPump = 128;
 
     /// <summary>
     /// 파편이 밀릴 수 있는 최대 틱 수. 이보다 오래 기다린 요청이 있으면 그 틱은 예산을
@@ -198,19 +218,20 @@ public static partial class Ballistics
     /// <summary>
     /// 충각이 몇 틱 앞을 미리 쓰는가. 1이면 딱 이번 틱 이동거리다.
     ///
-    /// **1이면 솔버와 동시에 도착한다.** 판을 지우기 시작하는 그 틱에 솔버도 접촉을 잡으므로,
-    /// 얇은 것이 여러 개 겹쳐 있으면 한 틱에 다 못 치우고 남은 것들이 동시 접촉으로 배를
-    /// 밀어낸다. 거울이 잔해 구름으로 흩어진 자리에서 이게 나온다 - 빠를수록 한 틱에
-    /// 만나는 수가 많아지니 확률이 올라간다.
+    /// **1이 물리적으로 맞는 값이다.** Punch는 힘 단계에서, 즉 Physics2D.Simulate보다
+    /// 먼저 돈다. 이번 틱에 지나갈 거리만큼 지우면 솔버가 접촉을 잡을 때 이미 치워져
+    /// 있으므로 앞질러 볼 이유가 없다.
     ///
-    /// 2면 한 틱 먼저 값을 치르기 시작한다. 앞질러 부수는 것이 아니다 - 실제로 지워지는
-    /// 것은 여전히 예산이 닿는 만큼뿐이고, <see cref="RamSpendPerTick"/>이 한 틱 지출을
-    /// 막고 있다. 늘어나는 것은 "부술 것을 언제부터 보기 시작하는가"뿐이다.
+    /// 2였던 적이 있다. 얇은 잔해가 겹친 자리에서 남은 접촉이 배를 튕겨내는 것을 막으려고
+    /// 한 틱 먼저 값을 치르게 한 것인데, **미는 코드가 없던 시절의 우회로였다.** 지금은
+    /// Punch가 운동량을 직접 넘겨주므로 그 증상 자체가 없다. 그리고 대가가 컸다 - 120 m/s면
+    /// 판이 **4 m 앞에서 미리 사라져서** 배가 닿기도 전에 구멍이 나고, 눈에는 높은 핑으로
+    /// 보인다. 실제로 그렇게 보였다.
     ///
     /// 캐스트 거리와 판별 게이트가 **같은 값을 써야 한다.** 캐스트만 늘리면 게이트가
     /// 늘어난 만큼을 도로 걸러내서 아무것도 안 바뀐다.
     /// </summary>
-    public const float RamLookahead = 2f;
+    public const float RamLookahead = 1f;
 
     /// <summary>
     /// 한 틱에 쏟을 수 있는 운동에너지의 최대 몫.
@@ -226,6 +247,57 @@ public static partial class Ballistics
     /// 뚫리는 재료(유리·거울)는 애초에 이 상한 근처도 안 가므로 아무 영향이 없다.
     /// </summary>
     public const float RamSpendPerTick = 0.5f;
+
+    /// <summary>
+    /// 충각 피해의 질량 무릎(kg). 때리는 몸의 피해가 `m / (m + 이 값)`으로 깎인다 -
+    /// 이 질량에서 절반, 훨씬 무거우면 1, 훨씬 가벼우면 질량에 비례해 0으로 떨어진다.
+    ///
+    /// **운동에너지만으로는 작은 잔해가 너무 아프다.** 판 세 장짜리 조각(약 1.3 t)도
+    /// 상대속도가 붙으면 KE가 수백 kJ이고, Reaction이 잔해->배 방향에서 0.99라 그 에너지가
+    /// 거의 전부 판으로 들어간다. 물리로는 맞는 그림인데(가벼운 쪽이 튕겨나가며 변형
+    /// 에너지를 다 낸다) 게임에서는 파편 구름을 지나갈 때마다 외판이 갈려 나간다.
+    ///
+    /// 이야기로는 **강성 근사**다: 가벼운 조각은 제 운동에너지를 상대를 파는 데 못 쓰고
+    /// 자기가 찌그러지며 흩어진다. DebrisHpFraction(잔해가 먼저 죽는다)과 같은 방향의
+    /// 보정이고, 그쪽은 접촉의 수명을 줄이고 이쪽은 접촉당 피해를 줄인다.
+    ///
+    /// 10 t 기준: 판 3장 조각(1.3 t) 12%, scout(32 t) 76%, destroyer(137 t) 93%.
+    /// 함선끼리의 충각은 사실상 안 변하고 잔해만 무뎌진다.
+    /// </summary>
+    public const float RamMassKnee = 10000f;
+
+    /// <summary>
+    /// 압착(CRUSH) 피해 계수. **충돌과 노브를 나눠 쓰지 않는다** - 둘은 이제 개념이
+    /// 다르고(충돌은 상대속도², 압착은 저항받는 추력), 노브를 공유하면 한쪽을 맞추는
+    /// 순간 다른 쪽이 따라 움직여서 분리한 값이 사라진다.
+    ///
+    /// 먹는 값의 단위 자체가 다르다: 충돌은 J 비슷한 것을, 압착은 `힘 x dt` = N·s
+    /// 비슷한 것을 먹는다. 그래서 RamDamageFraction에서 물려받을 수 있는 숫자가 없고,
+    /// **원하는 행동에서 거꾸로 잡았다**:
+    ///
+    ///   자유로운 물체는 부서지기 전에 밀려나고, 저항하는 물체는 오래 밀면 찌그러진다.
+    ///
+    /// 초당 피해 = 추력 x 이 값 x Reaction / 접촉판수. 구축함 추력 8.4 MN 기준으로
+    /// 900 kg 운석(react 0.003)은 초당 3도 안 되게 먹으면서 31 m/s²로 밀려나 접촉이
+    /// 끊기고, 낀 배(react 1.0, 접촉 5장)는 초당 168이라 300 HP 판이 1.8초에 무너진다.
+    /// </summary>
+    public const float RamPressureDamageScale = 1e-4f;
+
+    /// <summary>
+    /// 압착 항복 문턱. 판이 한 틱에 **그냥 견디는** 몫을 자기 총 체력의 비율로 준다.
+    ///
+    /// **이게 없으면 살짝 대고만 있어도 영원히 갉힌다.** 실제 재료는 항복 응력 아래에서
+    /// 영구 변형이 0이다 - 우주선으로 운석을 밀어 옮기는 그림이 성립하는 이유가 그것이고,
+    /// 문턱이 없으면 아무리 약한 접촉도 시간만 주면 선체를 뚫는다.
+    ///
+    /// 0.002면 300 HP 판이 초당 36까지는 공짜다. 구축함(8.4 MN)이 900 kg 운석을 밀 때
+    /// 판당 초당 3도 안 되므로 **아무 일도 안 일어나고 운석만 밀려난다.** 낀 배(react 1.0)는
+    /// 초당 168이라 문턱을 훨씬 넘어 계속 찌그러진다. 그 사이가 무거운 것을 미는 구간이다.
+    ///
+    /// **판 체력에 비례하는 것이 요점이다** - 두꺼운 장갑이 더 버티는 것이 공짜로 나오고,
+    /// 상수 하나로 재료마다 다른 문턱을 안 적어도 된다.
+    /// </summary>
+    public const float RamCrushYield = 0.002f;
 
     /// <summary>
     /// 함선에서 떨어져 나온 조각이 남아 있는 틱 수. 60틱/초라 3600이면 60초.
@@ -287,15 +359,47 @@ public static partial class Ballistics
     /// </summary>
     public const int RamConductMaxPlates = 96;
 
+    // --- 전장 경계 ---
+
+    /// <summary>
+    /// 전투 중 플레이어가 전장에서 벗어날 수 있는 거리(m).
+    ///
+    /// **로그라이크의 전투는 끝나야 다음이 있다.** 벗어나서 흘러가 버리면 그 판이
+    /// 안 끝나고, 승리도 노획도 다음 구역도 없다. 지금은 Battle.Stranded가 5초 뒤에
+    /// 패배로 끊는데, 그건 안전장치지 규칙이 아니다.
+    ///
+    /// FightDistance가 120~240이므로 1200이면 교전 거리의 다섯 배다 - 우회·이탈·재접근이
+    /// 전부 안에서 되고, "도망쳐서 사라지기"만 막힌다.
+    /// </summary>
+    public const float BattleZoneRadius = 1200f;
+
+    /// <summary>
+    /// 경계를 넘었을 때 되미는 가속(m/s^2). 벽이 아니라 조류다.
+    ///
+    /// 딱딱한 벽으로 만들면 두 가지가 틀린다: 부딪히는 순간 속도가 사라져서 물리가
+    /// 거짓말을 하고, 충각으로 튕겨 나간 배가 벽에 박혀 못 돌아온다. 넘은 만큼에 비례해
+    /// 미는 힘이면 멀리 갈수록 세지고, 스스로 되돌아온다.
+    /// </summary>
+    public const float BattleZonePull = 12f;
+
     // --- 유폭 ---
 
     /// <summary>
     /// 폭심에서 1 m 멀어질 때 남는 몫. 충각과 달리 방향이 없다 - 같은 값을 두 축에 다 준다.
     ///
-    /// **반경을 정하는 것은 blastDamage가 아니라 아래 BlastCutoff다.** 0.65에 컷오프 0.05면
-    /// 약 7 m에서 끊긴다. 세기를 올리면 그 원 안의 판이 더 확실히 죽을 뿐 원이 커지지 않는다.
+    /// **반경을 정하는 것은 blastDamage가 아니라 아래 BlastCutoff다.** 세기를 올리면 그 원
+    /// 안의 판이 더 확실히 죽을 뿐 원이 커지지 않는다.
+    ///
+    /// **0.65에서 내려왔다(반경 6.95 m -> 3.60 m).** 폭발을 국소 집중형으로 바꾸는 튜닝이다 -
+    /// 넓게 얇게 훑던 것이 좁게 깊게 판다.
+    ///
+    /// **이 값은 전역이라 유폭 전부가 같이 바뀐다.** 탄약고·원자로도 같은 곡선을 쓰므로
+    /// CriticalModule의 주석에 적힌 destroyer 실측(1600 피해가 어디서 터지면 어떻게 갈리는지)은
+    /// 이제 낡았다. 미사일만 따로 주려면 falloff를 def 값으로 만들어야 하는데, 그러면
+    /// Detonate/Radiate/DamageRear/BlastRadius 넷에 값을 실어야 한다 - 튜닝 한 번에 그건 과하다.
+    /// 시타델 거동이 이상해지면 그때 def로 내린다.
     /// </summary>
-    public const float BlastFalloff = 0.65f;
+    public const float BlastFalloff = 0.435f;
 
     /// <summary>
     /// 후면 칸 하나의 체력. **판보다 얇다** - 후면은 반대편 외판이고, 앞판을 뚫고 들어온
@@ -314,7 +418,7 @@ public static partial class Ballistics
     /// 그러면 앞을 뚫고 온 탄이 똑같은 벽을 또 만나서 완전관통이 사실상 안 나온다.
     /// 뚫고 지나가는 그림이 이 게임의 목적이라 얇게 잡는다.
     /// </summary>
-    public const float RearHpFactor = 0.6f;
+    public const float RearHpFactor = 1f;
 
     /// <summary>
     /// 잔해가 질량을 나눠 가질 때 후면 칸 하나를 판 몇 장으로 세나.
@@ -358,7 +462,7 @@ public static partial class Ballistics
     /// 후면은 반대편 외판이고, 앞을 뚫고 온 것이 거기까지 닿았다면 이미 많이 깎인 뒤라
     /// 얇게 잡는다. 1로 두면 완전관통이 사실상 안 나온다.
     /// </summary>
-    public const float RearRhaFactor = 0.5f;
+    public const float RearRhaFactor = 0.7f;
 
     /// <summary>
     /// 선체가 깊이 방향으로 몇 m인가. **이 게임에 없는 축의 유일한 숫자다.**
@@ -413,7 +517,7 @@ public static partial class Ballistics
     /// <summary>
     /// 서브셀 하나를 통째로 날릴 만큼 맞았을 때 오르는 열. 맞은 만큼 달아오른다.
     /// </summary>
-    public const float HeatFromDamage = 0.35f;
+    public const float HeatFromDamage = 0.05f;
 
     /// <summary>
     /// **이웃 판이 죽어서 새로 바깥에 드러났을 때 오르는 열.** 피해 열보다 훨씬 크다 -
@@ -422,8 +526,34 @@ public static partial class Ballistics
     /// </summary>
     public const float HeatFromExposure = 1.6f;
 
+    /// <summary>
+    /// 전도(Conduct)로 들어온 피해가 판을 달구는 몫. **직격의 1/8이다.**
+    ///
+    /// 충격 전도는 구조가 갈라지는 것이지 타는 것이 아니다 - 열은 탄착점에서 나오지
+    /// 10 m 떨어진 격벽에서 나오지 않는다. 그런데 충각 한 번이 판 열 장어치를 축방향
+    /// 11 m까지 퍼뜨리므로(구축함 30 m/s면 spent 약 2,972 = 판 10장), 직격과 같은
+    /// 눈금으로 달구면 선체 절반이 한꺼번에 하얗게 되고 **열이 전하려던 정보(언제
+    /// 상했나)가 포화로 사라진다.** 판은 56%만 상해도 열이 1.0에 닿는다.
+    ///
+    /// 0이 아니라 1/8인 이유: 전도로 죽은 판도 뜨겁긴 해야 한다. 완전히 0이면 절단선
+    /// 안쪽이 부자연스럽게 차갑다. 절단면 자체는 HeatFromExposure가 따로 낸다 - 죽은
+    /// 판의 이웃이 받는 그 길은 안 건드렸고, 그게 원래 열의 제일 큰 원천이다.
+    /// </summary>
+    public const float ConductHeatScale = 0.125f;
+
     /// <summary>열이 절반으로 식는 데 걸리는 시간(초). 2~5초 사이가 보기 좋다.</summary>
     public const float HeatHalfLife = 5f;
+
+    // 모듈 배치(ModulePlacement). 셋 다 "약간 겹친 건 되고 파묻힌 건 안 됨"의 손잡이다.
+
+    /// <summary>실내 모듈이 판 하나의 넓이를 이 비율 넘게 덮으면 파묻힌 것.</summary>
+    public const float ModulePlateCoverMax = 0.30f;
+
+    /// <summary>외장 모듈(포·엔진)이 판에 닿았다고 볼 거리(m). 이 안의 판이 마운트가 된다.</summary>
+    public const float ModuleMountReach = 0.5f;
+
+    /// <summary>모듈끼리 겹쳐도 되는 넓이(m²). 겹친 둘은 한 탄에 같이 맞으므로 사실상 금지.</summary>
+    public const float ModuleOverlapMax = 0.1f;
 
     // 후면 열에 상수를 따로 두지 않는다. 후면이 달궈지는 두 사건이 앞판의 그것과 같은
     // 사건이라 같은 값을 쓴다 - 맞으면 HeatFromDamage, 뚫리면 HeatFromExposure.

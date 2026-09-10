@@ -218,7 +218,7 @@ public sealed class GameManager : MonoBehaviour
 
             _tinnitus = gameObject.AddComponent<AudioSource>();
             _tinnitus.clip = clip;
-            _tinnitus.loop = true;
+            _tinnitus.loop = false;
             _tinnitus.spatialBlend = 0f;
             _tinnitus.ignoreListenerPause = true;
         }

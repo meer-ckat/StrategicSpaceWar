@@ -1,0 +1,27 @@
+{
+  "defName": "ciws",
+  "thingClass": "Gun",
+  "comps": [
+    "SolidSkin"
+  ],
+  "layer": "Module",
+  "collider": {
+    "size": { "x": 0.8, "y": 1 },
+    "offset": { "x": 0, "y": 0 }
+  },
+  "projectile": "20mm 예광",
+  "muzzleSpeed": 1600,
+  "muzzleVfx": "MuzzleFlash",
+  "muzzleFirePower": 0.03,
+  "muzzleColor": { "r": 0.95, "g": 0.75, "b": 0.35, "a": 1 },
+  "roundsPerMinute": 1400,
+  "aim": 2,
+  "slewRate": 400,
+  "fireArc": 4,
+  "traverse": 170,
+  "muzzleOffset": 1.2,
+  "friendlyCheckRange": 70,
+  "maxTargetMass": 12000,
+  "maxHealth": 70,
+  "tint": { "r": 0.95, "g": 0.78, "b": 0.25, "a": 1 }
+}

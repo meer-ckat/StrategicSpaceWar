@@ -1,21 +1,26 @@
 {
   "defName": "m10",
   "thingClass": "Gun",
+  "skinTexture": "m10.png",
   "comps": [
     "SolidSkin"
   ],
   "layer": "Module",
   "collider": {
-    "size": { "x": 1.9, "y": 1.2 },
-    "offset": { "x": 0.4, "y": 0 }
+    "size": { "x": 1.9, "y": 2.2 },
+    "offset": { "x": 0, "y": 0 }
   },
   "projectile": "155mm HE",
   "muzzleSpeed": 820,
+  "muzzleVfx": "MuzzleFlash",
+  "muzzleFirePower": 0.42,
+  "muzzleColor": { "r": 1, "g": 0.6, "b": 0.28, "a": 1 },
   "roundsPerMinute": 70,
   "aim": 0,
   "slewRate": 20,
   "fireArc": 2.5,
-  "muzzleOffset": 1.5,
+  "traverse": 120,
+  "muzzleOffset": 3.6,
   "friendlyCheckRange": 160,
   "maxHealth": 380,
   "tint": {

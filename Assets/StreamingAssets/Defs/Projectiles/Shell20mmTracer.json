@@ -1,0 +1,35 @@
+{
+  "defName": "20mm 예광",
+  "thingClass": "AutoCannonProjectile",
+  "comps": [
+    "SolidSkin",
+    "UnityEngine.Rendering.Universal.Light2D"
+  ],
+  "layer": "Default",
+  "collider": {
+    "size": { "x": 0, "y": 0 },
+    "offset": { "x": 0, "y": 0 }
+  },
+  "mass": 0.3,
+  "caliber": 20,
+  "shatterVelocity": 1400,
+  "penetrationK": 0.18,
+  "lifeTick": 300,
+  "muzzleSpeed": 1600,
+  "armorLayer": { "m_Bits": 64 },
+  "moduleLayer": { "m_Bits": 128 },
+  "unlit": true,
+  "glow": 9,
+  "tint": { "r": 1.0, "g": 0.72, "b": 0.28, "a": 1 },
+  "skinSize": { "x": 0.09, "y": 0.55 },
+  "m_ComponentVersion": 2,
+  "m_LightType": 3,
+  "m_BlendStyleIndex": 0,
+  "m_FalloffIntensity": 0.7,
+  "m_Color": { "r": 1.0, "g": 0.66, "b": 0.22, "a": 1 },
+  "m_Intensity": 9.0,
+  "m_PointLightInnerAngle": 360,
+  "m_PointLightOuterAngle": 360,
+  "m_PointLightInnerRadius": 0,
+  "m_PointLightOuterRadius": 1.6
+}

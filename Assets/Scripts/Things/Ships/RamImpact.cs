@@ -209,16 +209,15 @@ public static class RamImpact
         // 따라 자란다.
         float dt = Core.TickManager.TickDeltaTime;
 
-        // **솔버보다 한 틱 앞서 본다.** 딱 이번 틱 이동거리만 쓸면 판을 지우기 시작하는
-        // 그 틱에 솔버도 접촉을 잡아서, 얇은 것이 여러 개 겹친 자리(거울 잔해 구름)에서는
-        // 다 못 치운 나머지가 동시 접촉으로 배를 튕겨낸다.
+        // 딱 이번 틱에 지나갈 거리다. Punch는 힘 단계에서, 즉 Simulate보다 먼저 도므로
+        // 솔버가 접촉을 잡을 때는 이미 치워져 있다 - 앞질러 볼 이유가 없다.
         float lead = dt * Ballistics.RamLookahead;
         float step = reach * lead + Ballistics.RamSkin;
 
         // 사거리 안에 남의 몸이 없으면 스윕할 것도 없다. 부술 수 있는 것(Armor)은 전부
         // HullStructure의 몸에 붙어 있으므로 후보는 All 목록뿐이다 - 포격전 거리에서는
         // 충각이 이 float 비교 몇 번으로 끝난다.
-        if (!GatherNearBodies(body, centre, rMax + step))
+        if (!GatherNearBodies(body, centre, rMax + step, velocity, Mathf.Abs(omega) * rMax, pushing))
             return;
 
         // body.Cast는 내 콜라이더 300개를 **전부** 스윕한다(ColliderCastAll). 이번 틱에
@@ -256,6 +255,8 @@ public static class RamImpact
         // 한참 앞에 있을 수 있고, 그때 이 값이 없으면 내 뱃머리를 못 찾는다.
         float reachedAt = 0f;
 
+        Rigidbody2D hitBody = null;
+
         // 거리순으로 오므로 앞에서부터 담긴다. 중복은 첫 번째(제일 가까운) 것만 남는다.
         for (int i = 0; i < n; i++)
         {
@@ -286,6 +287,10 @@ public static class RamImpact
             {
                 where = _punch[i].point;
                 reachedAt = _punch[i].distance;
+
+                // 운동량을 넘겨줄 몸. 접촉이 여럿이어도 첫(제일 가까운) 것이 실제로
+                // 부딪히는 몸이고, where가 이미 그 점이라 미는 자리와 짝이 맞는다.
+                hitBody = _punch[i].rigidbody;
             }
 
             _plates.Add(plate);
@@ -302,23 +307,59 @@ public static class RamImpact
         // 큰 IJobParallelFor 하나로 보낸다. 직접 충각 피해 순서는 아래 코드 그대로다.
         using var spallBatch = SpallResolver.DeferPump();
 
+        // **충돌 에너지는 상대속도로 잰다. 절대속도가 아니다.**
+        //
+        // 같은 속도로 나란히 가는 두 몸은 서로 안 부딪힌다 - 상대속도가 0이니까. 그런데
+        // 여기서 절대속도를 쓰면 **선체 안에 갇힌 잔해가 배에 실려 다니면서** 배 속도만큼의
+        // 운동에너지로 매 틱 안쪽 판을 갉는다. 30 m/s로 항행하면 그 잔해는 30 m/s로 들이받는
+        // 것으로 세어지고, 밖으로 밀어낼 수도 없어서(사방이 판이다) 영원히 끝나지 않는다.
+        // 증상이 "잔해가 배 안에서 나뒹굴면 특히 치명적"이었다.
+        //
+        // 상대속도로 재면 그 상황이 저절로 0이 된다. 실려 가는 것은 부딪히는 것이 아니다.
+        float relSpeed = hitBody != null && hitBody.bodyType == RigidbodyType2D.Dynamic
+            ? (velocity - hitBody.linearVelocity).magnitude
+            : speed;
+
         // **회전 운동에너지도 예산이다.** 여기서만 진짜 관성 모멘트를 쓴다 - Ship.Angle은
         // 각속도를 직접 대입하고 관성 모멘트를 angleAccel에 녹여 두었지만, 그건 조종 모델의
         // 사정이고 에너지는 리지드바디가 콜라이더에서 뽑아 둔 body.inertia가 진실이다.
-        float linear = 0.5f * body.mass * speed * speed;
+        float linear = 0.5f * body.mass * relSpeed * relSpeed;
         float spin = 0.5f * body.inertia * omega * omega;
         float motion = linear + spin;
 
-        float press = Mathf.Max(0f, Vector2.Dot(thrust, dir)) * step;
+        // **압착 예산. step이 아니라 dt를 곱한다.**
+        //
+        // 이 값은 압력(힘/면적)이 아니라 이번 틱의 **압착 충격량**(힘 x 시간)이다. 압착
+        // 피해율이 접촉력에 비례한다고 보면 `접촉력 x dt`가 그 틱의 몫이고, 아래에서 판
+        // 수로 나누는 것이 면적 몫이다.
+        //
+        // 예전 step은 더 나빴다. `step = reach x lead + RamSkin`이라 **정지 상태에서도
+        // RamSkin(0.04)이 남는다** - 시간 기반조차 아니었고 물리 틱마다 상수를 먹였다.
+        // 틱레이트를 바꾸면 초당 압착 피해가 같이 바뀌는, 장갑 강도가 프레임 예산에
+        // 달린 시스템이었다. dt를 곱하면 초당 누적이 `(F x dt) x (1/dt) = F`로 떨어져
+        // "같은 추력으로 1초 누르면 같은 만큼 찌그러진다"가 성립한다.
+        //
+        // 속도가 섞이던 것도 같이 사라진다 - step은 속도에 비례했는데, 속도로 부수는
+        // 몫은 위 충돌 풀이 이미 따로 센다. step을 쓰면 그 속도를 두 번 냈다.
+        float press = Mathf.Max(0f, Vector2.Dot(thrust, dir)) * dt;
 
-        float pressEach = press * scale / contacts;
+        float pressEach = press * Ballistics.RamPressureDamageScale / contacts;
 
         // 한 틱에 쏟을 수 있는 몫만 들고 들어간다. 예산 전부를 한 틱에 태우면 못 뚫는 벽에서
         // 속도가 0으로 떨어지고, 그러면 솔버가 접촉도 회전도 못 만든다.
-        float pool = motion * scale * Ballistics.RamSpendPerTick;
+        //
+        // 질량 무릎: 가벼운 몸은 KE를 다 못 쓴다. 작은 잔해가 파편 구름 값을 하게 깎는
+        // 자리다 - 감속 블록은 pool이 아니라 fromMotion(실제 쓴 몫)을 되돌리므로,
+        // 여기서 깎이면 잔해가 그만큼 덜 느려지는 것까지 맞아떨어진다.
+        float knee = body.mass / (body.mass + Ballistics.RamMassKnee);
+        float pool = motion * scale * Ballistics.RamSpendPerTick * knee;
         float left = pool;
 
         Armor target = null;
+
+        // 실제로 전달된 압착의 합. 예산(press)이 아니라 결과다 - 항복 문턱과 질량비가
+        // 깎고 남은 것만 들어온다.
+        float crushed = 0f;
 
         for (int i = 0; i < contacts; i++)
         {
@@ -338,7 +379,29 @@ public static class RamImpact
             // 첫 히트 하나로 정하면 안 되는 이유도 같다 - 정적 콜라이더가 먼저 걸리거나
             // 순서가 어긋나면 가벼운 파편이 1.0을 받는다.
             float react = Reaction(body, _plateBodies[i]);
-            float share = pressEach * react;
+
+            // **압착에는 항복 문턱이 있다.** 이 판이 그냥 견디는 몫을 빼고 넘은 것만 낸다.
+            //
+            // 없으면 살짝 대고만 있어도 시간이 알아서 선체를 뚫는다 - 실제 재료는 항복
+            // 응력 아래에서 영구 변형이 0이고, 우주선으로 운석을 밀어 옮기는 그림이
+            // 성립하는 이유가 그것이다. 문턱을 판 체력에 비례시켜서 두꺼운 장갑이 더
+            // 버티는 것이 상수 하나로 나온다.
+            //
+            // **충돌 몫에는 안 건다.** 저건 운동에너지 풀이라 쓰면 줄어서 스스로 끝나고,
+            // RamMinSpeed가 이미 아래쪽을 막고 있다. 여기만 끝나는 조건이 없었다.
+            float crush = Mathf.Max(
+                0f, pressEach * react - plate.PlateHp * Ballistics.RamCrushYield);
+
+            // **되받는 것은 실제로 전달된 압착이다.** 접촉력은 양쪽에 똑같이 걸리므로
+            // 상대가 안 먹은 몫을 내가 먹을 수는 없다. 예전에는 press 원값을 그대로
+            // 되받아서, 900 kg 운석을 미는 구축함이 react 0.0002 탓에 **상대의 5000배를
+            // 자기 뱃머리에 냈다** - 운석은 항복 문턱에 막혀 0을 먹는데. 증상이
+            // "한 천체를 계속 밀면 계속 피해를 입는다"였고, 문턱을 상대 쪽에만 걸었을 때
+            // 절반만 고쳐진 것이 이 줄이다. spent는 Conduct에도 가므로 전도까지 같이
+            // 부풀어 있었다.
+            crushed += crush;
+
+            float share = crush;
 
             // 충돌 몫은 앞에서부터. 이 판이 속한 몸에 실제로 전달할 수 있는 만큼만 꺼낸다.
             // 판을 확실히 죽이는 값이 PlateHp이고, 모자라면 그만큼만 넣고 지나간다.
@@ -353,28 +416,141 @@ public static class RamImpact
                 continue;
 
             plate.ApplyDamageEvenly(share);
+            DamageLog.Ram(plate);
 
             target ??= plate;
         }
 
         float fromMotion = pool - left;
-        float spent = fromMotion + press * scale;
+        float spent = fromMotion + crushed;
 
         if (RamLog)
             Debug.Log(
                 $"[RAM] v={speed:F1} w={body.angularVelocity:F1}도/s rMax={rMax:F1} "
                 + $"reach={reach:F1} 접촉={contacts}장 충돌풀={pool:F0}(쓴 {fromMotion:F0}, "
-                + $"선형 {linear / motion:P0}) 압력={press * scale:F1}(판당 {pressEach:F2}) "
+                + $"선형 {linear / Mathf.Max(1e-6f, motion):P0}) 압착예산={press * Ballistics.RamPressureDamageScale:F1}(판당 {pressEach:F2}, 전달 {crushed:F1}) "
                 + $"step={step:F2}", body);
 
         if (spent <= 0f)
             return;
 
+        // **에너지 예산이 먼저 깎고, 충격량이 그 위에 얹힌다.** 회전만 여기서 깎는다 -
+        // 병진 몫은 아래에서 접촉점 충격량으로 나가므로 두 번 내면 안 된다. 순서가
+        // 뒤바뀌면 더 나쁘다: 이 블록은 angularVelocity에 **대입**하므로 아래
+        // AddForceAtPosition이 만든 회전을 통째로 덮어쓴다.
+        float joules = motion > 0f
+            ? fromMotion / (Ballistics.DamageScale * Ballistics.RamDamageFraction)
+            : 0f;
+
+        // **쓴 만큼을 두 운동에서 각각 뺀다.** 예산을 합쳐서 냈으니 청구서도 나눠 물린다 -
+        // 회전에만 물리면 직진으로 박은 배가 멀쩡히 계속 가고, 반대면 도는 힘으로 부순
+        // 배가 영영 안 느려진다. 몫은 각자가 예산에 넣은 비율 그대로다.
+        if (joules > 0f && Mathf.Abs(omega) > 1e-4f && body.inertia > 1e-4f)
+        {
+            float paidSpin = joules * (spin / motion);
+
+            float slowedSpin = Mathf.Sqrt(
+                Mathf.Max(0f, omega * omega - 2f * paidSpin / body.inertia));
+
+            body.angularVelocity = slowedSpin * Mathf.Sign(omega) * Mathf.Rad2Deg;
+        }
+
+        // **부수기만 하고 밀지는 않고 있었다.** 여기서 운동량을 주고받는다.
+        //
+        // 미는 일은 솔버 몫이었는데, 위 스윕이 판을 지운 자리에는 솔버가 잡을 접촉이
+        // 안 생긴다. 그래서 운동량 교환이 거의 일어나지 않았다 - 증상은 "잔해가 안 밀리고
+        // 배를 갉아 먹는다"다. Reaction의 주석이 "밀면 밀려나야지 부서지면 안 된다"고
+        // 말하는데, 미는 코드가 없으면 그 문장이 성립할 수가 없었다.
+        //
+        // 규칙은 탄과 같은 것을 쓴다(<see cref="Ballistics.ImpactImpulse"/>).
+        //
+        // **양쪽 다 접촉점에 넣는다.** 예전에는 상대만 AddForceAtPosition이고 내 쪽은
+        // `linearVelocity *= slowed / speed`였다 - 크기는 맞는데 **작용점이 없어서
+        // 편심 충각이 나를 안 돌렸다.** 뱃머리 왼쪽 끝으로 들이받아도 상대만 돌고 나는
+        // 반듯하게 느려지기만 했다. 회전을 만드는 코드가 따로 없는 것이 탄과 같은 이유다.
+        Vector2 hit = Vector2.zero;
+
+        if (joules > 0f && speed > 1e-3f)
+        {
+            // 위 회전 몫과 **같은 산수**의 선형 짝이다 - 내가 잃는 속도가 곧 상대가 받는
+            // 운동량이라, 예산을 두 번 쪼개지 않고 한 곳에서 나눈다.
+            float paid = joules * (linear / motion);
+
+            float after = Mathf.Sqrt(
+                Mathf.Max(0f, speed * speed - 2f * paid / Mathf.Max(1f, body.mass)));
+
+            hit = Ballistics.ImpactImpulse(
+                body.mass, velocity, velocity * (after / speed));
+        }
+
+        bool dynamicTarget = hitBody != null && hitBody.bodyType == RigidbodyType2D.Dynamic;
+
+        // **완전비탄성 한계에서 자른다. 이걸 넘는 것이 곧 튕김이다.**
+        //
+        // 에너지에서 되돌린 값은 "판을 부수는 데 쓴 것"인데, 비탄성 충돌에서 그 에너지는
+        // 변형으로 **소모되는** 것이지 상대를 미는 데 쓰이지 않는다. 그대로 충격량으로
+        // 바꾸면 이중 계산이라, 264 대 1 질량비에서 잔해가 배보다 빠르게 튀어 나간다 -
+        // 증상이 "잔해가 탱탱볼처럼 튄다"였다.
+        //
+        // 물리가 주는 상한은 둘이 같은 속도가 되는 지점이고, 그 충격량이
+        // `환산질량 x 접근속도`다. 반발계수 0 - 이 게임에 튕기는 충돌은 없다.
+        //
+        // **자를 때는 양쪽을 같이 자른다.** 내 감속만 원값으로 내면 상대가 못 받은 몫이
+        // 허공으로 사라지고, 나는 상대보다 느려져서 상대가 나를 관통해 지나간다.
+        // 정적 콜라이더에는 안 자른다 - 벽은 얼마든지 받아낸다.
+        if (dynamicTarget && hit.sqrMagnitude > 0f)
+        {
+            float approach = Vector2.Dot(velocity - hitBody.linearVelocity, dir);
+
+            // 이미 멀어지는 중이면 밀 것이 없다. 안 보면 떠나는 잔해를 매 틱 걷어찬다.
+            if (approach <= 0f)
+                hit = Vector2.zero;
+            else
+            {
+                float reduced = body.mass * hitBody.mass / (body.mass + hitBody.mass);
+                float cap = reduced * approach;
+
+                if (hit.magnitude > cap)
+                    hit = hit.normalized * cap;
+            }
+        }
+
+        // **밀어내는 몫 - 뉴턴 3법칙.** 엔진으로 밀면 상대가 밀리고 나는 그만큼 잃는다.
+        // 이게 없으면 벽에 기대고 공짜로 가속하면서 상대를 영원히 갉는다.
+        //
+        // **전 추력이 접촉으로 다 넘어가지 않는다.** 붙어서 같이 밀려가는 두 몸은
+        // `F / (m1 + m2)`로 **함께** 가속하고, 상대가 받는 힘은 그 질량 몫뿐이다. 통째로
+        // 주면 8.4 MN짜리 구축함이 900 kg 운석을 틱당 155 m/s로 걷어찬다 - 증상이
+        // "압력 피해 주면 겁나 빠르게 날아간다"였다. 그 몫이 정확히 Reaction이 재는
+        // 값이라 새 식을 안 만든다.
+        //
+        // Ship.OnTick이 Ram()을 Drive()보다 먼저 돌리므로 이 반작용과 이번 틱 추력이 같은
+        // Simulate에 들어가고, 둘을 합치면 양쪽 다 F/(m1+m2)로 간다 - 기대면 못 나간다.
+        Vector2 push = Vector2.zero;
+
+        if (dynamicTarget)
+        {
+            float pushForce = Mathf.Max(0f, Vector2.Dot(thrust, dir));
+
+            if (pushForce > 0f)
+                push = dir * (pushForce * dt * Reaction(body, hitBody));
+        }
+
+        Vector2 handOver = hit + push;
+
+        if (handOver.sqrMagnitude > 1e-12f)
+        {
+            if (dynamicTarget)
+                hitBody.AddForceAtPosition(handOver, where, ForceMode2D.Impulse);
+
+            body.AddForceAtPosition(-handOver, where, ForceMode2D.Impulse);
+        }
+
         // 작용 반작용. 상대가 먹은 만큼 내 뱃머리도 되받는다 - 유리를 받으면 안 긁히고,
         // 장갑을 받으면 뱃머리가 날아간다. 분기문 없이 상대의 강도가 내 피해를 정한다.
         // **물러나는 거리가 속도를 따라가야 한다.** where는 캐스트가 맞힌 상대 표면의
-        // 점인데, 캐스트는 RamLookahead만큼 한 틱 앞을 미리 본다. 120 m/s면 접촉점이 내
-        // 선체보다 4 m 앞이라, 고정 0.6 m를 물러나면 아직 허공이고 내 판이 안 잡힌다.
+        // 점인데, 캐스트는 이번 틱 이동거리만큼 앞을 본다. 120 m/s면 접촉점이 내
+        // 선체보다 2 m 앞이라, 고정 0.6 m를 물러나면 아직 허공이고 내 판이 안 잡힌다.
         //
         // 증상이 고약했다: 저속에서는 반작용이 멀쩡히 들어가는데 고속에서만 조용히
         // 사라져서, "빠르게 들이받으면 상대만 박살나고 나는 멀쩡하다"가 된다. 에러도
@@ -391,6 +567,10 @@ public static class RamImpact
         else
         {
             bow.ApplyDamageEvenly(spent);
+            DamageLog.Ram(bow);
+
+            // Conduct가 번지는 이웃 판은 안 적는다 - 한 번 부딪히면 수십 장이 들어와서
+            // 계기판이 통째로 주황이 된다. 접촉면만 적는 것이 "여기가 긁힌다"의 뜻이다.
             Conduct(bow, dir, spent,
                 Ballistics.RamConductAlong, Ballistics.RamConductAcross,
                 Ballistics.RamConductCutoff, Ballistics.RamConductMaxPlates);
@@ -401,45 +581,6 @@ public static class RamImpact
                 Ballistics.RamConductAlong, Ballistics.RamConductAcross,
                 Ballistics.RamConductCutoff, Ballistics.RamConductMaxPlates);
 
-        // 쓴 만큼 느려진다. 되돌리는 코드가 없다 - 솔버가 이 판들을 볼 일이 아예 없으므로
-        // 되돌릴 것도 없고, 그래서 꺾임 프레임도 없다.
-        //
-        // **속도를 세팅하지 않고 비율로 줄인다.** `= dir * slowed`로 덮으면 두 가지가 틀린다:
-        // 옆으로 흐르던 속도가 사라지고, 못 뚫을 때 우리가 배를 먼저 세워버려서 **솔버가
-        // 접촉을 잡을 기회가 없다.** 그러면 편심 충격도 없고 회전도 안 생겨서, 단단한 것에
-        // 부딪힌 배가 반듯하게 멈추기만 한다.
-        //
-        // 예산은 감속만 하고, **정지와 회전은 솔버가 한다.** 못 뚫은 판은 살아남아 있으므로
-        // 배는 줄어든 속도로 그리로 들어가고, 거기서 제대로 부딪힌다.
-        // **미는 힘으로 쓴 몫은 속도를 안 깎는다.** 이미 서 있는 배에서 뺄 속도가 없다.
-        // 충돌 풀에서 나간 것만 감속한다 - 이제 둘이 따로 세어져 있어서 나눌 필요가 없다.
-        if (motion <= 0f)
-            return;
-
-        float joules = fromMotion / (Ballistics.DamageScale * Ballistics.RamDamageFraction);
-
-        // **쓴 만큼을 두 운동에서 각각 뺀다.** 예산을 합쳐서 냈으니 청구서도 나눠서 물려야
-        // 한다 - 선형에만 물리면 도는 힘으로 부순 배가 영영 안 느려지고, 회전에만 물리면
-        // 직진으로 박은 배가 멀쩡히 계속 간다. 몫은 각자가 예산에 넣은 비율 그대로다.
-        if (speed > 1e-3f)
-        {
-            float paid = joules * (linear / motion);
-
-            float slowed = Mathf.Sqrt(
-                Mathf.Max(0f, speed * speed - 2f * paid / Mathf.Max(1f, body.mass)));
-
-            body.linearVelocity *= slowed / speed;
-        }
-
-        if (Mathf.Abs(omega) > 1e-4f && body.inertia > 1e-4f)
-        {
-            float paid = joules * (spin / motion);
-
-            float slowed = Mathf.Sqrt(
-                Mathf.Max(0f, omega * omega - 2f * paid / body.inertia));
-
-            body.angularVelocity = slowed * Mathf.Sign(omega) * Mathf.Rad2Deg;
-        }
     }
 
     /// <summary>
@@ -541,7 +682,7 @@ public static class RamImpact
     /// 전원이 재사용해도 결과가 같다. 같은 틱에 태어난 잔해가 다음 틱까지 안 보이는
     /// 창이 생기지만, 그 창은 지금도 OnTick 순회 순서로 이미 존재한다.
     /// </summary>
-    private static readonly List<(Rigidbody2D body, Vector2 centre, float radius)> _bodySnapshot = new();
+    private static readonly List<(Rigidbody2D body, Vector2 centre, float radius, Vector2 velocity)> _bodySnapshot = new();
     private static long _snapshotTick = -1;
 
     private static void RefreshBodySnapshot()
@@ -566,7 +707,10 @@ public static class RamImpact
             if (otherBody == null)
                 continue;
 
-            _bodySnapshot.Add((otherBody, otherBody.worldCenterOfMass, CachedRadius(otherBody)));
+            // **속도도 여기서 캐시한다.** 아래 GatherNearBodies가 몸마다 상대속도를 보는데,
+            // 그 함수는 몸마다 불리므로 거기서 linearVelocity를 읽으면 네이티브 접근이
+            // O(n²)가 된다 - 운석 90개면 틱당 8,100번이다. 스냅샷은 틱당 한 번이라 O(n)이다.
+            _bodySnapshot.Add((otherBody, otherBody.worldCenterOfMass, CachedRadius(otherBody), otherBody.linearVelocity));
         }
     }
 
@@ -576,7 +720,9 @@ public static class RamImpact
     /// </summary>
     private static readonly List<(Vector2 centre, float radius)> _nearBodies = new();
 
-    private static bool GatherNearBodies(Rigidbody2D self, Vector2 centre, float range)
+    private static bool GatherNearBodies(
+        Rigidbody2D self, Vector2 centre, float range,
+        Vector2 selfVelocity, float spinReach, bool pushing)
     {
         using var _ = _mGather.Auto();
 
@@ -586,15 +732,37 @@ public static class RamImpact
 
         for (int i = 0; i < _bodySnapshot.Count; i++)
         {
-            (Rigidbody2D otherBody, Vector2 at, float radius) = _bodySnapshot[i];
+            (Rigidbody2D otherBody, Vector2 at, float radius, Vector2 otherVelocity)
+                = _bodySnapshot[i];
 
             if (otherBody == self)
                 continue;
 
             float r = range + radius;
 
-            if ((at - centre).sqrMagnitude <= r * r)
-                _nearBodies.Add((at, radius));
+            if ((at - centre).sqrMagnitude > r * r)
+                continue;
+
+            // **상대 운동으로 거른다.** 에너지를 상대속도로 재게 바꿔 놓고 게이트만
+            // 절대속도로 두면, 배에 실려 다니는 잔해가 아래 SweepNearColliders(판마다
+            // Cast를 도는 진짜 비싼 자리)를 매 틱 전부 돌고 나서 피해 0을 내고 끝난다 -
+            // 피해는 멎었는데 비용은 그대로인 최악의 조합이다. 여기서 끊으면 그 몸은
+            // Cast를 한 번도 안 돈다.
+            //
+            // 밀고 있으면(pushing) 상대속도가 0이어도 통과시킨다 - 기대서 찌그러뜨리는
+            // 것이 압착이고, 그건 상대 운동이 없을 때 하는 일이다.
+            //
+            // sqrt를 안 쓴다. `|dv| + spinReach < RamMinSpeed`를 `|dv| < 남은 몫`으로
+            // 옮기면 제곱 비교로 끝난다 - 이 줄은 몸마다 x 몸마다라 O(n^2)다.
+            if (!pushing && spinReach < Ballistics.RamMinSpeed)
+            {
+                float slack = Ballistics.RamMinSpeed - spinReach;
+
+                if ((selfVelocity - otherVelocity).sqrMagnitude < slack * slack)
+                    continue;
+            }
+
+            _nearBodies.Add((at, radius));
         }
 
         return _nearBodies.Count > 0;
@@ -983,7 +1151,7 @@ public static class RamImpact
                     }
 
                     wave[tail++] = neighbour;
-                    neighbour.ApplyDamageEvenly(share);
+                    neighbour.ApplyDamageEvenly(share, Ballistics.ConductHeatScale);
                 }
             }
         }

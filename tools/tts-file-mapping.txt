@@ -1,0 +1,121 @@
+TtsBaked\battle-lost\00.wav  [통신]  {0}, {0}? 응답하라, 함선과 연결이 끊어졌다!
+TtsBaked\battle-lost\01.wav  [시스템]  —신호 두절—
+TtsBaked\battle-won\00.wav  [전술]  접촉 전부 소실. 교전 종료.
+TtsBaked\battle-won\01.wav  [함장]  사격 중지. 열 추적은 유지한다.
+TtsBaked\battle-won\02.wav  [함장]  피해 보고. 건질 수 있는 건 건져라.
+TtsBaked\battle-won\03.wav  [기관]  선체 손실 집계 중입니다. 잃은 판은 돌아오지 않습니다.
+TtsBaked\battle-won\04.wav  [함장]  다음 침로는 여기서 정한다.
+TtsBaked\chitchat-coffee\00.wav  [기관]  3구역 커피 기계가 또 죽었습니다.
+TtsBaked\chitchat-coffee\01.wav  [함장]  고쳐.
+TtsBaked\chitchat-coffee\02.wav  [기관]  고쳤습니다. 오늘 두 번째입니다.
+TtsBaked\chitchat-knees\00.wav  [전술]  함장님. 펭귄도 무릎이 있습니까?
+TtsBaked\chitchat-knees\01.wav  [함장]  있다.
+TtsBaked\chitchat-knees\02.wav  [전술]  …있군요.
+TtsBaked\chitchat-name\00.wav  [기관]  이 배 이름을 누가 지었는지 아십니까?
+TtsBaked\chitchat-name\01.wav  [함장]  모른다.
+TtsBaked\chitchat-name\02.wav  [기관]  저도 모릅니다. 그게 이상한 겁니다.
+TtsBaked\chitchat-quiet\00.wav  [전술]  접촉 없음. 12분째입니다.
+TtsBaked\chitchat-quiet\01.wav  [기관]  그 말 하지 마십시오.
+TtsBaked\chitchat-theatre\00.wav  [통신]  살아서 돌아가면 극장 갑니까.
+TtsBaked\chitchat-theatre\01.wav  [함장]  표는 네가 사라.
+TtsBaked\chitchat-theatre\02.wav  [통신]  12년째 그 말씀이십니다.
+TtsBaked\crew-lost-ally\00.wav  [통신]  전 구역 기압 소실. 함교 응답 없음.
+TtsBaked\crew-lost-ally\01.wav  [기관]  {0} 생체 신호 없음. 재가압해도 소용없습니다.
+TtsBaked\crew-lost-ally\02.wav  [기관]  마지막 구역까지 뚫렸습니다.
+TtsBaked\crew-lost-ally\03.wav  [전술]  조타 무응답. 사격통제 무응답. 배가 죽었습니다.
+TtsBaked\crew-lost-enemy\00.wav  [전술]  {0} 완전 감압. 안에 살아 있는 것 없음.
+TtsBaked\crew-lost-enemy\01.wav  [전술]  적함 기압 0. 조타도 포도 멈췄습니다.
+TtsBaked\crew-lost-enemy\02.wav  [통신]  저쪽엔 숨 쉴 것도 안 남았습니다. 그걸로 끝입니다.
+TtsBaked\crew-lost-enemy\03.wav  [전술]  {0} 승무원 전멸 추정.
+TtsBaked\detonated-ally\00.wav  [기관]  {0} 유폭! 격벽 닫아, 지금!
+TtsBaked\detonated-ally\01.wav  [기관]  탄약고가 갔습니다. 인접 구역 비우십시오.
+TtsBaked\detonated-ally\02.wav  [기관]  원자로 폭주. 차단이 안 됩니다.
+TtsBaked\detonated-ally\03.wav  [전술]  내부 폭발. 선체가 안에서 밀려 나갔습니다.
+TtsBaked\detonated-ally\04.wav  [기관]  함장님, 이 배 오래 못 버팁니다.
+TtsBaked\detonated-enemy\00.wav  [전술]  유폭. 적 탄약이 안에서 터졌습니다.
+TtsBaked\detonated-enemy\01.wav  [전술]  {0} 유폭 중. 선체가 안쪽에서 열렸습니다.
+TtsBaked\detonated-enemy\02.wav  [포술]  탄약고를 맞혔습니다. 저건 못 버팁니다.
+TtsBaked\detonated-enemy\03.wav  [전술]  2차 유폭 확인. 아직 번지는 중.
+TtsBaked\detonated-enemy\04.wav  [기관]  안에서 화염이 뿜어 나옵니다. 원자로입니다.
+TtsBaked\detonated-enemy\05.wav  [통신]  저 각도면 승무원은 못 나옵니다.
+TtsBaked\detonated\00.wav  [전술]  어딘가에서 유폭. 발생원 미확인.
+TtsBaked\detonated\01.wav  [전술]  폭발 한 건. 아군도 적함도 아닙니다.
+TtsBaked\detonated\02.wav  [전술]  떠다니던 것이 터졌습니다. {0}.
+TtsBaked\hull-split-ally\00.wav  [기관]  선체 파단! 후미가 떨어져 나갑니다.
+TtsBaked\hull-split-ally\01.wav  [기관]  배가 갈라졌습니다. 격벽 전부 폐쇄.
+TtsBaked\hull-split-ally\02.wav  [함장]  구조 연결 절단. 그 구역은 포기한다.
+TtsBaked\hull-split-ally\03.wav  [통신]  떨어져 나간 쪽에 사람 있었습니까.
+TtsBaked\hull-split-ally\04.wav  [조타]  {0} 형태 상실. 조종이 안 먹습니다.
+TtsBaked\hull-split-enemy\00.wav  [전술]  {0} 절단. 두 조각으로 갈라졌습니다.
+TtsBaked\hull-split-enemy\01.wav  [전술]  가운데가 끊겼습니다. 선수와 선미가 따로 돕니다.
+TtsBaked\hull-split-enemy\02.wav  [전술]  선체 파단 확인. {0}, 이제 배 두 척입니다.
+TtsBaked\hull-split-enemy\03.wav  [기관]  엔진부만 떨어져 나갔습니다. 추력이 아직 붙어 있습니다.
+TtsBaked\hull-split-enemy\04.wav  [통신]  저렇게 갈라지면 안에 있던 것이 전부 쏟아집니다.
+TtsBaked\prologue\00.wav  [시스템]  링크 정상. 아트리아 국경 관제망 접속.
+
+풍속 0, 맑고 상쾌하다.
+TtsBaked\run-cleared\00.wav  [전술]  껍질 구조 붕괴. 절단선 두 곳을 따라 벌어지고 있습니다.
+TtsBaked\run-cleared\01.wav  [기관]  증폭이 멈췄습니다. 저것이 붙잡고 있던 게 뭐든, 이제 안 붙잡습니다.
+TtsBaked\run-cleared\02.wav  [전술]  두 조각으로 갈라져 멀어지는 중. 다시 닫힐 것은 없습니다.
+TtsBaked\run-cleared\03.wav  [함장]  우리 것이었다. 우리가 지었고, 저것이 된 설계도 우리 것이었다.
+TtsBaked\run-cleared\04.wav  [통신]  아트리아 관제, 여기는 초계함. 시설은 정지했습니다.
+TtsBaked\run-cleared\05.wav  [함장]  기록하고 귀환한다.
+TtsBaked\sector-01\00.wav  [전술]  감시초소 17 도달. 구조물은 온전합니다.
+TtsBaked\sector-01\01.wav  [통신]  호출 세 번. 자동 응답기도 안 돕니다.
+TtsBaked\sector-01\02.wav  [기관]  전력은 들어와 있습니다. 끈 게 아니라 아무도 안 받는 겁니다.
+TtsBaked\sector-01\03.wav  [전술]  접촉. 식별 신호 없음.
+TtsBaked\sector-01\04.wav  [함장]  생존자 수색은 나중이다. 전투 배치.
+TtsBaked\sector-02\00.wav  [통신]  감시초소 19. 17과 같습니다. 전력 정상, 응답 없음.
+TtsBaked\sector-02\01.wav  [전술]  외벽에 관통흔. 안쪽에서 밖으로 뚫린 자국은 없습니다.
+TtsBaked\sector-02\02.wav  [기관]  일방적이었다는 뜻입니다.
+TtsBaked\sector-02\03.wav  [전술]  접촉 다수. 아직 우리를 안 봤습니다.
+TtsBaked\sector-02\04.wav  [함장]  먼저 본 쪽이 먼저 쏜다.
+TtsBaked\sector-03\00.wav  [통신]  감시초소 22. 셋째입니다. 전부 같은 방식입니다.
+TtsBaked\sector-03\01.wav  [전술]  17, 19, 22. 사이에 있는 초소 넷은 멀쩡합니다.
+TtsBaked\sector-03\02.wav  [전술]  고른 겁니다. 이 셋만.
+TtsBaked\sector-03\03.wav  [함장]  이 셋이 뭘 보고 있었는지 관제에 물어라.
+TtsBaked\sector-03\04.wav  [통신]  회신 지연. 중계망이 불안정합니다.
+TtsBaked\sector-03\05.wav  [전술]  접촉. 이번엔 우리 쪽으로 옵니다.
+TtsBaked\sector-04\00.wav  [전술]  왕정군 초계선. 습격대가 아닙니다. 정규 편성입니다.
+TtsBaked\sector-04\01.wav  [통신]  이 깊이에 정규군이 왜 있습니까.
+TtsBaked\sector-04\02.wav  [기관]  앞 구역 잔해에서 보급 규격을 땄습니다. 초계 한 달치가 아닙니다.
+TtsBaked\sector-04\03.wav  [기관]  훨씬 큰 것을 먹이고 있습니다.
+TtsBaked\sector-04\04.wav  [함장]  기록해 두고 지나간다. 답은 앞에 있다.
+TtsBaked\sector-05\00.wav  [전술]  호위 편성. 진형이 바깥을 보고 있습니다.
+TtsBaked\sector-05\01.wav  [전술]  우리를 치러 온 게 아닙니다. 뭔가를 끼고 도는 겁니다.
+TtsBaked\sector-05\02.wav  [통신]  호위 대상이 안 잡힙니다. 편대 한가운데가 비어 있습니다.
+TtsBaked\sector-05\03.wav  [함장]  비어 있는 게 아니라 우리 눈이 거기까지 안 닿는 거다.
+TtsBaked\sector-05\04.wav  [함장]  뚫고 본다.
+TtsBaked\sector-06\00.wav  [전술]  봉쇄선. 기뢰와 초계함이 항로를 가로막고 있습니다.
+TtsBaked\sector-06\01.wav  [전술]  공세 준비가 아닙니다. 나가는 걸 막는 게 아니라 들어오는 걸 막고 있습니다.
+TtsBaked\sector-06\02.wav  [기관]  봉쇄 너머로 방사선 신호. 주기적입니다. 자연물이 아닙니다.
+TtsBaked\sector-06\03.wav  [통신]  좌표 대조 완료. 공화국 등록 시설입니다.
+TtsBaked\sector-06\04.wav  [통신]  Penrose 발전시설. 8년 전에 우리가 지은 겁니다.
+TtsBaked\sector-06\05.wav  [함장]  …저거 우리 거였는데.
+TtsBaked\sector-07\00.wav  [전술]  기함 전대. 이 구역 지휘 계통 전부입니다.
+TtsBaked\sector-07\01.wav  [통신]  평문 송신이 들어옵니다. 암호를 안 걸었습니다.
+TtsBaked\sector-07\02.wav  [통신]  「시설로 가지 마라. 우리도 막고 있었다.」
+TtsBaked\sector-07\03.wav  [전술]  저쪽 편대 절반이 저쪽 편대 절반을 쏘고 있습니다.
+TtsBaked\sector-07\04.wav  [기관]  노획 기록을 읽었습니다. 증폭 설계의 원본은 우리 연구입니다.
+TtsBaked\sector-07\05.wav  [함장]  저들이 만든 게 아니라 우리가 적어 둔 걸 실행한 거다.
+TtsBaked\sector-07\06.wav  [함장]  쏘는 쪽만 상대한다. 나머지는 건드리지 마라.
+TtsBaked\sector-08\00.wav  [전술]  시설 육안 확인. 반사 구조가 지평선을 덮습니다.
+TtsBaked\sector-08\01.wav  [기관]  증폭률이 계속 오릅니다. 임계까지 여유가 없습니다.
+TtsBaked\sector-08\02.wav  [기관]  저 폭발 반경에 변경 성단이 전부 들어갑니다. 저들 땅까지요.
+TtsBaked\sector-08\03.wav  [통신]  관제 회신 없음. 이 거리에서는 안 닿습니다.
+TtsBaked\sector-08\04.wav  [함장]  점령도 탈환도 아니다. 멈추기만 하면 된다.
+TtsBaked\sector-08\05.wav  [함장]  외곽을 뚫고 안으로 들어간다. 통로는 좁다.
+TtsBaked\ship-finished-ally\00.wav  [통신]  {0} 응답 없음. 조난 신호도 없습니다.
+TtsBaked\ship-finished-ally\01.wav  [전술]  {0} 전투불능. 수습은 나중입니다.
+TtsBaked\ship-finished-ally\02.wav  [함장]  {0} 대열 이탈. 간격 좁혀라.
+TtsBaked\ship-finished-ally\03.wav  [통신]  저 안에 아직 사람이 있을 겁니다.
+TtsBaked\ship-finished-ally\04.wav  [함장]  {0} 상실. 기록해라.
+TtsBaked\ship-finished-enemy\00.wav  [전술]  {0} 신호 소실. 전투불능.
+TtsBaked\ship-finished-enemy\01.wav  [전술]  {0} 추진 정지. 표류 중.
+TtsBaked\ship-finished-enemy\02.wav  [포술]  표적 하나 정리. {0}, 더 쏘지 않습니다.
+TtsBaked\ship-finished-enemy\03.wav  [통신]  {0} 함교 신호 두절. 저쪽에도 사람이 있었습니다.
+TtsBaked\ship-finished-enemy\04.wav  [전술]  {0} 전열 이탈 확인.
+TtsBaked\ship-finished-enemy\05.wav  [함장]  이제 잔해다. 다음 표적.
+TtsBaked\ship-finished-neutral\00.wav  [전술]  {0} 정지. 소속은 끝내 확인하지 못했습니다.
+TtsBaked\ship-finished-neutral\01.wav  [통신]  {0} 신호 소실. 교전 기록에 올립니다.
+TtsBaked\ship-finished-neutral\02.wav  [함장]  우리 표적이 아니었다.

@@ -59,6 +59,16 @@ public static class TraceWorld
         public Vector2 offset;
         public int layer;
         public bool isArmor;
+
+        /// <summary>
+        /// 이 콜라이더의 판. 모듈이면 null.
+        ///
+        /// **"죽었나"를 collider.enabled로 물을 수 없게 됐기 때문에 있다.** 예전에는
+        /// Armor.Die가 Destroy 전에 콜라이더를 끄는 것이 유일한 끄기라 enabled == false가
+        /// 곧 죽음이었다. 지금은 파묻힌 판(ShipBuilder의 Exterior 판정)도 꺼져 있어서
+        /// 그 등식이 깨졌고, 그대로 두면 **살아 있는 안쪽 판을 탄이 통과한다.**
+        /// </summary>
+        public Armor armor;
     }
 
     private struct BodyGeometry
@@ -74,9 +84,31 @@ public static class TraceWorld
         public Collider2D[] colliders = new Collider2D[8];
         public int[] sourceIndices = new int[8];
         public BodyGeometry[] bodyGeometry = new BodyGeometry[8];
+        /// <summary>
+        /// **staleness 키다. 열거한 콜라이더 수가 아니다.** 열거는 계층에서 하고(꺼진 것
+        /// 포함) 키는 물리 쪽 수를 쓴다 - 둘이 갈리는 것이 요점이다. 콜라이더를 끄면
+        /// 물리 수는 줄고 계층 수는 그대로라, 키만 보면 "바뀌었다"가 한 번 잡히고
+        /// 그 다음부터는 조용하다. 같게 두면 매 틱 재등록이 돈다.
+        /// </summary>
         public int attachedCount = -1;
+
+        /// <summary>키의 둘째 축. 판이 죽는 동시에 다른 판의 콜라이더가 켜지면 물리 수가
+        /// 그대로일 수 있다 - 그때 자식 수가 대신 움직인다.</summary>
+        public int childCount = -1;
+
         public int count;
         public int bodyLocalCount;
+
+        /// <summary>
+        /// 이 슬롯이 속한 청크의 조밀 id. 아래 <see cref="chunkCount"/>개 중 하나다.
+        ///
+        /// 배열이 이 id로 **정렬돼 있다** - 같은 청크의 판이 연속이라, 굽는 루프가 그대로
+        /// 돌면서 청크 경계에서 AABB 하나씩 닫으면 된다. 정렬은 계수 정렬이라 O(n)이다:
+        /// 판이 죽을 때마다 재등록이 도는데 비교 정렬이면 그 자체가 새 비용이 된다.
+        /// </summary>
+        public int[] chunkOf = new int[8];
+
+        public int chunkCount;
     }
 
     /// <summary>
@@ -109,7 +141,44 @@ public static class TraceWorld
         public Vector2 max;
         public int start;
         public int count;
+
+        /// <summary><see cref="_chunks"/>에서 이 몸이 차지하는 구간.</summary>
+        public int chunkStart;
+        public int chunkCount;
     }
+
+    /// <summary>
+    /// 브로드페이즈 2단계. 몸 하나를 격자로 썰어 덩어리마다 월드 AABB를 든다.
+    ///
+    /// **레이 하나가 배의 판을 전부 훑던 것을 자른다.** 이사리비는 판이 2300장인데 탄
+    /// 100발 + 미사일 레이 1000개가 매 틱 날아가므로, 이 단계가 없으면 틱당 OBB 테스트가
+    /// 수십만 번이다. 청크가 스치지 않으면 그 안의 판을 하나도 안 본다.
+    ///
+    /// **AABB를 따로 계산하지 않는다** - 굽는 루프가 이미 판마다 월드 AABB를 내서 몸
+    /// AABB에 합치고 있었다. 그 합을 청크 경계에서 한 번 더 끊는 것뿐이라 새 비용이 0이다.
+    /// 그래서 판이 청크 순으로 정렬돼 있어야 한다(<see cref="HullSourceCache.chunkOf"/>).
+    /// </summary>
+    private struct ChunkEntry
+    {
+        public Vector2 min;
+        public Vector2 max;
+        public int start;
+        public int count;
+    }
+
+    /// <summary>청크 한 변(m). 8칸이면 이사리비가 80개쯤 - 레이 하나가 보는 판이 1/20로 준다.</summary>
+    private const float ChunkSize = 8f;
+
+    private static ChunkEntry[] _chunks = new ChunkEntry[512];
+    private static int _chunkCount;
+
+    /// <summary>등록 때 2D 청크 키를 조밀 id로 접는다. 몸마다 비우고 다시 쓴다.</summary>
+    private static readonly Dictionary<long, int> _chunkKeys = new();
+    private static int[] _chunkTally = new int[64];
+    private static Collider2D[] _sortColliders = new Collider2D[64];
+    private static int[] _sortSources = new int[64];
+    private static BodyGeometry[] _sortGeometry = new BodyGeometry[64];
+    private static int[] _sortChunk = new int[64];
 
     private static HullEntry[] _hulls = new HullEntry[64];
     private static int _hullCount;
@@ -126,6 +195,9 @@ public static class TraceWorld
 
     private static Entry[] _obb = new Entry[1024];
     private static Collider2D[] _colliders = new Collider2D[1024];
+
+    /// <summary>_colliders와 짝. 이 항목의 판(모듈이면 null). 생사 판정에만 쓴다.</summary>
+    private static Armor[] _entryArmor = new Armor[1024];
     private static int _count;
     private static long _builtTick = -1;
     private static int _builtEpoch = -1;
@@ -158,6 +230,15 @@ public static class TraceWorld
     public static void Invalidate() => _epoch++;
 
     private static Collider2D[] _attached = new Collider2D[1024];
+    /// <summary>
+    /// 이 몸에 달린 판·모듈 콜라이더 전부. **꺼진 것도 센다.**
+    ///
+    /// 예전에는 <c>Rigidbody2D.GetAttachedColliders</c>였는데, 꺼진 콜라이더는 픽스처가
+    /// 없어서 "붙어 있지 않다"로 나온다. 그래서 콜라이더를 끄는 순간 그 판이 탄도에서도
+    /// 통째로 사라졌다 - 안쪽 판의 콜라이더를 끄는 최적화를 하려면 여기가 먼저 바뀌어야
+    /// 한다. **탄이 읽는 세계는 물리 세계가 아니라 배의 구조다.**
+    /// </summary>
+    private static readonly List<Collider2D> _attachedScratch = new();
 
     /// <summary>
     /// 틱당 한 번, 첫 질의가 부른다. 살아 있는 모든 몸(함선·잔해·운석)의 콜라이더를
@@ -179,6 +260,7 @@ public static class TraceWorld
         using var _ = _mBuild.Auto();
 
         _count = 0;
+        _chunkCount = 0;
         _skippedNonBox = 0;
 
         List<HullStructure> all = HullStructure.All;
@@ -219,6 +301,15 @@ public static class TraceWorld
                     float.NegativeInfinity,
                     float.NegativeInfinity);
 
+                // 청크는 판이 이 순서로 정렬돼 있다는 사실 하나에 얹혀 있다. id가 바뀌는
+                // 자리가 곧 경계라, 상자를 닫고 새로 연다.
+                int chunkStart = _chunkCount;
+                int openChunk = -1;
+                int openFrom = _count;
+
+                Vector2 chunkMin = new(float.PositiveInfinity, float.PositiveInfinity);
+                Vector2 chunkMax = new(float.NegativeInfinity, float.NegativeInfinity);
+
                 for (int c = 0; c < cache.count; c++)
                 {
                     int sourceIndex = cache.sourceIndices[c];
@@ -236,8 +327,21 @@ public static class TraceWorld
                     if (!built)
                         continue;
 
+                    int chunk = cache.chunkOf[c];
+
+                    if (chunk != openChunk)
+                    {
+                        CloseChunk(openChunk, openFrom, _count, chunkMin, chunkMax);
+
+                        openChunk = chunk;
+                        openFrom = _count;
+                        chunkMin = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+                        chunkMax = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+                    }
+
                     _obb[_count] = entry;
                     _colliders[_count] = cache.colliders[c];
+                    _entryArmor[_count] = source.armor;
 
                     // OBB를 감싸는 월드 AABB
                     float extentX =
@@ -258,8 +362,13 @@ public static class TraceWorld
                         max,
                         entry.centre + extent);
 
+                    chunkMin = Vector2.Min(chunkMin, entry.centre - extent);
+                    chunkMax = Vector2.Max(chunkMax, entry.centre + extent);
+
                     _count++;
                 }
+
+                CloseChunk(openChunk, openFrom, _count, chunkMin, chunkMax);
 
                 int colliderCount = _count - start;
 
@@ -271,7 +380,9 @@ public static class TraceWorld
                     min = min,
                     max = max,
                     start = start,
-                    count = colliderCount
+                    count = colliderCount,
+                    chunkStart = chunkStart,
+                    chunkCount = _chunkCount - chunkStart,
                 };
             }
 
@@ -290,6 +401,30 @@ public static class TraceWorld
         _builtTick = tick;
         _builtEpoch = epoch;
     }
+
+    /// <summary>
+    /// 열려 있던 청크를 <see cref="_chunks"/>에 적는다. 빈 청크는 안 적는다 - 판이 전부
+    /// 죽어 사라진 자리가 상자로 남으면 레이가 매번 헛되이 통과한다.
+    /// </summary>
+    private static void CloseChunk(int chunk, int from, int to, Vector2 min, Vector2 max)
+    {
+        if (chunk < 0 || to <= from)
+            return;
+
+        if (_chunkCount >= _chunks.Length)
+            System.Array.Resize(ref _chunks, _chunks.Length * 2);
+
+        _chunks[_chunkCount++] = new ChunkEntry
+        {
+            min = min,
+            max = max,
+            start = from,
+            count = to - from,
+        };
+    }
+
+    /// <summary>콜라이더 churn 계측 스위치. Tools > Rendering > 콜라이더 churn 로그 토글.</summary>
+    public static bool ChurnLog;
 
     private static void SyncHullSources(List<HullStructure> all)
     {
@@ -313,8 +448,25 @@ public static class TraceWorld
                 _hullSources.Add(hull, cache);
             }
 
-            if (!ReferenceEquals(cache.body, body) || cache.attachedCount != attached)
-                RebuildHullSources(cache, body, attached);
+            // **콜라이더 churn 계측.** 켜면 몸마다 붙은 콜라이더 수가 틱 사이에 몇 개
+            // 움직였는지 찍는다. Physics2D.Collider2D.CreateShapes/DestroyShapes의
+            // 출처를 찾는 유일한 길이다 - 프로파일러는 비용은 보여주는데 누구 짓인지는
+            // 안 알려준다.
+            //
+            // 비용이 churn x 그 몸의 픽스처 수라, churn이 0이면 곱셈 전체가 0이다.
+            // 그래서 "아무것도 안 부서지는데 몇 개가 움직이나"가 유일한 질문이다.
+            if (ChurnLog && ReferenceEquals(cache.body, body)
+                && cache.attachedCount != attached)
+            {
+                Debug.Log($"[churn] {hull.name} 콜라이더 {cache.attachedCount} -> {attached} "
+                    + $"({attached - cache.attachedCount:+#;-#;0}) 틱 {Core.TickManager.currentTick}", hull);
+            }
+
+            int children = hull.transform.childCount;
+
+            if (!ReferenceEquals(cache.body, body)
+                || cache.attachedCount != attached || cache.childCount != children)
+                RebuildHullSources(cache, body, attached, children);
 
             _activeHullSources[_activeHullSourceCount++] = cache;
         }
@@ -343,16 +495,22 @@ public static class TraceWorld
     private static void RebuildHullSources(
         HullSourceCache cache,
         Rigidbody2D body,
-        int required)
+        int attachedKey,
+        int childKey)
     {
-        EnsureAttachedCapacity(required);
+        // **몸이 아니라 계층에서 얻는다.** 꺼진 콜라이더도 탄도에는 있어야 한다 -
+        // 위 _attachedScratch 주석 참고.
+        body.GetComponentsInChildren(includeInactive: true, _attachedScratch);
 
-        int count = body.GetAttachedColliders(_attached);
+        int count = _attachedScratch.Count;
+        EnsureAttachedCapacity(count);
+        _attachedScratch.CopyTo(_attached, 0);
         EnsureHullSourceCapacity(cache, count);
 
         int previousCount = cache.count;
         cache.body = body;
-        cache.attachedCount = count;
+        cache.attachedCount = attachedKey;
+        cache.childCount = childKey;
         cache.count = 0;
         cache.bodyLocalCount = 0;
 
@@ -390,6 +548,102 @@ public static class TraceWorld
 
         if (cache.count < previousCount)
             System.Array.Clear(cache.colliders, cache.count, previousCount - cache.count);
+
+        GroupIntoChunks(cache, body);
+    }
+
+    /// <summary>
+    /// 캐시의 판을 청크별로 모아 연속으로 만든다. **계수 정렬이라 O(n)이다.**
+    ///
+    /// 비교 정렬을 쓰면 안 되는 이유가 호출 빈도다 - 재등록은 판이 죽을 때마다 돌고,
+    /// 판은 전투 중에 계속 죽는다. n log n짜리를 거기 두면 이 최적화가 만든 이득을
+    /// 자기가 도로 먹는다.
+    ///
+    /// 모듈(포탑 등)은 몸 좌표계 기하가 없어서 **등록 시점 위치**로 청크를 정한다. 그래도
+    /// 맞는 이유는 청크 AABB를 매 틱 실제 월드 위치에서 다시 모으기 때문이다 - 포탑이
+    /// 돌면 그 청크의 상자가 같이 커진다. 여기서 정하는 것은 "누구와 한 덩어리인가"뿐이다.
+    /// </summary>
+    private static void GroupIntoChunks(HullSourceCache cache, Rigidbody2D body)
+    {
+        int n = cache.count;
+
+        cache.chunkCount = 0;
+
+        if (n <= 0)
+            return;
+
+        EnsureSortCapacity(n);
+        _chunkKeys.Clear();
+
+        Transform bodyTransform = body.transform;
+
+        // 1. 슬롯마다 조밀 청크 id. 키는 몸 좌표계 격자 칸이다.
+        for (int i = 0; i < n; i++)
+        {
+            ref Source source = ref _sources[cache.sourceIndices[i]];
+
+            Vector2 local = source.isArmor
+                ? cache.bodyGeometry[i].offset
+                : (Vector2)bodyTransform.InverseTransformPoint(
+                    cache.colliders[i].transform.position);
+
+            long key = (long)Mathf.FloorToInt(local.x / ChunkSize) * 0x100000000L
+                + (uint)Mathf.FloorToInt(local.y / ChunkSize);
+
+            if (!_chunkKeys.TryGetValue(key, out int dense))
+            {
+                dense = cache.chunkCount++;
+                _chunkKeys.Add(key, dense);
+            }
+
+            _sortChunk[i] = dense;
+        }
+
+        // 2. 청크마다 몇 장인지 세고 앞에서부터 자리를 준다(누적합).
+        if (_chunkTally.Length < cache.chunkCount)
+            System.Array.Resize(ref _chunkTally, Mathf.NextPowerOfTwo(cache.chunkCount));
+
+        System.Array.Clear(_chunkTally, 0, cache.chunkCount);
+
+        for (int i = 0; i < n; i++)
+            _chunkTally[_sortChunk[i]]++;
+
+        int running = 0;
+
+        for (int c = 0; c < cache.chunkCount; c++)
+        {
+            int here = _chunkTally[c];
+            _chunkTally[c] = running;
+            running += here;
+        }
+
+        // 3. 제자리로 옮긴다. 세 배열이 같은 순열을 타야 한다.
+        for (int i = 0; i < n; i++)
+        {
+            int destination = _chunkTally[_sortChunk[i]]++;
+
+            _sortColliders[destination] = cache.colliders[i];
+            _sortSources[destination] = cache.sourceIndices[i];
+            _sortGeometry[destination] = cache.bodyGeometry[i];
+            cache.chunkOf[destination] = _sortChunk[i];
+        }
+
+        System.Array.Copy(_sortColliders, cache.colliders, n);
+        System.Array.Copy(_sortSources, cache.sourceIndices, n);
+        System.Array.Copy(_sortGeometry, cache.bodyGeometry, n);
+    }
+
+    private static void EnsureSortCapacity(int required)
+    {
+        if (required <= _sortColliders.Length)
+            return;
+
+        int capacity = Mathf.NextPowerOfTwo(required);
+
+        System.Array.Resize(ref _sortColliders, capacity);
+        System.Array.Resize(ref _sortSources, capacity);
+        System.Array.Resize(ref _sortGeometry, capacity);
+        System.Array.Resize(ref _sortChunk, capacity);
     }
 
     private static bool TryGetOrRegisterSource(Collider2D collider, out int sourceIndex)
@@ -412,6 +666,8 @@ public static class TraceWorld
 
         if (_sourceCount >= _sources.Length)
             System.Array.Resize(ref _sources, _sources.Length * 2);
+
+        collider.TryGetComponent(out source.armor);
 
         sourceIndex = _sourceCount++;
         _sources[sourceIndex] = source;
@@ -546,6 +802,7 @@ public static class TraceWorld
         System.Array.Resize(ref cache.colliders, capacity);
         System.Array.Resize(ref cache.sourceIndices, capacity);
         System.Array.Resize(ref cache.bodyGeometry, capacity);
+        System.Array.Resize(ref cache.chunkOf, capacity);
     }
 
     private static void EnsureActiveHullCapacity(int required)
@@ -574,6 +831,25 @@ public static class TraceWorld
         System.Array.Resize(ref _hulls, capacity);
     }
 
+    /// <summary>
+    /// 이 항목이 아직 세계에 있나. **"파묻혀서 꺼짐"과 "죽어서 꺼짐"을 가른다.**
+    ///
+    /// 예전에는 <c>collider.enabled</c> 하나였다. Armor.Die가 Destroy 전에 콜라이더를
+    /// 끄는 것이 유일한 끄기라 그 등식이 성립했고, 주석도 "스냅샷 뜬 뒤 같은 페이즈 안에서
+    /// 죽은 콜라이더"라고 적혀 있었다. 안쪽 판의 콜라이더를 끄기 시작하면서 그 등식이
+    /// 깨졌다 - 그대로 뒀으면 **껍질만 맞고 방 뒷벽은 탄이 통과했다.**
+    ///
+    /// 판은 자기 죽음을 직접 말하고(<see cref="Armor.Dying"/>), 파묻히기가 없는 모듈은
+    /// enabled를 그대로 쓴다. Unity의 가짜 null은 프레임 끝에야 서는데 틱은 프레임 안에서
+    /// 여러 번 도므로, `== null`만으로는 이 창을 못 막는다 - 그래서 플래그다.
+    /// </summary>
+    private static bool Alive(int index, Collider2D live)
+    {
+        Armor armor = _entryArmor[index];
+
+        return armor != null ? !armor.Dying : live.enabled;
+    }
+
     private static void EnsureSnapshotCapacity(int required)
     {
         if (required <= _obb.Length)
@@ -586,6 +862,7 @@ public static class TraceWorld
 
         System.Array.Resize(ref _obb, capacity);
         System.Array.Resize(ref _colliders, capacity);
+        System.Array.Resize(ref _entryArmor, capacity);
     }
 
 #if UNITY_EDITOR
@@ -724,118 +1001,134 @@ public static class TraceWorld
                     new float2(hull.max.x, hull.max.y)))
                 continue;
 
-            int hullEnd = hull.start + hull.count;
+            // 브로드페이즈 2단계: 청크 AABB. 이사리비 2300장이 청크 80개로 접히므로,
+            // 레이 하나가 실제로 보는 판이 수십 장으로 준다. 상자는 굽는 루프가 공짜로
+            // 모아둔 것이라 여기서 계산하는 것이 없다.
+            int chunkEnd = hull.chunkStart + hull.chunkCount;
 
-            // 브로드페이즈 2단계: hull을 통과한 것만 사거리 원(기존 로직 그대로)으로 거른다.
-            for (int i = hull.start; i < hullEnd; i++)
+            for (int k = hull.chunkStart; k < chunkEnd; k++)
             {
-                ref Entry e = ref _obb[i];
+                ChunkEntry chunk = _chunks[k];
 
-                if ((layerMask & (1 << e.layer)) == 0)
+                if (!RayIntersectsAabb(
+                        startF, dirF, range,
+                        new float2(chunk.min.x, chunk.min.y),
+                        new float2(chunk.max.x, chunk.max.y)))
                     continue;
 
-                // OBB 로컬로: 슬래브 검사
-                Vector2 rel = start - e.centre;
+                int hullEnd = chunk.start + chunk.count;
 
-                float cull = reach + e.radius;
-
-                if (rel.sqrMagnitude > cull * cull)
-                    continue;
-                float ru = Vector2.Dot(rel, e.axisU);
-                float rv = Vector2.Dot(rel, e.axisV);
-                float du = Vector2.Dot(dir, e.axisU);
-                float dv = Vector2.Dot(dir, e.axisV);
-
-                // 시작점이 안이면 통째로 무시 - queriesStartInColliders = false.
-                // **표면 1mm 안도 "안"이다.** 파편은 방금 맞은 면 위에서 태어난다 - Physics2D는
-                // 이 서브밀리 경계에서 미스와 0m 명중을 오락가락했고(대조 잔여 2건 전부 이것),
-                // 여기는 규칙이다: 낳아준 면을 도로 맞지 않는다. SpallResolver의 Epsilon 넛지와
-                // 같은 의도를 판정 쪽에서 못박는 것.
-                const float SurfaceSkin = 1e-3f;
-
-                if (Mathf.Abs(ru) < e.halfU + SurfaceSkin && Mathf.Abs(rv) < e.halfV + SurfaceSkin)
-                    continue;
-
-                float tMin = 0f;
-                float tMax = range;
-                int minAxis = 0;      // 0 = u면, 1 = v면
-                float minSign = 0f;
-
-                // u 슬래브
-                if (Mathf.Abs(du) < 1e-9f)
+                // 브로드페이즈 3단계: 청크를 통과한 것만 사거리 원(기존 로직 그대로)으로 거른다.
+                for (int i = chunk.start; i < hullEnd; i++)
                 {
-                    if (Mathf.Abs(ru) > e.halfU)
+                    ref Entry e = ref _obb[i];
+
+                    if ((layerMask & (1 << e.layer)) == 0)
                         continue;
-                }
-                else
-                {
-                    float inv = 1f / du;
-                    float t1 = (-e.halfU - ru) * inv;
-                    float t2 = (e.halfU - ru) * inv;
-                    float sign = -Mathf.Sign(du);
 
-                    if (t1 > t2)
-                        (t1, t2) = (t2, t1);
+                    // OBB 로컬로: 슬래브 검사
+                    Vector2 rel = start - e.centre;
 
-                    if (t1 > tMin)
+                    float cull = reach + e.radius;
+
+                    if (rel.sqrMagnitude > cull * cull)
+                        continue;
+                    float ru = Vector2.Dot(rel, e.axisU);
+                    float rv = Vector2.Dot(rel, e.axisV);
+                    float du = Vector2.Dot(dir, e.axisU);
+                    float dv = Vector2.Dot(dir, e.axisV);
+
+                    // 시작점이 안이면 통째로 무시 - queriesStartInColliders = false.
+                    // **표면 1mm 안도 "안"이다.** 파편은 방금 맞은 면 위에서 태어난다 - Physics2D는
+                    // 이 서브밀리 경계에서 미스와 0m 명중을 오락가락했고(대조 잔여 2건 전부 이것),
+                    // 여기는 규칙이다: 낳아준 면을 도로 맞지 않는다. SpallResolver의 Epsilon 넛지와
+                    // 같은 의도를 판정 쪽에서 못박는 것.
+                    const float SurfaceSkin = 1e-3f;
+
+                    if (Mathf.Abs(ru) < e.halfU + SurfaceSkin && Mathf.Abs(rv) < e.halfV + SurfaceSkin)
+                        continue;
+
+                    float tMin = 0f;
+                    float tMax = range;
+                    int minAxis = 0;      // 0 = u면, 1 = v면
+                    float minSign = 0f;
+
+                    // u 슬래브
+                    if (Mathf.Abs(du) < 1e-9f)
                     {
-                        tMin = t1;
-                        minAxis = 0;
-                        minSign = sign;
+                        if (Mathf.Abs(ru) > e.halfU)
+                            continue;
+                    }
+                    else
+                    {
+                        float inv = 1f / du;
+                        float t1 = (-e.halfU - ru) * inv;
+                        float t2 = (e.halfU - ru) * inv;
+                        float sign = -Mathf.Sign(du);
+
+                        if (t1 > t2)
+                            (t1, t2) = (t2, t1);
+
+                        if (t1 > tMin)
+                        {
+                            tMin = t1;
+                            minAxis = 0;
+                            minSign = sign;
+                        }
+
+                        tMax = Mathf.Min(tMax, t2);
                     }
 
-                    tMax = Mathf.Min(tMax, t2);
-                }
-
-                // v 슬래브
-                if (Mathf.Abs(dv) < 1e-9f)
-                {
-                    if (Mathf.Abs(rv) > e.halfV)
-                        continue;
-                }
-                else
-                {
-                    float inv = 1f / dv;
-                    float t1 = (-e.halfV - rv) * inv;
-                    float t2 = (e.halfV - rv) * inv;
-                    float sign = -Mathf.Sign(dv);
-
-                    if (t1 > t2)
-                        (t1, t2) = (t2, t1);
-
-                    if (t1 > tMin)
+                    // v 슬래브
+                    if (Mathf.Abs(dv) < 1e-9f)
                     {
-                        tMin = t1;
-                        minAxis = 1;
-                        minSign = sign;
+                        if (Mathf.Abs(rv) > e.halfV)
+                            continue;
+                    }
+                    else
+                    {
+                        float inv = 1f / dv;
+                        float t1 = (-e.halfV - rv) * inv;
+                        float t2 = (e.halfV - rv) * inv;
+                        float sign = -Mathf.Sign(dv);
+
+                        if (t1 > t2)
+                            (t1, t2) = (t2, t1);
+
+                        if (t1 > tMin)
+                        {
+                            tMin = t1;
+                            minAxis = 1;
+                            minSign = sign;
+                        }
+
+                        tMax = Mathf.Min(tMax, t2);
                     }
 
-                    tMax = Mathf.Min(tMax, t2);
+                    if (tMin > tMax || tMin <= 0f)
+                        continue;
+
+                    // **동점은 판이 탄을 받는다.** 모듈은 판 위에 볼트로 붙어 면이 겹치므로 같은
+                    // 거리의 명중이 상시로 나온다 - Physics2D는 내부 순서로 아무거나 줬고, 여기서는
+                    // 규칙이다: 판이 겉이다.
+                    bool tie = Mathf.Abs(tMin - best) <= TieEpsilon;
+
+                    if (tie ? (bestIsArmor || !e.isArmor) : tMin >= best)
+                        continue;
+
+                    // 스냅샷 뜬 뒤 같은 페이즈 안에서 죽은 콜라이더(유폭 연쇄가 이 창을 상시로
+                    // 연다) - Physics2D처럼 없는 것으로 친다. 네이티브 검사가 후보에게만 나가고,
+                    // 2단계의 wave 스냅샷이 이 검사를 구조적으로 대체한다.
+                    Collider2D live = _colliders[i];
+
+                    if (live == null || !Alive(i, live))
+                        continue;
+
+                    best = tMin;
+                    bestIndex = i;
+                    bestIsArmor = e.isArmor;
+                    bestNormal = (minAxis == 0 ? _obb[i].axisU : _obb[i].axisV) * minSign;
                 }
-
-                if (tMin > tMax || tMin <= 0f)
-                    continue;
-
-                // **동점은 판이 탄을 받는다.** 모듈은 판 위에 볼트로 붙어 면이 겹치므로 같은
-                // 거리의 명중이 상시로 나온다 - Physics2D는 내부 순서로 아무거나 줬고, 여기서는
-                // 규칙이다: 판이 겉이다.
-                bool tie = Mathf.Abs(tMin - best) <= TieEpsilon;
-
-                if (tie ? (bestIsArmor || !e.isArmor) : tMin >= best)
-                    continue;
-
-                // 스냅샷 뜬 뒤 같은 페이즈 안에서 죽은 콜라이더(유폭 연쇄가 이 창을 상시로
-                // 연다) - Physics2D처럼 없는 것으로 친다. 네이티브 검사가 후보에게만 나가고,
-                // 2단계의 wave 스냅샷이 이 검사를 구조적으로 대체한다.
-                Collider2D live = _colliders[i];
-
-                if (live == null || !live.enabled)
-                    continue;
-
-                best = tMin;
-                bestIndex = i;
-                bestIsArmor = e.isArmor;
-                bestNormal = (minAxis == 0 ? _obb[i].axisU : _obb[i].axisV) * minSign;
             }
         }
 
@@ -951,7 +1244,7 @@ public static class TraceWorld
         for (int i = 0; i < _count; i++)
         {
             Collider2D live = _colliders[i];
-            _jobActive[i] = live != null && live.enabled ? (byte)1 : (byte)0;
+            _jobActive[i] = live != null && Alive(i, live) ? (byte)1 : (byte)0;
         }
         for (int i = 0; i < _hullCount; i++)
         {

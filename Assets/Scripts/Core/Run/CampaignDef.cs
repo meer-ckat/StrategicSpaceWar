@@ -25,6 +25,9 @@ public class SpawnDef
     /// </summary>
     public bool hulk;
 
+    /// <summary>들판의 정비 자리. 이 잔해 옆에서 R을 누르면 정비 화면이 열린다. 생성기만 채운다.</summary>
+    public bool refit;
+
     /// <summary>
     /// 이것을 부수는 것이 이 구역의 목표다. 하나라도 있으면 구역의 승리 조건이
     /// "적이 없다"가 아니라 "표적이 다 죽었다"가 된다 - 8구역에서 호위를 다 잡아도
@@ -35,9 +38,12 @@ public class SpawnDef
     public float x;
     public float y;
 
+    public bool isWingman;
+    public bool autoFormation;
+
     /// <summary>
-    /// -1이면 좌우 반전해서 세운다. **engagementSign이 아니라 localScale.x다** - 반전은
-    /// 월드에만 있고, 격자·방·구조 BFS는 전부 로컬 위상이라 손댈 것이 없다.
+    /// -1이면 180도 돌려 세운다(왼쪽을 본다). 회전은 월드에만 있고, 격자·방·구조 BFS는
+    /// 전부 로컬 위상이라 손댈 것이 없다.
     /// </summary>
     public float facing = 1f;
 
@@ -50,11 +56,38 @@ public class SpawnDef
 public class SectorDef
 {
     public string name;
+    public string gameWinCondition;
 
+    /// <summary>
+    /// 이 구역을 끝낸 뒤 정비 화면이 열리는가. **기본이 false인 것이 규칙이다** -
+    /// 예전에는 구역을 깨면 언제나 수리할 수 있었고, 그래서 영구 손상이라는 이 게임의
+    /// 유일한 주장이 매 구역 리셋됐다. 수리는 항로에서 얻는 것이지 승리의 부록이 아니다.
+    ///
+    /// 손으로 쓴 본구역 8개는 이 값을 안 적으므로 전부 false다 - 정비는 소구역의
+    /// 보급·표류·기항 노드에서만 일어난다.
+    /// </summary>
+    public bool refit;
+
+    /// <summary>도착만으로 주는 MTRL. 보급 부표·기항지가 쓴다. 전투 노획과는 다른 축이다.</summary>
+    public int materials;
+
+    /// <summary>
+    /// 소구역 종류(Skirmish/Elite/Wreck/Depot/Port). 배경 소품이 이걸로 갈린다. 손으로 쓴
+    /// 본구역은 비어 있고, 그러면 배경은 씬에 놓인 것만 보인다.
+    /// </summary>
+    public string kind = "";
     /// <summary>구역에 들어설 때 재생할 대본. 비면 아무 일도 안 일어난다.</summary>
     public string script;
 
     public List<SpawnDef> spawns = new();
+
+    /// <summary>
+    /// 들판 노드의 출구. (0,0)이면 지금까지의 노드다 - 적 전멸이 승리. 값이 있으면 여기
+    /// 닿는 것이 승리고, 적은 흩어진 자리마다 잠들어 있다가 가까이 가야 깬다.
+    /// </summary>
+    public float gateX, gateY;
+
+    public bool Open => gateX != 0f || gateY != 0f;
 }
 
 /// <summary>

@@ -1,0 +1,13 @@
+{
+  "defName": "trial-01",
+  "lines": [
+    { "message": "<color=grey>연습해역 진입.</color> 여긴 지도에 없는 좌표입니다.", "author": "통신", "duration": 4.5, "intensity": 0.6, "wait": 2.5,
+      "cue": [ { "act": "camera", "x": 0.9, "y": 1.1 } ] },
+    { "message": "사령부가 함선을 넘기기 전에 한 번 돌려보라고 했습니다.", "author": "전술", "duration": 4.5, "intensity": 0.8 },
+    { "message": "폐선 처분 예정이던 초계대입니다. 승무원은 없습니다.", "author": "전술", "duration": 4.5, "intensity": 0.9, "wait": 3 },
+    { "message": "그럼 저쪽도 우리를 그렇게 부르겠군.", "author": "함장", "duration": 4, "intensity": 1.0 },
+    { "message": "<color=#8fd3ff>접촉 다섯.</color> 미사일정 둘, 충각선 둘, 호위함 하나.", "author": "전술", "duration": 4.5, "intensity": 1.4 },
+    { "message": "연습이라고 적혀 있을 뿐입니다. 탄은 진짭니다.", "author": "포술", "duration": 4, "intensity": 1.1,
+      "cue": [ { "act": "endCut" } ] }
+  ]
+}

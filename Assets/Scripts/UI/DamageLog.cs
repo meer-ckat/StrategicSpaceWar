@@ -2,206 +2,109 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// 최근 피격 기록.
-/// 판정에는 아무 영향도 주지 않고 UI가 읽기만 한다.
+/// 최근 피격을 **설계도 칸 단위로** 적는다. 판정에는 영향을 주지 않고 UI가 읽기만 한다.
+///
+/// 월드 좌표를 안 든다. 표시가 월드가 아니라 AIRFRAME 패널(화면 고정 선체 그림) 위에서
+/// 일어나므로, 배가 움직여도 따라갈 것이 없다 - anchor·Transform 추적이 통째로 필요 없다.
+///
+/// 시간 정책도 없다. 상한(Capacity) FIFO로만 유계이고 "언제까지 보여줄지"는 읽는 쪽이
+/// 각자 정한다.
 /// </summary>
 public static class DamageLog
 {
+    /// <summary>이 시간 안의 명중만 한 칸으로 이어 센다. 넘으면 새 줄 - "이번 연사에 몇 발".</summary>
     public const float MergeWindow = 0.3f;
 
     private const int Capacity = 24;
 
-    private static uint _version;
-
     public struct ArmorMark
     {
-        // 어떤 장갑판이었는지.
-        // 판이 파괴되면 null이 될 수 있으므로 위치 계산은 anchor + fallback을 쓴다.
-        public Armor armor;
+        /// <summary>맞은 배. 어느 패널에 그릴지는 읽는 쪽이 이걸로 고른다.</summary>
+        public Ship ship;
 
-        // 같은 ArmorMark를 UI에서 안정적으로 찾기 위한 키.
-        public int armorId;
+        /// <summary>설계도 격자의 칸. AIRFRAME이 그리는 좌표계와 같다.</summary>
+        public Vector2Int cell;
 
-        // 피격 당시 장갑 Transform.
-        // 판이 살아 있으면 이동/회전을 따라간다.
-        public Transform anchor;
-
-        // anchor 기준 피격 위치.
-        public Vector3 localPoint;
-
-        // anchor가 파괴된 뒤에도 마지막 피격 위치를 남기기 위한 fallback.
-        public Vector3 worldPoint;
-
-        public int subIndex;
         public HitOutcome outcome;
-
-        // 같은 판이 다시 맞았는지 UI가 알아내는 값.
-        public uint version;
-
         public float time;
 
-        public Vector3 CurrentWorldPoint =>
-            anchor != null
-                ? anchor.TransformPoint(localPoint)
-                : worldPoint;
-    }
-
-    public struct ModuleMark
-    {
-        public Transform at;
-        public float amount;
-        public float health01;
-        public bool neutralized;
-        public float time;
+        /// <summary>
+        /// 충각으로 갈린 칸인가. **HitOutcome에 Ram을 안 넣는 이유** - 저 열거형은
+        /// PenetrationManager가 내는 탄도 판정이고, 충각은 관통도 도탄도 아니다.
+        /// 표시 색과 수명만 갈라지면 되므로 여기 플래그 하나로 충분하다.
+        /// </summary>
+        public bool ram;
     }
 
     public static readonly List<ArmorMark> Armors = new();
-    public static readonly List<ModuleMark> Modules = new();
 
     /// <summary>
-    /// 탄도 판정 하나가 확정됐을 때 한 번 호출한다.
+    /// 판정 하나가 확정됐을 때 부른다. 같은 배·같은 칸·MergeWindow 안이면 한 줄로 이어 센다.
+    ///
+    /// **충돌하면 제일 심한 판정이 이긴다.** HUD가 답할 질문은 "이 0.3초 동안 이 칸에서
+    /// 최악이 무엇이었나"이고, 정확한 재현은 HitReadout(구석 로그)이 맡는다.
+    /// HitOutcome의 선언 순서(Ricochet &lt; Blocked &lt; Penetrated)가 그대로 심각도라
+    /// 표를 따로 두지 않는다.
     /// </summary>
-    public static void Hit(
-        Armor armor,
-        Vector2 worldPoint,
-        int subIndex,
-        HitOutcome outcome)
+    public static void Hit(Armor armor, HitOutcome outcome) => Mark(armor, outcome, false);
+
+    /// <summary>
+    /// 충각이 판을 갈았다. **매 틱 들어온다** - RamImpact.Punch가 접촉 중 계속 돌기
+    /// 때문이다. 병합이 그걸 그대로 받아 time만 갱신하므로 접촉하는 동안 그 칸이 계속
+    /// 켜져 있고, 떨어지면 꺼진다 - 지속 접촉에 지속 표시라 오히려 맞는 그림이다.
+    /// </summary>
+    public static void Ram(Armor armor) => Mark(armor, HitOutcome.Blocked, true);
+
+    private static void Mark(Armor armor, HitOutcome outcome, bool ram)
     {
         if (armor == null)
             return;
 
-        int armorId = armor.GetInstanceID();
-        Transform anchor = armor.transform;
+        Ship ship = armor.GetComponentInParent<Ship>();
 
-        Vector3 world = worldPoint;
-        Vector3 local = anchor.InverseTransformPoint(world);
+        // 잔해로 떨어져 나간 판은 배가 없다 - 그릴 패널도 없으니 여기서 걸러진다.
+        if (ship == null || ship.DesignMap == null)
+            return;
 
+        Vector2Int cell = ship.DesignMap.ToCell(armor.transform.localPosition);
         float now = Time.time;
-        uint version = NextVersion();
 
         for (int i = 0; i < Armors.Count; i++)
         {
-            if (Armors[i].armorId != armorId)
-                continue;
-
             ArmorMark mark = Armors[i];
 
-            mark.armor = armor;
-            mark.anchor = anchor;
-            mark.localPoint = local;
-            mark.worldPoint = world;
-            mark.subIndex = subIndex;
-            mark.outcome = outcome;
-            mark.version = version;
+            if (mark.ship != ship || mark.cell != cell || now - mark.time > MergeWindow)
+                continue;
+
+            // 충각과 피탄이 같은 칸에서 겹치면 피탄이 이긴다 - 충각은 접촉하는 동안
+            // 계속 오므로 안 그러면 그 칸의 명중 판정이 영영 안 보인다.
+            if (!ram && mark.ram)
+            {
+                mark.ram = false;
+                mark.outcome = outcome;
+            }
+            else if (ram == mark.ram && outcome > mark.outcome)
+            {
+                mark.outcome = outcome;
+            }
+
             mark.time = now;
 
             Armors[i] = mark;
             return;
         }
 
+        // 오래된 것부터 밀려난다. 순서(오래된 것이 앞)를 읽는 쪽이 전제한다.
         if (Armors.Count >= Capacity)
             Armors.RemoveAt(0);
 
         Armors.Add(new ArmorMark
         {
-            armor = armor,
-            armorId = armorId,
-
-            anchor = anchor,
-            localPoint = local,
-            worldPoint = world,
-
-            subIndex = subIndex,
+            ship = ship,
+            cell = cell,
             outcome = outcome,
-
-            version = version,
             time = now,
+            ram = ram,
         });
-    }
-
-    public static void Hit(
-        Transform at,
-        float amount,
-        IDamageable target)
-    {
-        if (at == null || amount <= 0f)
-            return;
-
-        float now = Time.time;
-
-        for (int i = 0; i < Modules.Count; i++)
-        {
-            if (Modules[i].at != at ||
-                now - Modules[i].time > MergeWindow)
-            {
-                continue;
-            }
-
-            ModuleMark merged = Modules[i];
-
-            merged.amount += amount;
-            merged.health01 = target.Health01;
-            merged.neutralized = target.Neutralized;
-            merged.time = now;
-
-            Modules[i] = merged;
-            return;
-        }
-
-        if (Modules.Count >= Capacity)
-            Modules.RemoveAt(0);
-
-        Modules.Add(new ModuleMark
-        {
-            at = at,
-            amount = amount,
-            health01 = target.Health01,
-            neutralized = target.Neutralized,
-            time = now,
-        });
-    }
-
-    // RemoveAll 람다는 cutoff를 캡처해 호출마다 클로저를 할당하는데, 이 함수는 피격이
-    // 없어도 매 프레임 불린다. 역방향 for면 할당 0에 순서(오래된 것이 앞)도 유지된다 -
-    // Capacity 초과 시 RemoveAt(0)이 그 순서를 전제하므로 swap-remove는 안 된다.
-    public static void PruneArmors(float maxAge)
-    {
-        float cutoff = Time.time - maxAge;
-
-        // armor가 파괴돼도 holdSeconds 동안 피격점은 남겨둔다.
-        // anchor가 죽으면 ArmorMark.CurrentWorldPoint가 worldPoint를 쓴다.
-        for (int i = Armors.Count - 1; i >= 0; i--)
-        {
-            if (Armors[i].time < cutoff)
-                Armors.RemoveAt(i);
-        }
-    }
-
-    public static void PruneModules(float maxAge)
-    {
-        float cutoff = Time.time - maxAge;
-
-        for (int i = Modules.Count - 1; i >= 0; i--)
-        {
-            if (Modules[i].at == null || Modules[i].time < cutoff)
-                Modules.RemoveAt(i);
-        }
-    }
-
-    public static void Prune(float maxAge)
-    {
-        PruneArmors(maxAge);
-        PruneModules(maxAge);
-    }
-
-    private static uint NextVersion()
-    {
-        _version++;
-
-        // uint overflow로 0이 되더라도 0은 사용하지 않는다.
-        if (_version == 0)
-            _version = 1;
-
-        return _version;
     }
 }

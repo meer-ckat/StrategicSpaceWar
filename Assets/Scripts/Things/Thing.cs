@@ -8,6 +8,16 @@ public abstract class Thing : TickBehaviour
     public long spawnTick;
 
     /// <summary>
+    /// 격자에서 차지하는 칸 수. 0이면 격자를 안 차지한다 - 포탑·엔진 같은 보통 모듈이
+    /// 전부 그렇고, 판(Armor)도 언제나 1칸이라 이 값을 안 본다.
+    ///
+    /// **ThingDef에도 같은 이름의 필드가 있다.** 격자를 찍는 길이 둘이라(Stamp는 살아
+    /// 있는 컴포넌트, StampFromDef는 오브젝트 없이 def) sealsRoom과 같은 이유로 양쪽에
+    /// 있어야 한다. JsonUtility가 같은 원문에서 둘 다 채운다.
+    /// </summary>
+    public Vector2Int gridSize;
+
+    /// <summary>
     /// 비활성으로 지어 둔 오브젝트를 켠다. 성공하면 true.
     ///
     /// **이 리포는 오브젝트를 비활성으로 만들고 마지막에 켠다** - AddComponent가 활성

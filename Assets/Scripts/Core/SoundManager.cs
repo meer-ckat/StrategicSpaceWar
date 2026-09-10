@@ -45,7 +45,7 @@ public sealed class SoundManager : MonoBehaviour
     [Header("3D")]
 
     /// <summary>이 안쪽은 전부 최대 음량. 함선 한 척이 50 m쯤 되므로 배 안은 고르게 들린다.</summary>
-    [SerializeField] private float minDistance = 25f;
+    [SerializeField] private float minDistance = 300f;
 
     /// <summary>
     /// 여기서 무음. 교전거리가 200 m라 40으로는 적함에서 나는 소리가 통째로 안 들렸다 -
@@ -54,7 +54,7 @@ public sealed class SoundManager : MonoBehaviour
     /// 사격이나 조우 전 유폭도 들린다 - ContactView의 SensorRange(1200)에 가깝게
     /// 맞춘 값이다. minDistance(25)는 그대로라 선형 감쇠 구간만 늘어난다.
     /// </summary>
-    [SerializeField] private float maxDistance = 1000f;
+    [SerializeField] private float maxDistance = 2000f;
 
     /// <summary>비워두면 기본 출력으로 나간다. 나중에 SFX/BGM 볼륨을 나눌 때 쓸 자리.</summary>
     [SerializeField] private AudioMixerGroup mixerGroup;
@@ -132,8 +132,23 @@ public sealed class SoundManager : MonoBehaviour
         if (source == null)
             return;
 
-        source.transform.position = position ?? Vector3.zero;
+        // **z를 청취자에 맞춘다.** CameraSystem이 카메라를 z = -10 - orthographicSize로
+        // 빼는데 AudioListener가 거기 붙어 있고, 오디오 엔진은 2D를 모르고 3D 거리를 잰다 -
+        // 줌이 벌어지면 화면 정중앙에서 나는 소리도 100 m 넘게 떨어진 것으로 계산되고,
+        // 그만큼 감쇠가 먼저 먹는다. maxDistance를 올려도 z가 같이 자라서 따라온다.
+        // 소리를 청취자와 같은 평면에 놓으면 그 항이 0이 되고 거리가 화면 그대로가 된다.
+        source.transform.position = position.HasValue
+            ? new Vector3(position.Value.x, position.Value.y, ListenerZ())
+            : Vector3.zero;
+
         source.spatialBlend = position.HasValue ? 1f : 0f;
+
+        // 매번 다시 놓는다. Borrow는 소스를 만들 때 한 번만 발라서, 소스 128개가 다 만들어진
+        // 뒤에는 인스펙터를 밀어도 아무 일이 안 일어난다 - 튜닝이 안 먹는 자리였다.
+        source.rolloffMode = AudioRolloffMode.Linear;
+        source.dopplerLevel = 0f;   // 리스너·배가 40 m/s로 움직이면 피치가 흔들린다. 우주엔 공기가 없다.
+        source.minDistance = minDistance;
+        source.maxDistance = maxDistance;
         source.clip = clip;
         source.volume = volume * (BaseVolume.TryGetValue(clipName, out float baseVolume)
             ? baseVolume
@@ -158,6 +173,20 @@ public sealed class SoundManager : MonoBehaviour
         return clip;
     }
 
+    private static AudioListener _listener;
+
+    /// <summary>
+    /// 청취자가 서 있는 z. 못 찾으면 0 - 리스너가 없으면 어차피 아무것도 안 들린다.
+    /// 카메라가 매 프레임 z를 바꾸므로 캐시하는 것은 컴포넌트지 값이 아니다.
+    /// </summary>
+    private static float ListenerZ()
+    {
+        if (_listener == null)
+            _listener = FindFirstObjectByType<AudioListener>();
+
+        return _listener != null ? _listener.transform.position.z : 0f;
+    }
+
     /// <summary>놀고 있는 소스. 없으면 상한까지 새로 만든다. 상한을 넘으면 이번 소리는 버린다.</summary>
     private AudioSource Borrow()
     {
@@ -178,6 +207,7 @@ public sealed class SoundManager : MonoBehaviour
         source.playOnAwake = false;
         source.outputAudioMixerGroup = mixerGroup;
         source.rolloffMode = AudioRolloffMode.Linear;
+        source.dopplerLevel = 0f;   // 리스너·배가 40 m/s로 움직이면 피치가 흔들린다. 우주엔 공기가 없다.
         source.minDistance = minDistance;
         source.maxDistance = maxDistance;
 

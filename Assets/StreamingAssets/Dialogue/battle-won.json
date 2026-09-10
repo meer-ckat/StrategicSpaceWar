@@ -1,10 +1,10 @@
 {
   "defName": "battle-won",
   "lines": [
-    { "message": "접촉 전부 소실. <color=#8fd3ff>교전 종료.</color>", "author": "전술", "duration": 3.5, "intensity": 1.0 },
-    { "message": "사격 중지. 열 추적은 유지한다.", "author": "함장", "duration": 3.5, "intensity": 0.8, "wait": 2 },
-    { "message": "피해 보고. 건질 수 있는 건 건져라.", "author": "함장", "duration": 4, "intensity": 0.9 },
-    { "message": "선체 손실 집계 중입니다. 잃은 판은 돌아오지 않습니다.", "author": "기관", "duration": 5, "intensity": 0.7 },
-    { "message": "다음 침로는 여기서 정한다.", "author": "함장", "duration": 4, "intensity": 0.9 }
+    { "message": "No Contact. <color=#8fd3ff>교전 종료.</color>", "author": "전술", "duration": 1.5, "intensity": 1.0 },
+    { "message": "사격 중지. 건질 수 있는 걸 보자고.", "author": "함장", "duration": 3.5, "intensity": 0.8 },
+    { "message": "데미지 컨트롤은 어느 정도 되었네요.", "author": "기관", "duration": 5, "intensity": 0.7 },
+    { "message": "다음 침로는 여기서 정한다.", "author": "함장", "duration": 2, "intensity": 0.9, "wait": 1 },
+    { "message": "잠시만요, 윈도우 띄웁니다..", "author": "기관", "duration": 3, "intensity": 0.7 }
   ]
 }

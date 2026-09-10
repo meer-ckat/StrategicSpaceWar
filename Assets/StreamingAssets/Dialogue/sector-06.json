@@ -1,0 +1,11 @@
+{
+  "defName": "sector-06",
+  "lines": [
+    { "message": "<color=yellow>봉쇄선.</color> 기뢰와 초계함이 항로를 가로막고 있습니다.", "author": "전술", "duration": 4.5, "intensity": 1.2, "wait": 3 },
+    { "message": "공세 준비가 아닙니다. 나가는 걸 막는 게 아니라 <color=yellow>들어오는 걸</color> 막고 있습니다.", "author": "전술", "duration": 5.5, "intensity": 1.3 },
+    { "message": "봉쇄 너머로 방사선 신호. 주기적입니다. 자연물이 아닙니다.", "author": "기관", "duration": 5, "intensity": 1.3, "wait": 3 },
+    { "message": "<color=grey>좌표 대조 완료. 공화국 등록 시설입니다.</color>", "author": "통신", "duration": 4.5, "intensity": 1.2 },
+    { "message": "Penrose 발전시설. 8년 전에 우리가 지은 겁니다.", "author": "통신", "duration": 5, "intensity": 1.4, "wait": 3 },
+    { "message": "…저거 우리 거였는데.", "author": "함장", "duration": 4, "intensity": 1.1 }
+  ]
+}

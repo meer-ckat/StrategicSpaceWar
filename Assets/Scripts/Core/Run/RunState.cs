@@ -33,12 +33,47 @@ public static class RunState
         public int sector;
 
         /// <summary>
+        /// 이 런의 항로 시드. **맵을 저장하지 않는 이유가 이 값이다** - 생성이 결정론
+        /// (DeterministicRng)이라 시드와 아래 <see cref="lanes"/>만 있으면 같은 맵이
+        /// 그대로 다시 나온다. 노드 목록을 직렬화하면 생성기를 고치는 날 옛 저장과
+        /// 새 생성기가 서로 다른 맵을 말하게 된다.
+        ///
+        /// 0은 "아직 안 정했다"다. 런이 시작될 때 한 번 찍고 그 뒤로 안 바뀐다.
+        /// </summary>
+        public int seed;
+
+        /// <summary>
+        /// 이번 장 안에서 몇 번째 소구역인가. <see cref="sector"/>는 **장 번호 그대로**다 -
+        /// 프롤로그 게이트(ScriptManager)와 sector-entered-{번호} 대본이 그 의미에
+        /// 매달려 있어서, 소구역을 그 숫자에 섞으면 3구역 대사가 세 번 나온다.
+        ///
+        /// 기존 저장은 이 값이 0이라 그대로 열린다.
+        /// </summary>
+        public int leg;
+
+        /// <summary>
+        /// 갈림길마다 고른 레인. 순서가 곧 지나온 길이다 - 시드와 이것 둘이 맵과
+        /// 현재 위치를 전부 말한다.
+        /// </summary>
+        public List<int> lanes = new();
+
+        // 갈림길을 내놓았는데 아직 안 골랐다. leg + 1을 저장해 0이 "없음"이다 - 이 필드가 없던
+        // 옛 저장이 기본값 0으로 정확히 그 상태로 열린다(Leg와 같은 규칙). 이게 없으면 항로
+        // 화면에서 끈 저장이 깬 구역을 다시 싸우게 하고 노획을 두 번 준다.
+        public int pendingLeg;
+
+        // 정비 노드에 서 있고 아직 출항 안 했다. 재개하면 갈림길보다 정비 화면이 먼저다 -
+        // 자재는 도착 즉시 더해졌는데 수리할 자리가 없으면 그 자재가 그냥 벌점이 된다.
+        public bool pendingRefit;
+
+        /// <summary>
         /// 세 자원. **`salvage` 단일 값을 여기서 끝낸다** - 판 수 하나로 수리·재보급·이동을
         /// 전부 사려 하면 세 가지 서로 다른 결정("고칠까/재장전할까/떠날까")이 값 하나를
         /// 두고 경쟁하게 된다. 회수 방식은 <see cref="Campaign"/>의 SalvageResult 계산이
         /// 정한다 - 여기는 그냥 지갑이다.
         /// </summary>
         public int materials;
+
 
         /// <summary>전략 이동에 쓰는 추진제. 안 터진 탱크의 remaining 합에서 온다.</summary>
         public int propellant;
@@ -139,6 +174,96 @@ public static class RunState
         }
     }
 
+    /// <summary>
+    /// 항로 시드. 처음 읽을 때 없으면 그 자리에서 찍고 저장한다.
+    ///
+    /// **여기서 시계를 쓰는 것은 결정론 규칙과 안 부딪힌다.** 금지된 것은 시뮬레이션이
+    /// UnityEngine.Random을 읽는 것이고, 이 값은 런당 한 번 정해진 뒤 저장되어 그
+    /// 다음부터는 전부 DeterministicRng를 먹인다 - 재개해도 같은 맵이다.
+    /// </summary>
+    public static int Seed
+    {
+        get
+        {
+            Progress p = Read();
+
+            if (p.seed != 0)
+                return p.seed;
+
+            // 0은 "안 정했다"의 표식이라 결과가 0이면 다시 뽑는다. 안 그러면 그 런은
+            // 매번 새 시드를 찍는다 - Cell.Unset이 0이어야 하는 것과 같은 함정이다.
+            int fresh = System.DateTime.Now.Ticks.GetHashCode();
+
+            p.seed = fresh != 0 ? fresh : 1;
+            Write(p);
+
+            return p.seed;
+        }
+    }
+
+    /// <summary>이번 장 안에서 몇 번째 소구역인가. 장이 넘어갈 때 0으로 돌아간다.</summary>
+    public static int Leg
+    {
+        get => Read().leg;
+
+        set
+        {
+            Progress p = Read();
+            p.leg = Mathf.Max(0, value);
+            Write(p);
+        }
+    }
+
+    public static List<int> Lanes => Read().lanes ?? new List<int>();
+
+    public static int PendingLeg => Read().pendingLeg - 1;
+
+    // 진행도 파일이 있는가. Seed getter는 없으면 파일을 만들므로, 읽기만 하려는 쪽은 이걸 먼저 본다.
+    public static bool HasProgress => File.Exists(ProgressPath);
+    public static bool PendingRefit => Read().pendingRefit;
+
+    public static void SetPendingFork(int leg, bool refit)
+    {
+        Progress p = Read();
+        p.pendingLeg = leg + 1;
+        p.pendingRefit = refit;
+        Write(p);
+    }
+
+    // 레인 확정. leg·lane·pending 해제를 한 번에 쓴다 - 두 번에 나눠 쓰면 그 사이에 끊긴
+    // 저장이 새 leg에 옛 lane을 붙여 엉뚱한 노드를 복원한다.
+    public static void CommitLane(int leg, int lane)
+    {
+        Progress p = Read();
+        p.leg = Mathf.Max(0, leg);
+        p.lanes ??= new List<int>();
+        p.lanes.Add(lane);
+        p.pendingLeg = 0;
+        p.pendingRefit = false;
+        Write(p);
+    }
+
+    // refit: 장의 마지막 소구역이 정비 노드였다. 갈림길이 없어 SetPendingFork를 안 타므로 여기서 든다.
+    public static void CommitChapter(int sector, bool refit = false)
+    {
+        Progress p = Read();
+        p.sector = Mathf.Max(0, sector);
+        p.leg = 0;
+        p.pendingLeg = 0;
+        p.pendingRefit = refit;
+        Write(p);
+    }
+
+    /// <summary>정비 화면에서 출항했다. 항로 확정(CommitLane·CommitChapter)이 없는 경로용.</summary>
+    public static void ClearPendingRefit()
+    {
+        Progress p = Read();
+        if (!p.pendingRefit)
+            return;
+        p.pendingRefit = false;
+        Write(p);
+    }
+
     /// <summary>수리·개조에 쓰는 물자. 판 한 장어치가 1이다.</summary>
     public static int Materials
     {
@@ -149,6 +274,25 @@ public static class RunState
             Progress p = Read();
             p.materials = Mathf.Max(0, value);
             Write(p);
+        }
+    }
+
+    /// <summary>
+    /// 연구점수. **런 자원이 아니라 메타 자원이다 - 저장소가 progress 파일이 아니다.**
+    ///
+    /// 처음에는 progress에 뒀는데 그게 구조적으로 항상 0을 보여줬다: 소비처(배 선택
+    /// 화면)는 죽어야 열리는데, 죽는 순간 Battle이 Clear()로 progress를 지운다. 버는
+    /// 것은 됐지만 **쓸 수 있는 유일한 순간에 지갑이 항상 비어 있었다.** 언락(연구된 배,
+    /// PlayerPrefs)과 같은 수명이어야 그 배를 열 돈도 같이 살아남는다.
+    /// </summary>
+    public static int Research
+    {
+        get => PlayerPrefs.GetInt("research.points", 0);
+
+        set
+        {
+            PlayerPrefs.SetInt("research.points", Mathf.Max(0, value));
+            PlayerPrefs.Save();
         }
     }
 

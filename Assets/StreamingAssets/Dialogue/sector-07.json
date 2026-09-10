@@ -1,0 +1,12 @@
+{
+  "defName": "sector-07",
+  "lines": [
+    { "message": "<color=#8fd3ff>기함 전대.</color> 이 구역 지휘 계통 전부입니다.", "author": "전술", "duration": 4, "intensity": 1.3, "wait": 3 },
+    { "message": "<color=grey>평문 송신이 들어옵니다. 암호를 안 걸었습니다.</color>", "author": "통신", "duration": 4.5, "intensity": 1.2 },
+    { "message": "「시설로 가지 마라. 우리도 막고 있었다.」", "author": "통신", "duration": 5, "intensity": 1.4, "wait": 3 },
+    { "message": "저쪽 편대 절반이 저쪽 편대 절반을 쏘고 있습니다.", "author": "전술", "duration": 4.5, "intensity": 1.5 },
+    { "message": "노획 기록을 읽었습니다. 증폭 설계의 원본은 우리 연구입니다.", "author": "기관", "duration": 5.5, "intensity": 1.3, "wait": 3 },
+    { "message": "저들이 만든 게 아니라 우리가 적어 둔 걸 실행한 거다.", "author": "함장", "duration": 5, "intensity": 1.2 },
+    { "message": "쏘는 쪽만 상대한다. 나머지는 건드리지 마라.", "author": "함장", "duration": 4.5, "intensity": 1.3 }
+  ]
+}

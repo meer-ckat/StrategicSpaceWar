@@ -1,0 +1,12 @@
+{
+  "defName": "trial-02",
+  "lines": [
+    { "message": "<color=grey>두 번째 해역.</color> 이번엔 관제가 안 붙습니다.", "author": "통신", "duration": 4.5, "intensity": 0.6, "wait": 2.5,
+      "cue": [ { "act": "camera", "x": 0.7, "y": 0.9 } ] },
+    { "message": "순양함 둘. 주포 구경이 우리 것보다 큽니다.", "author": "전술", "duration": 4.5, "intensity": 1.0 },
+    { "message": "기관 출력 여유 있습니다. 붙어도 됩니다.", "author": "기관", "duration": 4, "intensity": 0.9, "wait": 2 },
+    { "message": "큰 포는 느리게 돈다. 그게 전부다.", "author": "함장", "duration": 4, "intensity": 1.1 },
+    { "message": "<color=yellow>측면으로 파고듭니다.</color> 전 포문 자유사격.", "author": "포술", "duration": 4, "intensity": 1.4,
+      "cue": [ { "act": "camera", "x": 0.35, "y": 0.5 }, { "act": "endCut" } ] }
+  ]
+}

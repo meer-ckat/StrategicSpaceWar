@@ -117,6 +117,11 @@ public class ShipDef
     /// def가 소유하는 이유: 범위는 placements의 성질이고 placements의 주인이 여기다.
     /// ShipBuilder가 들고 있으면 def가 자기 크기를 물으려고 빌더를 불러야 한다.
     /// </summary>
+    /// <summary>
+    /// 배의 격자 크기 = **판**의 범위. 모듈은 안 센다 - 선체 밖에 붙은 포가 격자를 늘리면
+    /// 선체 그림 크기가 포 위치에 따라 바뀌고, 페인터의 템플릿(판 기준)과 어긋난다.
+    /// 판이 하나도 없으면(잔해 def 같은 것) 전부 센다.
+    /// </summary>
     public RectInt Bbox()
     {
         if (placements == null || placements.Count == 0)
@@ -124,13 +129,21 @@ public class ShipDef
 
         int minCol = int.MaxValue, maxCol = int.MinValue;
         int minRow = int.MaxValue, maxRow = int.MinValue;
+        bool any = false;
 
-        foreach (Placement p in placements)
+        for (int pass = 0; pass < 2 && !any; pass++)
         {
-            minCol = Mathf.Min(minCol, p.col);
-            maxCol = Mathf.Max(maxCol, p.col);
-            minRow = Mathf.Min(minRow, p.row);
-            maxRow = Mathf.Max(maxRow, p.row);
+            foreach (Placement p in placements)
+            {
+                if (pass == 0 && !ShipBuilder.StampsGrid(DefDatabase.Get(p.def), out _))
+                    continue;
+
+                any = true;
+                minCol = Mathf.Min(minCol, p.col);
+                maxCol = Mathf.Max(maxCol, p.col);
+                minRow = Mathf.Min(minRow, p.row);
+                maxRow = Mathf.Max(maxRow, p.row);
+            }
         }
 
         return new RectInt(minCol, minRow, maxCol - minCol + 1, maxRow - minRow + 1);
@@ -215,7 +228,7 @@ public class ShipDef
     /// </summary>
     public static void ClearCache() => _cache.Clear();
 
-    public static ShipDef Load(string defName)
+    public static ShipDef Load(string defName, bool checkSkin = true)
     {
         using var _ = _mLoad.Auto();
 
@@ -238,7 +251,9 @@ public class ShipDef
         ShipDef def = Parse(File.ReadAllText(path), Path.GetFileName(path));
 
         // 그림 규격은 설계도를 읽는 이 자리에서만 본다. 이유는 SkinIsValid 주석에.
-        def = SkinIsValid(def) ? def : null;
+        // 페인터는 끈다 - 판을 고쳐서 그림 크기를 맞추려면 일단 열려야 한다.
+        if (checkSkin && !SkinIsValid(def))
+            def = null;
 
         // 실패도 캐시한다. 없는 설계도를 부르는 대본은 매 줄마다 부르므로, 안 캐시하면
         // 그 오타 하나가 파일 시스템 접근을 계속 만든다.
@@ -366,26 +381,29 @@ public class ShipDef
     /// </summary>
     private static bool SkinIsValid(ShipDef def)
     {
+        if (SkinProblem(def) is not string reason)
+            return true;
+
+        Debug.LogError($"[ShipDef] {def.defName}의 '{def.hullSkin}': {reason}");
+        return false;
+    }
+
+    /// <summary>그림 규격이 안 맞으면 그 이유, 맞거나 그림이 없으면 null. 로그는 안 찍는다.</summary>
+    public static string SkinProblem(ShipDef def)
+    {
         if (def == null || string.IsNullOrEmpty(def.hullSkin))
-            return true;   // 그림 없는 배. 지금 아홉 척이 전부 이 경우다.
+            return null;   // 그림 없는 배.
 
         string path = SkinPathOf(def.hullSkin);
 
         if (!TryReadPngSize(path, out int pngW, out int pngH))
-        {
-            Debug.LogError($"[ShipDef] {def.defName}: '{def.hullSkin}'을 PNG로 못 읽는다: {path}");
-            return false;
-        }
+            return $"PNG로 못 읽는다: {path}";
 
         // AuthoredMap이 아니라 Bbox를 직접 부른다. AuthoredMap은 basedOn을 파일에서 읽어서
         // 위 주석의 재귀에 걸린다. 설계도의 placements가 곧 authored라 답은 같다.
         RectInt box = def.Bbox();
 
-        if (CheckTextureSize(box.width, box.height, PPU, pngW, pngH, out string reason))
-            return true;
-
-        Debug.LogError($"[ShipDef] {def.defName}의 '{def.hullSkin}': {reason}");
-        return false;
+        return CheckTextureSize(box.width, box.height, PPU, pngW, pngH, out string reason) ? null : reason;
     }
 
     /// <summary>

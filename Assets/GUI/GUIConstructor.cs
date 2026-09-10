@@ -159,7 +159,7 @@ public static class Widget
     => Add(parent, new GUIImage(sprite, rect, scaleMode));  
 
 
-    public static T Layer<T>(T item, int layer) where T : GUIItem
+    public static T SetLayer<T>(T item, int layer) where T : GUIItem
     {
         if (item != null) item.SetLayer(layer);
         return item;

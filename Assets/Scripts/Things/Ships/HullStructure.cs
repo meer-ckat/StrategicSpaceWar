@@ -293,6 +293,22 @@ public sealed class HullStructure : MonoBehaviour
     /// <summary>지금 달아오른 후면 칸들. <see cref="PruneHotRear"/> 호출 뒤에만 최신이다.</summary>
     public List<Vector2Int> HotRear => _hotRear;
 
+    /// <summary>후면 열을 전부 끈다. 뜨거운 칸은 전부 <see cref="_hotRear"/>에 있으므로 그 목록만 돈다.</summary>
+    public void CoolRear()
+    {
+        foreach (Vector2Int cell in _hotRear)
+        {
+            if (_rear.TryGetValue(cell, out RearCell wall))
+            {
+                wall.heat0 = 0f;
+                _rear[cell] = wall;
+            }
+        }
+
+        _hotRear.Clear();
+        _hotRearSet.Clear();
+    }
+
     /// <summary>
     /// 판이 한 장도 안 남은 몸의 후면은 지탱할 것이 없다. 안 지우면 판이 전멸한 자리에
     /// 뒷벽 그룹만 떠서 산다 - 콜라이더도 없어 쏠 수조차 없는 유령이다.
@@ -511,6 +527,32 @@ public sealed class HullStructure : MonoBehaviour
         _rear.Remove(cell);
         RearVersion++;      // 그림이 이걸 보고 칸 마스크를 다시 채운다
         Ship.BreachVersion++;  // 이 칸을 품은 방은 이제 바닥이 뚫렸다
+
+        KillModulesOn(cell);
+    }
+
+    /// <summary>
+    /// 판 없이 후면에만 앉은 모듈(선체 직속)은 그 칸의 후면이 곧 자기 바닥이다. 판 위의
+    /// 모듈이 판과 함께 죽는 것과 같은 규칙을 후면에 적용한다. 그림·오버레이는 Thing이
+    /// 아니라 안 건드린다.
+    /// </summary>
+    private void KillModulesOn(Vector2Int designCell)
+    {
+        if (_designMap == null)
+            return;
+
+        for (int i = transform.childCount - 1; i >= 0; i--)
+        {
+            Transform child = transform.GetChild(i);
+
+            if (ShipBuilder.IsPlate(child) || child.GetComponent<Thing>() == null)
+                continue;
+
+            if (ModulePlacement.CentreCellOf(child, _designMap) != designCell)
+                continue;
+
+            Destroy(child.gameObject);
+        }
     }
 
     /// <summary>
@@ -618,9 +660,19 @@ public sealed class HullStructure : MonoBehaviour
     /// 그림이 그 대가로 산다.
     ///
     /// 못 뚫으면 그만큼 깎기만 한다 - 여러 발이 같은 자리를 때리면 결국 열린다.
+    ///
+    /// **뒷벽이 세웠으면 true.** 시뮬레이션은 이 값을 안 읽는다 - 오직 화면에 대고
+    /// "앞판은 뚫었는데 안까지는 못 왔다"를 말하기 위한 것이다. 후면이라는 층 자체가
+    /// 플레이어에게 안 보여서, 뚫었다는 판정만 보고 왜 아무 일도 안 일어나는지 모른다.
+    ///
+    /// 못 찾은 것(스쳐서 출구가 배 밖)은 false다 - 세운 벽이 없으므로 할 말도 없다.
+    /// 몸이 여럿 걸리면 하나라도 세웠으면 true고, 그게 맞다: 안까지 들어온 곳이
+    /// 어디에도 없다는 뜻이다.
     /// </summary>
-    public static void PunchRear(Vector2 worldPoint, Vector2 dir, float penetration, float damage)
+    public static bool PunchRear(Vector2 worldPoint, Vector2 dir, float penetration, float damage)
     {
+        bool held = false;
+
         // **출구는 입사점이 아니다.** 탄은 선체 두께만큼 안을 가로지른 뒤에야 반대편에
         // 닿는다. 평면 안에서 비스듬히 들어온 탄일수록 그 사선이 길어서, 뱃머리로 들어온
         // 것이 허리 뒷벽으로 나간다.
@@ -640,10 +692,17 @@ public sealed class HullStructure : MonoBehaviour
                 continue;
 
             if (penetration >= wall.rha)
+            {
                 body.KillRear(cell);
+            }
             else
+            {
                 body.DamageRear(cell, damage);
+                held = true;
+            }
         }
+
+        return held;
     }
 
     /// <summary>파편 하나가 아무 판도 못 맞고 날아간 끝. 거기 벽이 있으면 박힌다.</summary>
@@ -1302,6 +1361,20 @@ public sealed class HullStructure : MonoBehaviour
             {
                 reparented.CachedBody = go.transform;
 
+                // **조각으로 나가는 판은 전부 켠다.** 깨끗한 절단면에서는 양쪽 판이 둘 다
+                // 살아 있어서 아무도 안 죽고, 그러면 Armor.Die의 이웃 깨우기가 한 번도
+                // 안 돈다 - 두 동강이 서로를 통과한다. 조각은 작아서 여기서 아끼는 값이 없다.
+                reparented.Surface();
+
+                // 남는 쪽의 절단면도 켠다. 이 판의 이웃 중 본체에 남는 것들은 이웃을
+                // 잃었지만 죽지는 않았으므로 아무 신호도 못 받는다. 이미 켜진 것은
+                // Surface가 그냥 지나간다.
+                foreach (Armor neighbour in reparented.Neighbours)
+                {
+                    if (neighbour != null)
+                        neighbour.Surface();
+                }
+
                 // **뜯긴 판은 온전할 수 없다.** 이 한 줄이 없으면 조각이 본체와 똑같이
                 // 단단해서, 파편 몇 장이 선체에 붙어 매 틱 갉는 동안 자기는 하나도 안
                 // 상한다 - 충각이 매 틱 도는 규칙이라 느린 접촉도 붙어만 있으면 결국
@@ -1325,6 +1398,21 @@ public sealed class HullStructure : MonoBehaviour
         {
             Destroy(go);
             return false;
+        }
+
+        // 판 없이 후면에만 앉은 모듈(선체 직속)도 자기 칸이 떠나면 같이 간다. 판 위의
+        // 모듈은 판의 자식이라 위에서 이미 따라갔다.
+        var leaving = new HashSet<Vector2Int>(chunk);
+
+        for (int i = transform.childCount - 1; i >= 0; i--)
+        {
+            Transform child = transform.GetChild(i);
+
+            if (ShipBuilder.IsPlate(child) || child.GetComponent<Thing>() == null)
+                continue;
+
+            if (leaving.Contains(ModulePlacement.CentreCellOf(child, _map)))
+                child.SetParent(go.transform, worldPositionStays: true);
         }
 
         // 이 조각이 마지막 판들을 데려갔으면 본체 후면도 여기서 죽는다.

@@ -47,6 +47,7 @@ namespace IMGUI
         private static readonly Dictionary<string, Entry> Cache = new();
         private static readonly List<string> Stale = new();
 
+        private static readonly List<GUIGroup> Stack = new();
         private static int _lastBegin = -1;
 
         // -----------------------------------------------------------------
@@ -71,6 +72,13 @@ namespace IMGUI
             if (_lastBegin == frame)
                 return;   // 여러 스크립트가 각자 불러도 수확은 프레임당 한 번
 
+            if (Stack.Count > 0)
+            {
+                Debug.LogError(
+                    $"[ImGui] EndGroup을 {Stack.Count}번 빼먹었다. 마지막으로 연 것은 " +
+                    $"'{Stack[Stack.Count - 1].GroupName}'.");
+                Stack.Clear();
+            }
             _lastBegin = frame;
             Stale.Clear();
 
@@ -95,6 +103,7 @@ namespace IMGUI
                 Retire(pair.Value.item);
 
             Cache.Clear();
+            Stack.Clear();
             _lastBegin = -1;
         }
 
@@ -119,6 +128,27 @@ namespace IMGUI
         /// <summary>지금 살아 있는 즉시 모드 위젯 수. 새는지 볼 때 제일 먼저 보는 값.</summary>
         public static int LiveCount => Cache.Count;
 
+        public static GUIGroup BeginGroup(string id, Rect rect, GUIStyle style = null, bool mask = false)
+        {
+            Entry entry = Touch(id);
+            GUIGroup group = Existing<GUIGroup>(entry, id)
+                ?? Adopt(entry, new GUIGroup(GUIContent.none, rect, id, style));
+            Reset(group);
+            group.Rect = rect;
+            group.Style = style;
+            group.Mask = mask;
+            Stack.Add(group);
+            return group;
+        }
+        public static void EndGroup()
+        {
+            if (Stack.Count == 0)
+            {
+                Debug.LogError("[ImGui] 연 적 없는 그룹에 EndGroup을 불렀다.");
+                return;
+            }
+            Stack.RemoveAt(Stack.Count - 1);
+        }
         // -----------------------------------------------------------------
         // 표시만 하는 것
         // -----------------------------------------------------------------
@@ -315,6 +345,18 @@ namespace IMGUI
             item.isVisible = true;
             item.isEnabled = true;
             item.isInteractable = !item.Decorative;
+            Reparent(item);
+        }
+        private static void Reparent(GUIItem item)
+        {
+            GUIGroup top = Stack.Count > 0 ? Stack[Stack.Count - 1] : null;
+            if (top == null)
+            {
+                item.DetachFromParent();
+                return;
+            }
+            if (item.Parent != top)
+                top.Add(item);
         }
 
         /// <summary>

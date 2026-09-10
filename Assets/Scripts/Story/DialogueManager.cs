@@ -75,6 +75,15 @@ public class Dialogue
     /// </summary>
     public float width;
 
+    /// <summary>
+    /// 이 줄의 화자 머리글이 실제로 차지하는 높이. **0이면 아직 못 쟀다.**
+    ///
+    /// 고정 18px이었는데 13pt 볼드 한글의 실제 줄높이가 그보다 커서 **글자 위쪽이 잘렸다.**
+    /// 폰트를 바꾸거나 크기를 올리면 또 잘리므로 상수를 키우는 대신 잰다 - 본문 높이가
+    /// 이미 같은 이유로 재고 있다.
+    /// </summary>
+    public float headerH;
+
     // 타이핑
     public int visibleCharacters;
     public int revealCharacters;
@@ -158,10 +167,15 @@ public class DialogueManager : MonoBehaviour
     // 즉시 모드 캐시에서 등록 순서는 "처음 선언된 프레임"이라 창을 늘려 패턴 행이 새로
     // 생기면 그 행이 대사 위에 올라온다. 명시하면 그런 일이 없다.
     private const int PatternLayer = -100;
-    private const int PlateLayer = -2;
-    private const int AccentLayer = -1;
-    private const int MessageLayer = 0;
-    private const int AuthorLayer = 1;
+
+    // **HUD(전부 Layer 0)보다 확실히 위에 둔다.** 예전에는 판 -2 / 본문 0이라 본문과
+    // AIRFRAME 패널이 동률이었고, GUIManager.BuildDrawRoots의 Sort는 불안정 정렬이라
+    // 동률끼리는 순서가 실행마다 달랐다 - 증상이 "함내 통신과 피탄 경고가 계기판에
+    // 가려진다"였다. 대사는 읽으라고 띄우는 것이라 계기판이 이기면 안 된다.
+    private const int PlateLayer = 98;
+    private const int AccentLayer = 99;
+    private const int MessageLayer = 100;
+    private const int AuthorLayer = 101;
 
     /// <summary>
     /// 기능이 아니라 "느낌"을 결정하는 작은 프로필.
@@ -228,7 +242,7 @@ public class DialogueManager : MonoBehaviour
 
     [Header("Layout")]
     /// <summary>EXTERNAL COMMS의 기준점. 기존 origin 직렬화 값을 그대로 살린다.</summary>
-    public Vector2 origin = new(40f, 96f);
+    public Vector2 origin = new(140f, 96f);
 
     /// <summary>하위호환용 최소 크기. 실제 폭은 lane별 width가 결정한다.</summary>
     public Vector2 lineSize = new(680f, 30f);
@@ -238,9 +252,27 @@ public class DialogueManager : MonoBehaviour
 
     [Header("AAA Layout v2")]
     public float externalWidth = 680f;
-    public float internalWidth = 560f;
+    public float internalWidth = 440f;   // 함내 잡담. 중요한 정보가 많이 안 들어가서 외부 통신보다 좁다
     public float systemWidth = 620f;
-    public float internalBottomMargin = 96f;
+    /// <summary>
+    /// 함내 통신 레인이 화면 아래에서 띄우는 거리.
+    ///
+    /// **AIRFRAME 패널 위에 서야 한다.** 그 패널이 좌하단 Margin(16) + 높이(150) = 166까지
+    /// 덮으므로 96이면 대사가 도해 한가운데로 들어간다 - 겹치면 Layer가 순서를 정해야 하는데
+    /// GUIManager.BuildDrawRoots의 Sort가 불안정 정렬이라 동률끼리는 실행마다 달라진다.
+    /// 애초에 안 겹치게 두는 것이 그 문제를 없애는 길이다.
+    ///
+    /// 오른쪽으로 빼는 안은 버렸다. 손상 보고가 함체 도해 **바로 위**에 뜨는 것이 읽기
+    /// 좋다 - "함수 좌현 관통"이라고 말할 때 그 그림이 밑에 있다. 양끝으로 갈리면 시선이
+    /// 두 번 움직인다.
+    ///
+    /// ShipStatusHud의 상수를 여기서 직접 안 읽는 이유는 의존 방향이다 - 대사창이 HUD를
+    /// 알면 HUD 없는 씬에서 컴파일이 걸린다. 값이 어긋나면 증상이 "겹쳐 보임"이라 눈에 띈다.
+    /// </summary>
+    public float internalBottomMargin = 178f;
+
+    /// <summary>함내 잡담이 함선 중심에서 위로 뜨는 거리(논리 px). 배 그림을 안 가리는 선.</summary>
+    public float internalLift = 60f;
     public float systemTopMargin = 48f;
     public float headerHeight = 18f;
     public float headerBodyGap = 4f;
@@ -294,6 +326,9 @@ public class DialogueManager : MonoBehaviour
 
     [Header("Typography")]
     public int fontSize = 22;
+
+    /// <summary>함내 레인 전용 글자 크기. 함선 위에 작게 뜨는 잡담이라 본문보다 작다.</summary>
+    public int internalFontSize = 15;
     public int authorFontSize = 13;
     public int systemFontSize = 20;
 
@@ -321,6 +356,7 @@ public class DialogueManager : MonoBehaviour
     private Color _interruptFlashColor = Color.white;
 
     private GUIStyle _messageStyle;
+    private GUIStyle _internalStyle;
     private GUIStyle _authorStyle;
     private GUIStyle _systemStyle;
     private GUIStyle _patternStyle;
@@ -400,6 +436,12 @@ public class DialogueManager : MonoBehaviour
         if (GameManager.SceneSeconds < GameManager.GuiBootDelay)
             return;
 
+        // 함선 선택 중에는 대사를 선언하지 않는다 - 즉시 모드라 선언을 멈추면 화면에서
+        // 사라지고, 데이터(Texts)는 남아서 닫히면 그대로 돌아온다. 세계가 통째로 멈춘
+        // 화면 위로 함내 통신이 계속 올라오면 "게임이 안 멈췄나"가 된다.
+        if (ShipSelectScreen.IsOpen || LogisticsScreen.IsOpen || RefitScreen.IsOpen)
+            return;
+
         Advance(dt);
 
         _interruptFlash = Mathf.MoveTowards(_interruptFlash, 0f, interruptFlashFade * dt);
@@ -477,7 +519,8 @@ public class DialogueManager : MonoBehaviour
         Vector2 textPos = line.pos + new Vector2(punch * 0.18f, 0f);
 
         float bodyHeight = BodyHeight(line);
-        float blockHeight = headerHeight + headerBodyGap + bodyHeight;
+        float head = HeaderHeight(line);
+        float blockHeight = head + headerBodyGap + bodyHeight;
         float blockWidth = Mathf.Min(WidthForLane(lane), Mathf.Max(line.width, 180f));
         float depthAlpha = LaneDepthAlpha(line);
         float frameFlicker = SignalFrameFlicker(line, seed);
@@ -513,7 +556,7 @@ public class DialogueManager : MonoBehaviour
         // Header가 body보다 먼저 뜬다. 누가 말하는지 먼저 읽히는 것이 v2의 핵심이다.
         GUILabel header = ImGui.Label(
             line.idHeader,
-            new Rect(textPos, new Vector2(blockWidth, headerHeight)),
+            new Rect(textPos, new Vector2(blockWidth, head)),
             HeaderText(line, presentation),
             AuthorStyle());
 
@@ -521,13 +564,16 @@ public class DialogueManager : MonoBehaviour
         header.Opacity = line.alpha * depthAlpha * frameFlicker;
         header.RenderScale = Vector2.one * (1f + punch01 * authorPunchScale * line.intensity);
 
+        // **판과 같은 폭을 쓴다.** 예전에는 라벨만 레인 폭(560) 전체였고 판은 잰 글 폭이라,
+        // 둘이 다른 폭에서 줄바꿈을 계산했다 - 높이는 레인 폭으로 재고 그리기는 다른 폭으로
+        // 하면 잰 것보다 한 줄 더 나오는 문장에서 마지막 줄이 잘린다.
         GUILabel message = ImGui.Label(
             line.idMessage,
             new Rect(
-                textPos + new Vector2(0f, headerHeight + headerBodyGap),
-                new Vector2(WidthForLane(lane), bodyHeight)),
+                textPos + new Vector2(0f, head + headerBodyGap),
+                new Vector2(blockWidth, bodyHeight)),
             BodyText(line, RenderedText(line)),
-            MessageStyle());
+            lane == DialogueLane.Internal ? InternalStyle() : MessageStyle());
 
         message.Layer = MessageLayer;
         message.Opacity = line.alpha * depthAlpha * bodyLead;
@@ -539,7 +585,8 @@ public class DialogueManager : MonoBehaviour
         float punch01 = Mathf.Sin(enter01 * Mathf.PI);
         float width = WidthForLane(DialogueLane.System);
         float bodyHeight = BodyHeight(line);
-        float blockHeight = headerHeight + headerBodyGap + bodyHeight;
+        float head = HeaderHeight(line);
+        float blockHeight = head + headerBodyGap + bodyHeight;
         float seed = index * 41.12f + StableHash(line.id) * 0.0001f;
         float frameFlicker = SignalFrameFlicker(line, seed);
         Vector2 framePos = line.pos + new Vector2(0f, -punch01 * 5f * line.intensity);
@@ -566,7 +613,7 @@ public class DialogueManager : MonoBehaviour
 
         GUILabel header = ImGui.Label(
             line.idSystemHeader,
-            new Rect(framePos, new Vector2(width, headerHeight)),
+            new Rect(framePos, new Vector2(width, head)),
             "SYSTEM // PRIORITY STATUS",
             AuthorStyle());
 
@@ -576,7 +623,7 @@ public class DialogueManager : MonoBehaviour
         GUILabel message = ImGui.Label(
             line.idSystemMessage,
             new Rect(
-                framePos + new Vector2(0f, headerHeight + headerBodyGap),
+                framePos + new Vector2(0f, head + headerBodyGap),
                 new Vector2(width, bodyHeight)),
             RenderedText(line),
             SystemStyle());
@@ -599,6 +646,7 @@ public class DialogueManager : MonoBehaviour
 
         GUIStyle message = MessageStyle();
         GUIStyle system = SystemStyle();
+        GUIStyle internalBody = InternalStyle();
         GUIStyle header = AuthorStyle();
 
         if (message == null || system == null || header == null)
@@ -613,21 +661,44 @@ public class DialogueManager : MonoBehaviour
 
             DialogueLane lane = LaneForStyle(line.style);
             float laneWidth = WidthForLane(lane);
-            GUIStyle bodyStyle = lane == DialogueLane.System ? system : message;
+            GUIStyle bodyStyle = lane switch
+            {
+                DialogueLane.System => system,
+                DialogueLane.Internal => internalBody,
+                _ => message,
+            };
             GUIContent content = new(line.message);
 
-            line.height = Mathf.Max(lineSize.y, bodyStyle.CalcHeight(content, laneWidth));
-            line.width = Mathf.Min(laneWidth, bodyStyle.CalcSize(content).x);
+            // **폭을 먼저 정하고 그 폭으로 높이를 잰다.** 순서가 뒤바뀌면 레인 폭으로 잰
+            // 높이를 더 좁은 폭으로 그리게 되고, 줄이 하나 더 생기는 문장에서 잘린다.
+            line.width = Mathf.Max(180f, Mathf.Min(laneWidth, bodyStyle.CalcSize(content).x));
+            line.height = Mathf.Max(lineSize.y, bodyStyle.CalcHeight(content, line.width));
+
+            // **머리글은 레인을 안 가리고 잰다.** System 레인도 머리글을 그리는데
+            // 예전에는 여기서 빠져 있어서 고정 18px로 남았고, 그래서 그 레인만 계속 잘렸다.
+            // 폭 반영은 여전히 System 제외 - 그 레인은 폭이 고정이다.
+            var headerContent = new GUIContent(HeaderText(line, PresentationFor(line.style)));
 
             if (lane != DialogueLane.System)
             {
-                float headerWidth = header.CalcSize(
-                    new GUIContent(HeaderText(line, PresentationFor(line.style)))).x;
-                line.width = Mathf.Max(line.width, Mathf.Min(laneWidth, headerWidth));
+                line.width = Mathf.Max(
+                    line.width, Mathf.Min(laneWidth, header.CalcSize(headerContent).x));
             }
+
+            line.headerH = Mathf.Max(
+                headerHeight,
+                header.CalcHeight(headerContent, Mathf.Max(line.width, laneWidth)));
 
             _layoutDirty = true;
         }
+
+        // 함내 레인은 배를 따라다닌다. layoutDirty(대사 증감)와 무관하게 매 프레임
+        // 기준점이 움직이므로 따로 돈다 - targetPos만 옮기고 스무딩은 그대로라, 배가
+        // 급기동하면 말풍선이 반 박자 늦게 따라오는 것이 오히려 자연스럽다.
+        if (CutSceneManager.ControlsPlayer)
+            RecalculatePos();
+        else
+            RecalculateInternal();
 
         if (!_layoutDirty)
             return;
@@ -972,6 +1043,22 @@ public class DialogueManager : MonoBehaviour
     /// </summary>
     private void RecalculatePos()
     {
+        if (CutSceneManager.ControlsPlayer)
+        {
+            float y = GUIManager.LogicalHeight - 24f;
+            for (int i = Texts.Count - 1; i >= 0; i--)
+            {
+                Dialogue line = Texts[i];
+                if (line.leaving)
+                    continue;
+                y -= VisualHeight(line);
+                float width = WidthForLane(LaneForStyle(line.style));
+                line.targetPos = new Vector2((GUIManager.LogicalWidth - width) * 0.5f, y + platePadding.y);
+                y -= spacing;
+            }
+            return;
+        }
+
         RecalculateExternal();
         RecalculateInternal();
         RecalculateSystem();
@@ -995,7 +1082,13 @@ public class DialogueManager : MonoBehaviour
 
     private void RecalculateInternal()
     {
-        float y = GUIManager.LogicalHeight - internalBottomMargin;
+        // **함선 위에 뜬다.** 함내에서 일어나는 말이라 함선이 그 말의 자리다 - 화면
+        // 레인(하단 중앙)에 쌓았더니 계기판과 자리 다툼만 했다.
+        //
+        // 배가 없으면(격파 직후 유언 등) 예전 화면 레인으로 물러난다.
+        Vector2 anchor = InternalAnchor();
+        float x = anchor.x;
+        float y = anchor.y;
 
         // 함내 무전은 아래에서 위로 쌓인다. 최신 보고가 가장 손 가까운 곳에 남는다.
         for (int i = Texts.Count - 1; i >= 0; i--)
@@ -1006,7 +1099,7 @@ public class DialogueManager : MonoBehaviour
 
             float visual = VisualHeight(line);
             y -= visual;
-            line.targetPos = new Vector2(origin.x, y + platePadding.y);
+            line.targetPos = new Vector2(x, y + platePadding.y);
             y -= spacing;
         }
     }
@@ -1085,7 +1178,7 @@ public class DialogueManager : MonoBehaviour
             case "control":
                 return new Presentation(
                     "CONTROL",
-                    new Color(0.025f, 0.08f, 0.11f, 0.90f),
+                    new Color(0.07f, 0.13f, 0.17f, 0.96f),
                     new Color(0.28f, 0.86f, 1f, 1f),
                     new Vector2(-1f, 0.08f),
                     0.70f, 0.45f, 0.95f, 1.0f, 0.35f);
@@ -1093,7 +1186,7 @@ public class DialogueManager : MonoBehaviour
             case "crew":
                 return new Presentation(
                     "INTERNAL",
-                    new Color(0.08f, 0.075f, 0.065f, 0.91f),
+                    new Color(0.13f, 0.12f, 0.10f, 0.96f),
                     new Color(1f, 0.78f, 0.34f, 1f),
                     new Vector2(0.15f, 1f),
                     0.90f, 0.72f, 1.08f, 0.78f, 0.55f);
@@ -1101,7 +1194,7 @@ public class DialogueManager : MonoBehaviour
             case "damage":
                 return new Presentation(
                     "DAMAGE CONTROL",
-                    new Color(0.19f, 0.025f, 0.02f, 0.95f),
+                    new Color(0.24f, 0.07f, 0.06f, 0.97f),
                     new Color(1f, 0.22f, 0.12f, 1f),
                     new Vector2(-1f, 0f),
                     1.25f, 1.45f, 1.20f, 0.32f, 0.70f, 1.75f);
@@ -1109,7 +1202,7 @@ public class DialogueManager : MonoBehaviour
             case "system":
                 return new Presentation(
                     "SYSTEM",
-                    new Color(0.035f, 0.042f, 0.05f, 0.95f),
+                    new Color(0.09f, 0.10f, 0.12f, 0.97f),
                     new Color(0.82f, 0.9f, 0.95f, 1f),
                     new Vector2(0f, -1f),
                     0.45f, 0.18f, 0.82f, 0.10f, 0.08f);
@@ -1117,7 +1210,7 @@ public class DialogueManager : MonoBehaviour
             case "enemy":
                 return new Presentation(
                     "INTERCEPT",
-                    new Color(0.11f, 0.025f, 0.12f, 0.93f),
+                    new Color(0.16f, 0.07f, 0.17f, 0.96f),
                     new Color(1f, 0.28f, 0.86f, 1f),
                     new Vector2(1f, 0.08f),
                     0.95f, 0.90f, 0.92f, 1.0f, 1.0f);
@@ -1264,26 +1357,63 @@ public class DialogueManager : MonoBehaviour
 
     private float WidthForLane(DialogueLane lane)
     {
-        return lane switch
+        float width = lane switch
         {
             DialogueLane.External => Mathf.Max(240f, externalWidth),
             DialogueLane.Internal => Mathf.Max(220f, internalWidth),
             _ => Mathf.Max(260f, systemWidth),
         };
+        return CutSceneManager.ControlsPlayer ? Mathf.Min(width, Mathf.Max(120f, GUIManager.LogicalWidth - 64f)) : width;
     }
 
     private float BodyHeight(Dialogue line)
         => line.height > 0f ? line.height : lineSize.y;
 
+    /// <summary>머리글 높이. 아직 못 쟀으면 인스펙터 값으로 버틴다.</summary>
+    private float HeaderHeight(Dialogue line)
+        => line.headerH > 0f ? line.headerH : headerHeight;
+
     private float VisualHeight(Dialogue line)
-        => headerHeight + headerBodyGap + BodyHeight(line) + platePadding.y * 2f;
+        => HeaderHeight(line) + headerBodyGap + BodyHeight(line) + platePadding.y * 2f;
+
+    /// <summary>
+    /// 함내 레인의 기준점 = 플레이어 함선의 화면 위치. 배가 없으면(격파 직후 유언 등)
+    /// 하단 중앙으로 물러난다. 변환 규칙은 - WorldToScreenPoint는
+    /// 실제 픽셀이라 UiScale로 나누고, GUI는 y가 아래로 자라니 뒤집는다.
+    /// </summary>
+    private Vector2 InternalAnchor()
+    {
+        float width = WidthForLane(DialogueLane.Internal);
+        Ship player = GameManager.Player();
+        Camera cam = Camera.main;
+
+        if (player != null && cam != null)
+        {
+            Vector3 screen = cam.WorldToScreenPoint(player.transform.position);
+
+            if (screen.z > 0f)
+            {
+                screen /= GUIManager.UiScale;
+                return new Vector2(
+                    screen.x - width * 0.5f,
+                    GUIManager.LogicalHeight - screen.y - internalLift);
+            }
+        }
+
+        return new Vector2(
+            (GUIManager.LogicalWidth - width) * 0.5f,
+            GUIManager.LogicalHeight - internalBottomMargin);
+    }
 
     private Vector2 LaneAnchor(DialogueLane lane)
     {
+        if (CutSceneManager.ControlsPlayer)
+            return new Vector2((GUIManager.LogicalWidth - WidthForLane(lane)) * 0.5f,
+                GUIManager.LogicalHeight - 100f);
         return lane switch
         {
             DialogueLane.External => origin,
-            DialogueLane.Internal => new Vector2(origin.x, GUIManager.LogicalHeight - internalBottomMargin),
+            DialogueLane.Internal => InternalAnchor(),
             _ => new Vector2((GUIManager.LogicalWidth - WidthForLane(DialogueLane.System)) * 0.5f, systemTopMargin),
         };
     }
@@ -1293,7 +1423,10 @@ public class DialogueManager : MonoBehaviour
         return lane switch
         {
             DialogueLane.External => origin.y - 18f,
-            DialogueLane.Internal => GUIManager.LogicalHeight - internalBottomMargin - 18f,
+            // **InternalAnchor()의 그 프레임 값을 그대로 써야 한다.** 고정 하단
+            // 좌표를 남겨뒀더니, 배 위로 뜬 함내 통신이 끼어들 때 붉은 줄이 화면
+            // 아래에 따로 떴다 - 말풍선과 인터럽트 표시가 서로 다른 좌표계를 읽고 있었다.
+            DialogueLane.Internal => InternalAnchor().y - 18f,
             _ => systemTopMargin - 8f,
         };
     }
@@ -1418,6 +1551,22 @@ public class DialogueManager : MonoBehaviour
         _messageStyle.richText = true;
         _messageStyle.wordWrap = true;
         return _messageStyle;
+    }
+
+    /// <summary>함내 레인 본문. MessageStyle과 규칙이 같고 크기만 작다.</summary>
+    private GUIStyle InternalStyle()
+    {
+        if (_internalStyle != null || !GUIStyleMaker.Initialized)
+            return _internalStyle;
+
+        _internalStyle = GUIStyleMaker.Label(
+            fontSize: internalFontSize,
+            alignment: TextAnchor.UpperLeft
+        );
+
+        _internalStyle.richText = true;
+        _internalStyle.wordWrap = true;
+        return _internalStyle;
     }
 
 

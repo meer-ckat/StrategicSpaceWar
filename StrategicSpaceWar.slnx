@@ -18,7 +18,6 @@
   <Project Path="Unity.VisualScripting.Core.Editor.csproj" />
   <Project Path="Unity.RenderPipelines.Universal.Editor.csproj" />
   <Project Path="Unity.PerformanceTesting.Editor.csproj" />
-  <Project Path="SUPERRADIANCE.csproj" />
   <Project Path="UnityEngine.TestRunner.csproj" />
   <Project Path="Unity.2D.Tilemap.Editor.csproj" />
   <Project Path="Unity.Burst.csproj" />
@@ -56,6 +55,7 @@
   <Project Path="Unity.VisualScripting.State.csproj" />
   <Project Path="Unity.InternalAPIEditorBridge.001.csproj" />
   <Project Path="Unity.AI.Navigation.Updater.csproj" />
+  <Project Path="SUPERRADIANCE.csproj" />
   <Project Path="UnityEditor.UI.csproj" />
   <Project Path="Unity.RenderPipelines.Universal.2D.Editor.Overrides.csproj" />
   <Project Path="Unity.2D.Sprite.Editor.csproj" />
@@ -91,7 +91,6 @@
   <Project Path="Unity.PlasticSCM.Editor.Entities.csproj" />
   <Project Path="Unity.Rendering.LightTransport.Editor.csproj" />
   <Project Path="Unity.Collections.Editor.csproj" />
-  <Project Path="Assembly-CSharp-Editor.csproj" />
   <Project Path="Unity.RenderPipelines.Universal.Config.Runtime.csproj" />
   <Project Path="Unity.RenderPipelines.ShaderGraph.ShaderGraphLibrary.csproj" />
   <Project Path="Unity.RenderPipelines.Core.ShaderLibrary.csproj" />

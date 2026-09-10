@@ -1,0 +1,193 @@
+{
+  "defName": "subsectors",
+  "templates": [
+    {
+      "id": "picket",
+      "kind": "Skirmish",
+      "tier": 1,
+      "label": "초계 접촉",
+      "minShips": 2,
+      "maxShips": 3,
+      "pool": [
+        "scout",
+        "dart",
+        "fly"
+      ],
+      "materials": 0,
+      "refit": false,
+      "weight": 12
+    },
+    {
+      "id": "patrol",
+      "kind": "Skirmish",
+      "tier": 2,
+      "label": "왕정군 순찰대",
+      "minShips": 2,
+      "maxShips": 4,
+      "pool": [
+        "scout",
+        "lancher",
+        "ChongDam_Mk67",
+        "frigate"
+      ],
+      "materials": 0,
+      "refit": false,
+      "weight": 12
+    },
+    {
+      "id": "screen",
+      "kind": "Skirmish",
+      "tier": 3,
+      "label": "봉쇄 전대",
+      "minShips": 3,
+      "maxShips": 4,
+      "pool": [
+        "frigate",
+        "ChongDam_Mk67",
+        "cruiser",
+        "lancher"
+      ],
+      "materials": 0,
+      "refit": false,
+      "weight": 12
+    },
+    {
+      "id": "elite-lance",
+      "kind": "Elite",
+      "tier": 2,
+      "label": "정예 - 창기병",
+      "minShips": 2,
+      "maxShips": 2,
+      "pool": [
+        "cruiser",
+        "Pitbull_Leviathan"
+      ],
+      "materials": 0,
+      "refit": false,
+      "weight": 10
+    },
+    {
+      "id": "elite-wing",
+      "kind": "Elite",
+      "tier": 3,
+      "label": "정예 - 항공전대",
+      "minShips": 2,
+      "maxShips": 3,
+      "pool": [
+        "carrier",
+        "frigate",
+        "Dachshund_Leviathan"
+      ],
+      "materials": 0,
+      "refit": false,
+      "weight": 10
+    },
+    {
+      "id": "driftfield",
+      "kind": "Wreck",
+      "tier": 0,
+      "label": "표류 잔해밭",
+      "minShips": 2,
+      "maxShips": 3,
+      "pool": [
+        "derelict",
+        "asteroid"
+      ],
+      "refit": true,
+      "materials": 6,
+      "weight": 4
+    },
+    {
+      "id": "trap",
+      "kind": "Wreck",
+      "tier": 1,
+      "label": "표류 잔해밭",
+      "minShips": 2,
+      "maxShips": 3,
+      "pool": [
+        "derelict",
+        "asteroid"
+      ],
+      "hidden": "raider",
+      "refit": false,
+      "materials": 0,
+      "weight": 4
+    },
+    {
+      "id": "depot",
+      "kind": "Depot",
+      "tier": 0,
+      "label": "보급 부표",
+      "minShips": 1,
+      "maxShips": 1,
+      "pool": [
+        "derelict"
+      ],
+      "materials": 16,
+      "refit": true,
+      "weight": 3
+    },
+    {
+      "id": "port",
+      "kind": "Port",
+      "tier": 0,
+      "label": "기항지",
+      "minShips": 1,
+      "maxShips": 2,
+      "pool": [
+        "derelict"
+      ],
+      "materials": 30,
+      "refit": true,
+      "weight": 1
+    },
+    {
+      "id": "raider",
+      "kind": "Skirmish",
+      "tier": 1,
+      "label": "충각 습격",
+      "minShips": 2,
+      "maxShips": 4,
+      "pool": [
+        "dart",
+        "fly",
+        "dart"
+      ],
+      "materials": 0,
+      "refit": false,
+      "weight": 8
+    },
+    {
+      "id": "convoy",
+      "kind": "Skirmish",
+      "tier": 2,
+      "label": "수송 선단",
+      "minShips": 3,
+      "maxShips": 4,
+      "pool": [
+        "lancher",
+        "scout",
+        "frigate"
+      ],
+      "materials": 0,
+      "refit": false,
+      "weight": 8
+    },
+    {
+      "id": "elite-guns",
+      "kind": "Elite",
+      "tier": 3,
+      "label": "정예 - 포격전대",
+      "minShips": 2,
+      "maxShips": 2,
+      "pool": [
+        "Pitbull_Leviathan",
+        "Dachshund_Leviathan",
+        "cruiser"
+      ],
+      "materials": 0,
+      "refit": false,
+      "weight": 8
+    }
+  ]
+}

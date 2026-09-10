@@ -53,6 +53,16 @@ public sealed class ShipPainter : EditorWindow
         }
     }
 
+    /// <summary>
+    /// 선택한 칸이 판이면 _plates, 모듈이면 _modules. 각도·크기·offset 편집(팔레트 필드,
+    /// 방향키)이 둘을 같은 코드로 다룬다 - 모듈도 반 칸 밀어 벽에서 떼어야 할 때가 있다.
+    /// </summary>
+    private Dictionary<Vector2Int, Placed> SelectedStore =>
+        _selected == null ? null
+        : _plates.ContainsKey(_selected.Value) ? _plates
+        : _modules.ContainsKey(_selected.Value) ? _modules
+        : null;
+
     /// <summary>모듈은 격자를 안 차지하므로 판과 따로 든다. 한 칸에 하나씩.</summary>
     private readonly Dictionary<Vector2Int, Placed> _plates = new();
     private readonly Dictionary<Vector2Int, Placed> _modules = new();
@@ -213,7 +223,7 @@ public sealed class ShipPainter : EditorWindow
         if (!Directory.Exists(DefDatabase.DefDirectory))
             return;
 
-        foreach (string path in Directory.GetFiles(DefDatabase.DefDirectory, "*.json"))
+        foreach (string path in Directory.GetFiles(DefDatabase.DefDirectory, "*.json", SearchOption.AllDirectories))
         {
             NameOnly head = JsonUtility.FromJson<NameOnly>(File.ReadAllText(path));
 
@@ -240,6 +250,11 @@ public sealed class ShipPainter : EditorWindow
 
     private void OnGUI()
     {
+        wantsMouseMove = true;
+
+        if (Event.current.type == EventType.MouseMove)
+            Repaint();
+
         DrawToolbar();
 
         Rect side = new(0f, 22f, 190f, position.height - 22f);
@@ -302,7 +317,7 @@ public sealed class ShipPainter : EditorWindow
                 EditorStyles.miniLabel);
             GUILayout.FlexibleSpace();
             GUILayout.Label(
-                "좌클릭 칠하기 / Shift+클릭 사선 잇기 / 우클릭 지우기 / Alt+클릭 스포이드 / 가운데 끌기 이동 / 휠 확대"
+                "좌클릭 칠하기 / Shift+클릭 사선 잇기 / Ctrl+클릭 시작점 / 우클릭 지우기 / Alt+클릭 스포이드 / 가운데 끌기 이동 / 휠 확대"
                 + (_shapeMode
                     ? "   |   모양: 판 클릭=편집(점 끌기/변 클릭 끼우기/Delete 빼기) / 빈칸 클릭=새 모양 / Ctrl 정밀(0.01, 자석끔) / Enter 닫기 / Backspace 취소 / Esc 버리기"
                     : "   |   방향키 offset / Shift+방향키 크기 / Alt+좌우([ ]) 회전 / Ctrl+Z 되돌리기"),
@@ -340,7 +355,7 @@ public sealed class ShipPainter : EditorWindow
 
         GUILayout.Space(10f);
 
-        bool editing = _selected != null && _plates.ContainsKey(_selected.Value);
+        bool editing = SelectedStore != null;
 
         GUILayout.Label(
             editing ? $"선택한 판 {_selected.Value.x},{_selected.Value.y}" : "브러시",
@@ -348,12 +363,12 @@ public sealed class ShipPainter : EditorWindow
 
         float rot = _brushRot;
         Vector2 size = _brushSize;
-        Vector2 offset = Vector2.zero;
+        Vector2 offset = _brushOffset;
         Placed sel = default;
 
         if (editing)
         {
-            sel = _plates[_selected.Value];
+            sel = SelectedStore[_selected.Value];
             rot = sel.rot;
             size = sel.size;
             offset = sel.offset;
@@ -364,8 +379,9 @@ public sealed class ShipPainter : EditorWindow
         rot = EditorGUILayout.FloatField("각도", rot);
         size = EditorGUILayout.Vector2Field("크기 (0=def)", size);
 
-        using (new EditorGUI.DisabledScope(!editing))
-            offset = EditorGUILayout.Vector2Field("offset", offset);
+        // 브러시에도 offset이 있다. 짝수 크기 모듈은 자동으로 반 칸 밀지만(ModuleBrush),
+        // 1.3·1.9 같은 크기는 손으로 밀어야 벽에서 떨어진다.
+        offset = EditorGUILayout.Vector2Field("offset (칸)", offset);
 
         if (editing)
         {
@@ -381,14 +397,15 @@ public sealed class ShipPainter : EditorWindow
                 // 모양이 통째로 사라지고, 남는 것은 사각형 콜라이더뿐이다 - 배는
                 // 그대로 지어지고 경고도 없다.
                 var next = new Placed(sel.def, rot, size, offset, sel.shape);
-                _plates[_selected.Value] = next;
+                Dictionary<Vector2Int, Placed> store = SelectedStore;
+                store[_selected.Value] = next;
 
                 if (_mirror)
                 {
                     Vector2Int other = Across(_selected.Value);
 
-                    if (other != _selected.Value && _plates.ContainsKey(other))
-                        _plates[other] = Mirrored(next);
+                    if (other != _selected.Value && store.ContainsKey(other))
+                        store[other] = Mirrored(next);
                 }
 
                 _brushRot = next.rot;
@@ -400,6 +417,7 @@ public sealed class ShipPainter : EditorWindow
         {
             _brushRot = rot;
             _brushSize = size;
+            _brushOffset = offset;
         }
 
         using (new GUILayout.HorizontalScope())
@@ -410,8 +428,10 @@ public sealed class ShipPainter : EditorWindow
             if (GUILayout.Button("+45", EditorStyles.miniButtonMid)) _brushRot = 45f;
             if (GUILayout.Button("-45", EditorStyles.miniButtonMid)) _brushRot = -45f;
 
-            if (GUILayout.Button("기본크기", EditorStyles.miniButtonRight))
+            if (GUILayout.Button("기본크기", EditorStyles.miniButtonMid))
                 _brushSize = Vector2.zero;
+            if (GUILayout.Button("offset 0", EditorStyles.miniButtonRight))
+                _brushOffset = Vector2.zero;
         }
 
         if (_shapeMode)
@@ -466,7 +486,7 @@ public sealed class ShipPainter : EditorWindow
         HandleInput(local);
         HandleKeys();
 
-        HashSet<Vector2Int> exterior = Exterior();
+        HashSet<Vector2Int> exterior = RefreshFitCaches();
 
         if (!_gridOnly)
         {
@@ -509,15 +529,126 @@ public sealed class ShipPainter : EditorWindow
             DrawCell(cell, new Color(0.16f, 0.34f, 0.5f, 0.55f), local);
 
         foreach (KeyValuePair<Vector2Int, Placed> pair in _modules)
-        {
-            Rect r = CellRect(pair.Key);
-            r = new Rect(r.x + r.width * 0.22f, r.y + r.height * 0.22f, r.width * 0.56f, r.height * 0.56f);
+            DrawModule(pair.Key, pair.Value, local);
 
-            if (r.Overlaps(local))
-                EditorGUI.DrawRect(r, ModuleColour(pair.Value.def));
+        // 모듈 브러시의 미리보기. 놓기 전에 크기·방향·벽 안 여부가 보인다.
+        if (_brushIsModule && !string.IsNullOrEmpty(_brush) && local.Contains(Event.current.mousePosition))
+        {
+            Vector2Int under = CellAt(Event.current.mousePosition);
+
+            if (!_modules.ContainsKey(under))
+                DrawModule(under, ModuleBrush(), local, ghost: true);
         }
 
+        DrawModuleHover(local);
+
         GUI.EndClip();
+    }
+
+    private static GUIStyle _moduleLabel;
+    private static GUIStyle _hoverLabel;
+
+    /// <summary>
+    /// 모듈을 실제 콜라이더 상자(def 크기 + 배치 덮어쓰기 + offset, rot)로 그린다. 예전에는
+    /// 칸 한가운데 작은 사각형 하나라 3 m 포탑과 원자로가 같은 점으로 보였고, 벽 안에
+    /// 박힌 것도 안 보였다. 벽 안이면 붉게. 원점(회전축)은 작은 점, 이름은 칸 위에.
+    /// </summary>
+    private void DrawModule(Vector2Int cell, Placed placed, Rect clip, bool ghost = false)
+    {
+        Rect r = CellRect(cell);
+
+        ShipBuilder.ModuleBox(placed.def, placed.rot, placed.size, placed.offset, out Vector2 size, out Vector2 offset);
+
+        // 칸 중심 + 배 좌표 offset(y 뒤집어서). DrawPlate와 같은 규칙.
+        var centre = new Vector2(r.center.x + offset.x * _zoom, r.center.y - offset.y * _zoom);
+
+        var box = new Rect(
+            centre.x - size.x * _zoom * 0.5f,
+            centre.y - size.y * _zoom * 0.5f,
+            size.x * _zoom,
+            size.y * _zoom);
+
+        var reach = new Rect(
+            centre.x - size.magnitude * _zoom, centre.y - size.magnitude * _zoom,
+            size.magnitude * _zoom * 2f, size.magnitude * _zoom * 2f);
+
+        if (!reach.Overlaps(clip))
+            return;
+
+        Color c = ModuleColour(placed.def);
+        ModulePlacement.Result fit = FitOf(cell, placed);
+        bool buried = !fit.Allowed;
+        bool warn = fit.verdict == ModulePlacement.Verdict.Buried;
+
+        Color fill = buried ? new Color(1f, 0.25f, 0.2f, 0.45f)
+            : warn ? new Color(1f, 0.7f, 0.2f, 0.35f)
+            : new Color(c.r, c.g, c.b, 0.32f);
+        Color line = buried ? new Color(1f, 0.35f, 0.3f) : warn ? new Color(1f, 0.75f, 0.3f) : c;
+
+        if (ghost)
+        {
+            fill.a *= 0.5f;
+            line.a = 0.6f;
+        }
+
+        Matrix4x4 saved = GUI.matrix;
+        GUIUtility.RotateAroundPivot(-placed.rot, centre);
+
+        EditorGUI.DrawRect(box, fill);
+        EditorGUI.DrawRect(new Rect(box.x, box.y, box.width, 1f), line);
+        EditorGUI.DrawRect(new Rect(box.x, box.yMax - 1f, box.width, 1f), line);
+        EditorGUI.DrawRect(new Rect(box.x, box.y, 1f, box.height), line);
+        EditorGUI.DrawRect(new Rect(box.xMax - 1f, box.y, 1f, box.height), line);
+
+        GUI.matrix = saved;
+
+        // 원점 = 회전축 = 배치 칸. 상자가 offset으로 밀려 있어도 여기가 그 모듈의 자리다.
+        EditorGUI.DrawRect(
+            new Rect(r.x + r.width * 0.36f, r.y + r.height * 0.36f, r.width * 0.28f, r.height * 0.28f), c);
+
+        if (_zoom < 14f || ghost)
+            return;
+
+        _moduleLabel ??= new GUIStyle(EditorStyles.miniBoldLabel)
+        {
+            alignment = TextAnchor.MiddleCenter,
+            normal = { textColor = Color.white },
+        };
+
+        GUI.Label(new Rect(r.center.x - 60f, r.y - 15f, 120f, 14f), placed.def, _moduleLabel);
+    }
+
+    /// <summary>마우스 아래 모듈의 정보 한 줄. 이름·자리·크기·각도·마운트·벽 안 칸 수.</summary>
+    private void DrawModuleHover(Rect clip)
+    {
+        Vector2 mouse = Event.current.mousePosition;
+
+        if (!clip.Contains(mouse))
+            return;
+
+        Vector2Int cell = CellAt(mouse);
+
+        if (!_modules.TryGetValue(cell, out Placed placed))
+            return;
+
+        ShipBuilder.ModuleBox(placed.def, placed.rot, placed.size, placed.offset, out Vector2 size, out _);
+        ModulePlacement.Result fit = FitOf(cell, placed);
+        string mount = fit.hasMount ? $"({fit.mount.x},{fit.mount.y})" : "없음";
+
+        string text =
+            $"{placed.def}  원점 ({cell.x},{cell.y})  자리 ({fit.cell.x},{fit.cell.y})  {size.x:0.#}×{size.y:0.#} m  rot {placed.rot:0}°  마운트 {mount}" +
+            (fit.verdict == ModulePlacement.Verdict.Ok ? "" : $"  <!> {fit.detail}");
+
+        _hoverLabel ??= new GUIStyle(EditorStyles.miniLabel) { normal = { textColor = Color.white } };
+
+        Vector2 sz = _hoverLabel.CalcSize(new GUIContent(text));
+        var bg = new Rect(
+            Mathf.Min(mouse.x + 14f, clip.width - sz.x - 8f),
+            Mathf.Max(mouse.y - sz.y - 10f, 0f),
+            sz.x + 8f, sz.y + 4f);
+
+        EditorGUI.DrawRect(bg, new Color(0.05f, 0.05f, 0.07f, 0.92f));
+        GUI.Label(new Rect(bg.x + 4f, bg.y + 2f, sz.x, sz.y), text, _hoverLabel);
     }
 
     private void DrawCell(Vector2Int cell, Color colour, Rect clip)
@@ -814,7 +945,7 @@ public sealed class ShipPainter : EditorWindow
     /// </summary>
     private void DrawSelection(Rect clip)
     {
-        if (_selected == null || !_plates.ContainsKey(_selected.Value))
+        if (SelectedStore == null)
             return;
 
         Rect r = CellRect(_selected.Value);
@@ -822,7 +953,7 @@ public sealed class ShipPainter : EditorWindow
         if (!r.Overlaps(clip))
             return;
 
-        bool over = IsOverhanging(_plates[_selected.Value]);
+        bool over = _plates.ContainsKey(_selected.Value) && IsOverhanging(_plates[_selected.Value]);
         Color c = over ? new Color(1f, 0.3f, 0.25f) : new Color(1f, 0.85f, 0.2f);
 
         const float t = 2f;
@@ -878,6 +1009,42 @@ public sealed class ShipPainter : EditorWindow
             return;
 
         Vector2Int cell = CellAt(point);
+
+        // **Ctrl+클릭은 선의 시작점만 옮긴다.** 칠하지도 지우지도 않는다.
+        //
+        // 없으면 선 도구가 한붓 그리기가 된다 - _selected가 늘 마지막 선의 끝이라
+        // **거기서만** 이어 그을 수 있고, 다른 자리에서 가지를 치려면 그 칸을 한 번
+        // 칠해서(= 원치 않는 판을 놓아서) 선택을 옮겨야 했다. Alt 스포이드로도 옮겨지는데
+        // 그건 판이 이미 있어야 하고 브러시까지 통째로 바꾼다.
+        //
+        // 시작점을 손으로 정했으니 _jointCell도 여기로 옮긴다. 안 옮기면 직전 선의 끝이
+        // 다리 후보로 남아, 엉뚱한 칸에서 이음매가 굽는다.
+        if (paint && !_shapeMode && (e.control || e.command) && e.type == EventType.MouseDown)
+        {
+            _selected = cell;
+            // **직전 선의 끝이 아니면 다리를 포기한다.** _jointDir/_jointSpan은 그 선의
+            // 값이라, 몇 줄 전에 끝난 칸을 시작점으로 고르면 엉뚱한 방향으로 이음매가
+            // 굽는다. 다리를 못 놓는 것은 안 보이고, 틀린 다리는 보인다.
+            _jointCell = _jointCell == cell ? cell : null;
+            _chainStart = null;
+
+            _status = _plates.ContainsKey(cell)
+                ? $"시작점 {cell.x},{cell.y}. Shift+클릭으로 여기서 이어라."
+                : $"시작점 {cell.x},{cell.y} (빈 칸). Shift+클릭하면 근처 판에 붙는다.";
+
+            GUI.FocusControl(null);
+            e.Use();
+            Repaint();
+            return;
+        }
+
+        // Ctrl이 눌린 왼쪽 버튼은 위에서 끝났다. 삼키지 않으면 MouseDrag가 아래 칠하기로
+        // 흘러가서 시작점을 찍자마자 그 자리에 판이 생긴다 - Shift와 같은 함정이다.
+        if (!_shapeMode && (e.control || e.command) && e.button == 0)
+        {
+            e.Use();
+            return;
+        }
 
         // Alt+클릭은 스포이드다. 안 칠하고, 그 판의 값을 브러시로 빨아들이고 선택한다.
         // destroyer처럼 판마다 offset이 다른 배는 "옆 판과 비슷하게"가 작업의 대부분이라,
@@ -970,6 +1137,11 @@ public sealed class ShipPainter : EditorWindow
 
         if (erase)
         {
+            // 누른 자리에 모듈이 있으면 이 드래그는 모듈만 지운다. 안 그러면 드래그가 같은
+            // 칸을 두 번 지나며 모듈 다음에 판까지 지운다.
+            if (e.type == EventType.MouseDown)
+                _eraseModulesOnly = _modules.ContainsKey(cell);
+
             Erase(cell);
 
             if (_mirror)
@@ -977,10 +1149,22 @@ public sealed class ShipPainter : EditorWindow
         }
         else if (_brushIsModule)
         {
-            _modules[cell] = Tidy(new Placed(_brush, _brushRot, _brushSize, _brushOffset));
+            // 판에 파묻히거나, 다른 모듈과 겹치거나, 우주에 뜨면 못 놓는다. 런타임은 아직 경고만.
+            ModulePlacement.Result fit = FitOf(cell, ModuleBrush());
+
+            if (!fit.Allowed)
+            {
+                _status = $"({cell.x},{cell.y})에 {_brush} 못 놓는다 - {fit.detail}";
+                return;
+            }
+
+            if (fit.verdict == ModulePlacement.Verdict.Buried)
+                _status = $"({cell.x},{cell.y}) {_brush}: {fit.detail}";
+
+            _modules[cell] = Tidy(ModuleBrush());
 
             if (_mirror)
-                _modules[Across(cell)] = Tidy(Mirrored(new Placed(_brush, _brushRot, _brushSize, _brushOffset)));
+                _modules[Across(cell)] = Tidy(Mirrored(ModuleBrush()));
         }
         else
         {
@@ -1045,7 +1229,9 @@ public sealed class ShipPainter : EditorWindow
                 shape[i] = new Vector2(p.shape[i].x, -p.shape[i].y);
         }
 
-        return new Placed(p.def, -p.rot, p.size, new Vector2(p.offset.x, -p.offset.y), shape);
+        Vector2 defOffset = DefDatabase.Get(p.def)?.collider?.offset ?? Vector2.zero;
+
+        return new Placed(p.def, -p.rot, p.size, ModulePlacement.MirrorOffset(defOffset, p.rot, p.offset), shape);
     }
 
     private static Vector2 ScreenNudgeToShip(Vector2 screen) => new(screen.x, -screen.y);
@@ -1218,10 +1404,25 @@ public sealed class ShipPainter : EditorWindow
             if (e.keyCode == KeyCode.Y) { Step(_redo, _undo); e.Use(); return; }
         }
 
+        // Q/E: 브러시 90도 회전(Shift면 45). 모듈은 배치 rot이 곧 마운트 방향이라
+        // (0 앞, 90 위, -90 아래) 놓기 전에 돌려야 한다. 판 브러시에도 같은 키.
+        if (e.keyCode == KeyCode.Q || e.keyCode == KeyCode.E)
+        {
+            float degrees = e.shift ? 45f : 90f;
+            float next = _brushRot + (e.keyCode == KeyCode.Q ? degrees : -degrees);
+            _brushRot = Mathf.Repeat(next + 180f, 360f) - 180f;
+            _status = $"브러시 {_brushRot:0.#}도  (Q 반시계 / E 시계, Shift = 45도)";
+            e.Use();
+            Repaint();
+            return;
+        }
+
         if (_selected == null)
             return;
 
-        if (!_plates.TryGetValue(_selected.Value, out Placed p))
+        Dictionary<Vector2Int, Placed> store = SelectedStore;
+
+        if (store == null || !store.TryGetValue(_selected.Value, out Placed p))
             return;
 
         bool size = e.shift;
@@ -1290,7 +1491,7 @@ public sealed class ShipPainter : EditorWindow
         }
 
         p = Tidy(p, step);
-        _plates[_selected.Value] = p;
+        store[_selected.Value] = p;
 
         // 짝도 같이 움직인다. 안 그러면 한쪽만 다듬고 반대쪽이 옛날 각도로 남는데,
         // 대칭인 배는 그게 눈에 잘 안 띈다.
@@ -1298,8 +1499,8 @@ public sealed class ShipPainter : EditorWindow
         {
             Vector2Int other = Across(_selected.Value);
 
-            if (other != _selected.Value && _plates.ContainsKey(other))
-                _plates[other] = Mirrored(p);
+            if (other != _selected.Value && store.ContainsKey(other))
+                store[other] = Mirrored(p);
         }
 
         // 브러시도 따라간다. 같은 각도·같은 자리로 옆 칸을 이어 찍는 것이 실제 작업
@@ -1845,7 +2046,20 @@ public sealed class ShipPainter : EditorWindow
         Push();
 
         Vector2Int cell = _editCell.Value;
-        _plates[cell] = FromGridPolygon(_editPoints.ToArray(), _editPoints.Count, cell);
+        Placed put = FromGridPolygon(_editPoints.ToArray(), _editPoints.Count, cell);
+
+        _plates[cell] = put;
+
+        // **CommitShape와 같은 규칙이다.** 새로 그리기에는 있는데 모양 수정에만 없어서,
+        // 대칭을 켜고 점을 옮기면 반대쪽 판이 옛 모양 그대로 남았다. 판을 놓는 자리는
+        // 전부 이 세 줄을 갖는다(Paint, 선 긋기, CommitShape).
+        if (_mirror)
+        {
+            Vector2Int other = Across(cell);
+
+            if (other != cell)
+                _plates[other] = Mirrored(put);
+        }
 
         _selected = cell;
         _status = $"({cell.x},{cell.y}) 모양 저장. 점 {_editPoints.Count}개.";
@@ -1950,9 +2164,19 @@ public sealed class ShipPainter : EditorWindow
         _plates[cell] = put;
     }
 
+    /// <summary>
+    /// 모듈이 있으면 모듈만 지운다. 판까지 같이 지우면 포탑 하나 빼려다 갑판에 구멍이 난다 -
+    /// 판을 지우려면 한 번 더 누른다.
+    /// </summary>
+    private bool _eraseModulesOnly;
+
     private void Erase(Vector2Int cell)
     {
         _modules.Remove(cell);
+
+        if (_eraseModulesOnly)
+            return;
+
         _plates.Remove(cell);
 
         if (_selected == cell)
@@ -2076,12 +2300,75 @@ public sealed class ShipPainter : EditorWindow
     /// 모듈이 얹힐 판. 자기 칸에 판이 있으면 그것, 없으면 4방향 이웃 중 첫 판이다.
     /// 없으면 false - 그런 모듈은 배를 지을 때 조용히 안 생긴다.
     /// </summary>
+    /// <summary>마지막 캔버스 그리기 때의 실내 칸. 그리기가 한 번 돌아야 채워진다 - 한 프레임 늦는 것은 무해하다.</summary>
+    private readonly HashSet<Vector2Int> _interiorCache = new();
+
+    /// <summary>지금 브러시로 놓을 모듈. offset은 자유값이다 - 격자에 맞추는 것은 없다.</summary>
+    private Placed ModuleBrush() => new(_brush, _brushRot, _brushSize, _brushOffset);
+
+    private readonly List<ModulePlacement.Plate> _platePolys = new();
+    private readonly List<ModulePlacement.Other> _modulePolys = new();
+
+    /// <summary>
+    /// FitOf가 읽는 실내 칸·판 폴리곤·모듈 폴리곤을 지금 상태로. 캔버스 그리기와 Validate
+    /// 둘 다 여기서 시작한다 - 불러온 직후 Validate가 지난 배의 캐시로 판정해서 페인터는
+    /// 조용한데 런타임만 경고하던 것이 그 때문이다.
+    /// </summary>
+    private HashSet<Vector2Int> RefreshFitCaches()
+    {
+        HashSet<Vector2Int> exterior = Exterior();
+
+        _interiorCache.Clear();
+        _interiorCache.UnionWith(Interior(exterior));
+
+        _platePolys.Clear();
+
+        foreach (KeyValuePair<Vector2Int, Placed> pair in _plates)
+        {
+            Placed p = pair.Value;
+            Vector2[] poly = ModulePlacement.PlatePolygon(pair.Key, p.def, p.rot, p.size, p.offset, p.shape);
+            _platePolys.Add(new ModulePlacement.Plate { cell = pair.Key, poly = poly, area = Mathf.Abs(Ballistics.PolygonArea(poly)) });
+        }
+
+        _modulePolys.Clear();
+
+        foreach (KeyValuePair<Vector2Int, Placed> pair in _modules)
+        {
+            Placed p = pair.Value;
+            _modulePolys.Add(new ModulePlacement.Other
+            {
+                origin = pair.Key,
+                poly = ModulePlacement.ModulePolygon(pair.Key, p.def, p.rot, p.size, p.offset, out _, out _),
+            });
+        }
+
+        return exterior;
+    }
+
+    /// <summary>이 모듈이 이 원점에 설 수 있나. 판정은 ModulePlacement.Evaluate 하나다 - 런타임과 같다.</summary>
+    private ModulePlacement.Result FitOf(Vector2Int origin, Placed placed)
+        => ModulePlacement.Evaluate(
+            placed.def, origin, placed.rot, placed.size, placed.offset,
+            c => _plates.ContainsKey(c) || _interiorCache.Contains(c),
+            _platePolys, _modulePolys);
+
+    /// <summary>
+    /// 모듈이 얹힐 판. 자기 칸에 판이 있으면 그것, 모듈이면 덮인 넓이가 제일 큰 판(FitOf),
+    /// 둘 다 아니면 4방향 이웃 중 첫 판(모양 도구가 쓴다).
+    /// </summary>
     private bool MountFor(Vector2Int cell, out Vector2Int mount)
     {
         if (_plates.ContainsKey(cell))
         {
             mount = cell;
             return true;
+        }
+
+        if (_modules.TryGetValue(cell, out Placed under))
+        {
+            ModulePlacement.Result fit = FitOf(cell, under);
+            mount = fit.mount;
+            return fit.hasMount;
         }
 
         foreach (Vector2Int dir in new[] { Vector2Int.down, Vector2Int.up, Vector2Int.right, Vector2Int.left })
@@ -2102,16 +2389,22 @@ public sealed class ShipPainter : EditorWindow
         if (_plates.Count == 0)
             return "판이 하나도 없다.";
 
-        HashSet<Vector2Int> exterior = Exterior();
+        HashSet<Vector2Int> exterior = RefreshFitCaches();
         int inside = Interior(exterior).Count;
 
-        int orphan = 0;
+        var floating = new List<Vector2Int>();
         bool reactor = false, engine = false;
+
+        int buried = 0;
 
         foreach (KeyValuePair<Vector2Int, Placed> pair in _modules)
         {
-            if (!MountFor(pair.Key, out _))
-                orphan++;
+            ModulePlacement.Result fit = FitOf(pair.Key, pair.Value);
+
+            if (!fit.Allowed)
+                floating.Add(pair.Key);
+            else if (fit.verdict == ModulePlacement.Verdict.Buried)
+                buried++;
 
             if (pair.Value.def == "Reactor") reactor = true;
             if (pair.Value.def == "SuperDuper Engine") engine = true;
@@ -2132,7 +2425,8 @@ public sealed class ShipPainter : EditorWindow
             notes.Add($"<!> 칸을 1칸 넘게 벗어난 판 {spill.Count}개: {Cells(spill)}");
 
         if (inside == 0) notes.Add("<!> 밀폐 안 됨 - 공기가 없다");
-        if (orphan > 0) notes.Add($"<!> 붙을 판이 없는 모듈 {orphan}개");
+        if (floating.Count > 0) notes.Add($"<!> 자리가 안 맞는 모듈 {floating.Count}개: {Cells(floating)}");
+        if (buried > 0) notes.Add($"배 안에 묻힌 포·엔진 {buried}개(관통 전엔 안 맞음)");
         if (!reactor) notes.Add("<!> 원자로 없음 - 조타·조준이 멈춘다");
         if (!engine) notes.Add("<!> 엔진 없음");
 
@@ -2234,13 +2528,16 @@ public sealed class ShipPainter : EditorWindow
             return;
         }
 
-        ShipDef def = ShipDef.Load(_shipName);
+        // 그림 규격 검사는 끄고 연다. 안 맞는 건 상태줄로만 - 여기서 판을 고쳐 맞추는 것이니까.
+        ShipDef def = ShipDef.Load(_shipName, checkSkin: false);
 
         if (def == null)
         {
             _status = "읽기 실패. 콘솔을 봐라.";
             return;
         }
+
+        string skinNote = ShipDef.SkinProblem(def) is string bad ? $"  <!> 그림 '{def.hullSkin}': {bad}" : "";
 
         _plates.Clear();
         _modules.Clear();
@@ -2260,7 +2557,7 @@ public sealed class ShipPainter : EditorWindow
                 _modules[cell] = placed;
         }
 
-        _status = Validate();
+        _status = Validate() + skinNote;
         Repaint();
     }
 
@@ -2285,15 +2582,12 @@ public sealed class ShipPainter : EditorWindow
         foreach (KeyValuePair<Vector2Int, Placed> pair in _plates)
             Append(body, ref first, pair.Value, pair.Key, new Vector2Int(-1, -1));
 
-        int orphan = 0;
-
         foreach (KeyValuePair<Vector2Int, Placed> pair in _modules)
         {
+            // 붙을 판이 없어도 내보낸다(mount -1). 후면 위 모듈은 선체 직속이 정상이다 -
+            // 예전에는 여기서 빠져서 방 한가운데 원자로가 JSON에 안 나갔다.
             if (!MountFor(pair.Key, out Vector2Int mount))
-            {
-                orphan++;
-                continue;
-            }
+                mount = new Vector2Int(-1, -1);
 
             Append(body, ref first, pair.Value, pair.Key, mount);
         }
@@ -2317,7 +2611,6 @@ public sealed class ShipPainter : EditorWindow
         AssetDatabase.Refresh();
 
         _status = $"{path}에 썼다. {Validate()}"
-                + (orphan > 0 ? $"  (붙을 판이 없어 뺀 모듈 {orphan}개)" : "")
                 + RoundTrip();
     }
 
@@ -2540,7 +2833,9 @@ public sealed class ShipPainter : EditorWindow
         texture.SetPixels32(pixels);
         texture.Apply(false);
 
-        string path = Path.Combine(ShipDef.DirectoryPath, $"{_shipName}_template.png");
+        string dir = Path.Combine(Application.dataPath, "Art", "Templates~", "Ships");   // ~ = Unity가 임포트 안 함
+        Directory.CreateDirectory(dir);
+        string path = Path.Combine(dir, $"{_shipName}_template.png");
         File.WriteAllBytes(path, texture.EncodeToPNG());
         DestroyImmediate(texture);
         AssetDatabase.Refresh();

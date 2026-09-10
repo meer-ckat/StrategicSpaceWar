@@ -41,8 +41,18 @@ public abstract partial class Projectile
             float energy = 0.5f * mass * speed * speed;
             float taken = energy * Ballistics.ModuleHitFraction;
 
+            // **죽기 전인지를 때리기 전에 물어야 한다.** 뒤에 물으면 이미 죽은 포탑을
+            // 매 틱 "방금 죽었다"고 적는다 - TakeDamage가 0에서 멈추기만 할 뿐 명중을
+            // 막지는 않기 때문이다. 시체를 긁는 것은 소식이 아니라 소음이다.
+            bool wasDead = target.Neutralized;
+
             target.TakeDamage(taken * Ballistics.DamageScale);
-            DamageLog.Hit(col.transform, taken * Ballistics.DamageScale, target);
+
+            if (!wasDead)
+            {
+                HitReadout.Module(
+                    col.transform.name, target.Neutralized, col.attachedRigidbody, _ownerRigidbody);
+            }
 
             // 놓고 간 에너지만큼 느려진다. 속도를 직접 깎지 않고 에너지에서 되돌리는 이유는,
             // 관통력이 speed^1.43이라 여기서 대충 빼면 뒤쪽 장갑 판정이 통째로 어긋나서다.
@@ -116,6 +126,9 @@ public abstract partial class Projectile
 
         float share = r.armorDamage / _surfaces.count;
 
+        // 화면에만 쓴다. 앞판을 뚫고도 뒷벽이 세웠다면 "관통"만 띄우는 것이 거짓말이다.
+        bool rearHeld = false;
+
         for (int i = 0; i < _surfaces.count; i++)
         {
             Armor armor = _surfaces.armor[i];
@@ -145,9 +158,13 @@ public abstract partial class Projectile
             // 앞판을 뚫었으면 그 자리 뒷벽까지 본다. 후면은 콜라이더가 없어서 위
             // 레이캐스트에 절대 안 잡히므로, 관통이 확정된 이 자리에서 직접 물어야 한다.
             if (r.outcome == HitOutcome.Penetrated)
-                HullStructure.PunchRear(_surfaces.hitPoint, dir, r.penetrationAfter, share);
-            DamageLog.Hit(armor, _surfaces.hitPoint, _surfaces.subIndex[i], r.outcome);
+                rearHeld |= HullStructure.PunchRear(_surfaces.hitPoint, dir, r.penetrationAfter, share);
+            DamageLog.Hit(armor, r.outcome);
         }
+
+        // 소리와 나란한 자리인데 한 발 늦다 - 뒷벽 판정이 위 루프 안에서 나서, 그 답까지
+        // 들고 나서야 화면에 적을 문장 하나가 정해진다. 누가 플레이어인지는 저쪽 몫이다.
+        HitReadout.Hit(r.outcome, r.newState, rearHeld, targetBody, _ownerRigidbody);
 
         // Snapshot for the readout after the channel is final, not before.
         for (int i = 0; i < PenetrationManager.LastChannel.Length; i++)

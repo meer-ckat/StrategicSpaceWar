@@ -1,0 +1,13 @@
+{
+  "defName": "trial-03",
+  "lines": [
+    { "message": "<color=grey>해역 셋.</color> 열원이 하나 큽니다. 아주 큽니다.", "author": "통신", "duration": 5, "intensity": 0.7, "wait": 2.5,
+      "cue": [ { "act": "camera", "x": 1.2, "y": 1.4 } ] },
+    { "message": "항공모함입니다. 격납고 여섯, 전부 개방 상태.", "author": "전술", "duration": 5, "intensity": 1.2 },
+    { "message": "<color=red>소형기 사출 확인.</color> 계속 나옵니다.", "author": "전술", "duration": 4, "intensity": 1.5, "wait": 1 },
+    { "message": "한 대는 6미터입니다. 주포로는 못 맞힙니다.", "author": "포술", "duration": 4.5, "intensity": 1.2 },
+    { "message": "주포로 맞히지 마라. 근접방어에 맡기고 모함만 봐라.", "author": "함장", "duration": 5, "intensity": 1.3, "wait": 2 },
+    { "message": "<color=yellow>CIWS 자동교전.</color> 손대지 마십시오, 알아서 씁니다.", "author": "포술", "duration": 4.5, "intensity": 1.4,
+      "cue": [ { "act": "camera", "x": 0.4, "y": 0.6 }, { "act": "endCut" } ] }
+  ]
+}

@@ -16,8 +16,8 @@
     }
   },
   "maxHealth": 100,
-  "MaxPower": 100,
-  "MaxReversePower": 100,
+  "MaxPower": 350,
+  "MaxReversePower": 350,
   "tint": {
     "r": 0.5,
     "g": 0.5,

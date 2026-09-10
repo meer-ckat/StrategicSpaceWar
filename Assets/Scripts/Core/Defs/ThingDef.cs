@@ -33,6 +33,17 @@ public class ThingDef
     public string layer;
     public bool sealsRoom = true;
 
+    /// <summary>
+    /// 격자에서 차지하는 칸 수. 0이면 격자를 안 차지한다(포탑·엔진 같은 보통 모듈).
+    ///
+    /// **collider.size를 재사용하지 않는다.** 격자와 콜라이더는 다른 층이라는 규칙이
+    /// 여기서 지켜져야 한다 - 경사장갑 때문에 콜라이더를 키운 판이 방 구획을 바꾸면
+    /// 안 된다. 격자를 차지할지는 설계자가 따로 적는다.
+    ///
+    /// 판(Armor)은 이 값을 안 본다. 판은 언제나 1칸이고, 그 규칙이 격자 전체의 전제다.
+    /// </summary>
+    public Vector2Int gridSize;
+
     public ColliderDef collider = new();
 
     [Serializable]

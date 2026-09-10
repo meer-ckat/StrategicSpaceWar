@@ -1,0 +1,163 @@
+{
+  "defName": "sector-01",
+  "lines": [
+    {
+      "message": "워프 완료. 기관, 현재 좌표 대조해.",
+      "author": "함장",
+      "duration": 4,
+      "intensity": 0.65,
+      "wait": 2.5,
+      "style": "crew",
+      "cue": [
+        { "act": "hold", "name": "player" },
+        { "act": "moveTo", "name": "player", "at": "player" },
+        { "act": "face", "name": "player", "x": 0 },
+        { "act": "spawn", "name": "원거리 접촉", "ship": "newship", "team": "Enemy", "at": "player", "x": 1000, "y": 80, "facing": -1 },
+        { "act": "hold", "name": "원거리 접촉" },
+        { "act": "camera", "x": 0.3, "y": 0.5 },
+        { "act": "look", "name": "player", "size": 60 }
+      ]
+    },
+    {
+      "message": "좌표 일치. 제1구역입니다. 추진계 정상, 워프 잔열 배출 중.",
+      "author": "기관",
+      "duration": 4,
+      "intensity": 0.65,
+      "wait": 2.5,
+      "style": "crew"
+    },
+    {
+      "message": "포탑 구동 정상. 급탄 확인. 사격통제 이상 없습니다.",
+      "author": "포술",
+      "duration": 4,
+      "intensity": 0.65,
+      "wait": 2.5,
+      "style": "crew",
+      "cue": [
+        { "act": "aimAt", "name": "player", "at": "원거리 접촉" }
+      ]
+    },
+    {
+      "message": "아트리아 관제다. 워프 이탈 확인. 제1구역 작전 상황 전달한다.",
+      "author": "아트리아 관제",
+      "duration": 5,
+      "intensity": 0.65,
+      "wait": 3.5,
+      "style": "control",
+      "cue": [
+        { "act": "camera", "x": 1.2, "y": 1.2 },
+        { "act": "look", "name": "player", "size": 60 }
+      ]
+    },
+    {
+      "message": "감시초소 17이 응답을 멈췄다. 인근에 미식별 무장 함선이 포착됐다.",
+      "author": "아트리아 관제",
+      "duration": 6,
+      "intensity": 1.2,
+      "wait": 1.6,
+      "style": "control",
+      "cue": [
+        { "act": "camera", "x": 0.6, "y": 0.8 },
+        { "act": "look", "name": "원거리 접촉", "size": 55 }
+      ]
+    },
+    {
+      "message": "",
+      "author": "",
+      "wait": 1.0,
+      "cue": [
+        { "act": "spawn", "name": "접촉 2", "ship": "scout", "team": "Enemy", "at": "원거리 접촉", "x": 320, "y": 70, "facing": -1 },
+        { "act": "hold", "name": "접촉 2" },
+        { "act": "moveTo", "name": "접촉 2", "at": "원거리 접촉", "x": 60, "y": 70 },
+        { "act": "boost", "name": "접촉 2" }
+      ]
+    },
+    {
+      "message": "",
+      "author": "",
+      "wait": 1.6,
+      "cue": [
+        { "act": "spawn", "name": "접촉 3", "ship": "dart", "team": "Enemy", "at": "원거리 접촉", "x": 340, "y": -60, "facing": -1 },
+        { "act": "hold", "name": "접촉 3" },
+        { "act": "moveTo", "name": "접촉 3", "at": "원거리 접촉", "x": 70, "y": -60 },
+        { "act": "boost", "name": "접촉 3" }
+      ]
+    },
+    {
+      "message": "목표는 <color=yellow>초소 접근로의 적성 함선 격파 및 구역 확보.</color> 초소 수색은 확보 후 실시한다.",
+      "author": "아트리아 관제",
+      "duration": 6,
+      "intensity": 0.65,
+      "wait": 4,
+      "style": "control",
+      "cue": [
+        { "act": "unboost", "name": "접촉 2" },
+        { "act": "unboost", "name": "접촉 3" }
+      ]
+    },
+    {
+      "message": "수신. 접근로부터 확보하겠다.",
+      "author": "함장",
+      "duration": 4,
+      "intensity": 0.65,
+      "wait": 2.5,
+      "style": "crew",
+      "cue": [
+        { "act": "camera", "x": 1.5, "y": 1.5 },
+        { "act": "look", "name": "player", "size": 60 }
+      ]
+    },
+    {
+      "message": "이번 워프는 덜 흔들렸습니다. 커피가 반이나 남았습니다.",
+      "author": "조타",
+      "duration": 4,
+      "intensity": 0.65,
+      "wait": 2,
+      "style": "crew"
+    },
+    {
+      "message": "나머지 반은 어디 갔나.",
+      "author": "함장",
+      "duration": 4,
+      "intensity": 0.65,
+      "wait": 1.5,
+      "style": "crew"
+    },
+    {
+      "message": "기관입니다. 알 것 같습니다.",
+      "author": "기관",
+      "duration": 4,
+      "intensity": 0.65,
+      "wait": 1.5,
+      "style": "crew"
+    },
+    {
+      "message": "청구는 나중에 해. 전 부서, <color=yellow>전투 배치.</color> 조타, 진입해.",
+      "author": "함장",
+      "duration": 6,
+      "intensity": 1.4,
+      "wait": 2.5,
+      "style": "crew",
+      "cue": [
+        { "act": "despawn", "name": "player" },
+        { "act": "engage" },
+        { "act": "camera", "x": 0.2, "y": 0.3 },
+        { "act": "look" },
+        { "act": "moveTo", "name": "원거리 접촉", "at": "원거리 접촉", "x": 2500, "y": 0 },
+        { "act": "boost", "name": "원거리 접촉" },
+        { "act": "moveTo", "name": "접촉 2", "at": "접촉 2", "x": 2500, "y": 0 },
+        { "act": "boost", "name": "접촉 2" },
+        { "act": "moveTo", "name": "접촉 3", "at": "접촉 3", "x": 2500, "y": 0 },
+        { "act": "boost", "name": "접촉 3" }
+      ]
+    },
+    {
+      "message": "",
+      "author": "",
+      "wait": 0,
+      "cue": [
+        { "act": "endCut" }
+      ]
+    }
+  ]
+}

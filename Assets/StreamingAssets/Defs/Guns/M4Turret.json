@@ -1,0 +1,26 @@
+{
+  "defName": "m4",
+  "thingClass": "Gun",
+  "comps": [
+    "SolidSkin"
+  ],
+  "layer": "Module",
+  "collider": {
+    "size": { "x": 0.9, "y": 1.1 },
+    "offset": { "x": 0, "y": 0 }
+  },
+  "projectile": "22mm",
+  "muzzleSpeed": 1400,
+  "muzzleVfx": "MuzzleFlash",
+  "muzzleFirePower": 0.08,
+  "muzzleColor": { "r": 1, "g": 0.78, "b": 0.42, "a": 1 },
+  "roundsPerMinute": 500,
+  "aim": 0,
+  "slewRate": 60,
+  "fireArc": 1.0,
+  "traverse": 170,
+  "muzzleOffset": 1.4,
+  "friendlyCheckRange": 120,
+  "maxHealth": 120,
+  "tint": { "r": 0.72, "g": 0.86, "b": 0.92, "a": 1 }
+}

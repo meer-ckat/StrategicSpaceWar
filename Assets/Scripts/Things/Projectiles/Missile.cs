@@ -42,40 +42,7 @@ public class Missile : Projectile
         // Launch를 먼저 부르는데(자동 리제로), 그 호출에서 owner.transform을 읽으면
         // 모든 FireAndForget 미사일이 스폰 즉시 NRE로 죽는다.
         if (FireAndForget && target == null && owner != null)
-        {
-            Ship shooter = owner.GetComponent<Ship>();   // 루프 밖에서 한 번만
-            float best = float.MaxValue;
-
-            foreach (Ship ship in Ship.All)
-            {
-                if (ship == null || ship.Rig == null || ship.Rig == owner)
-                    continue;
-
-                // 팀 비교가 아니라 IsHostileTo다 - 그쪽이 중립(운석)과 시체
-                // (IsCombatEffective)까지 같이 거른다. 술어를 손으로 다시 적으면
-                // NearestHostile과 갈라지고, 증상은 "미사일만 시체를 쫓는다"다.
-                // shooter가 없는 것은 사격장 거치대뿐이라 예전처럼 아무나 문다.
-                if (shooter != null && !shooter.IsHostileTo(ship))
-                    continue;
-
-                Vector2 to = (Vector2)ship.transform.position - (Vector2)transform.position;
-
-                // 발사 방향 앞쪽 원뿔(내적 > MissDot, 약 ±78도)만. **up 기준이다** -
-                // 2D에서 forward는 화면 안쪽(+z)이라 내적이 항상 0에 붙어 아무나 잡힌다.
-                // direction이 곧 발사 방향이라 스폰 회전에 안 기댄다.
-                if (Vector2.Dot(direction.normalized, to.normalized) <= MissDot)
-                    continue;
-
-                // 원뿔 안에서 가장 가까운 것. 목록 순서로 끊으면 뒤 배가 앞 배를 가린다.
-                float d = to.sqrMagnitude;
-
-                if (d < best)
-                {
-                    best = d;
-                    target = ship.transform;
-                }
-            }
-        }
+            target = PickForward(transform.position, direction, owner);
         // 발사대의 잠금 캐시가 6틱 낡을 수 있어서(Launcher.AcquireInterval) 이미
         // 파괴된 배의 Transform이 여기 올 수 있다. 가짜 null을 진짜 null로 접어야
         // OnTick이 그것을 "잃은 표적"으로 읽고 신관을 태운다.
@@ -84,6 +51,59 @@ public class Missile : Projectile
 
         _hadTarget = target != null;
         base.Launch(direction, speed + inherited.magnitude, default, owner, target);
+    }
+
+    /// <summary>
+    /// FireAndForget이 발사 순간 무엇을 물지. 발사 방향 앞쪽 원뿔(내적 > <see cref="MissDot"/>,
+    /// 약 ±78도) 안에서 제일 가까운 적함이다.
+    ///
+    /// <c>static</c>이고 미사일 자신을 안 읽는 이유는 **발사대가 쏘기 전에 같은 답을 물어야
+    /// 해서다** - HUD의 잠금 십자가 이 함수를 부른다. 예측과 실제가 두 벌이면 십자가 가리킨
+    /// 것과 미사일이 무는 것이 언젠가 갈라지고, 증상은 "가끔 엉뚱한 데로 간다"뿐이다.
+    /// <c>Gun.MuzzleShot</c>을 검사와 발사가 나눠 쓰는 것과 같은 규칙.
+    ///
+    /// OverlapCircle이 아니라 Ship.All 훑기라 매 틱 불러도 싼 것이 요점이다 -
+    /// <c>Launcher.Acquire</c>의 400m 원과 다르다.
+    /// </summary>
+    public static Transform PickForward(Vector2 from, Vector2 direction, Rigidbody2D owner)
+    {
+        Ship shooter = owner != null ? owner.GetComponent<Ship>() : null;  // 루프 밖에서 한 번만
+        Transform target = null;
+        float best = float.MaxValue;
+
+        Vector2 heading = direction.normalized;
+
+        foreach (Ship ship in Ship.All)
+        {
+            if (ship == null || ship.Rig == null || ship.Rig == owner)
+                continue;
+
+            // 팀 비교가 아니라 IsHostileTo다 - 그쪽이 중립(운석)과 시체
+            // (IsCombatEffective)까지 같이 거른다. 술어를 손으로 다시 적으면
+            // NearestHostile과 갈라지고, 증상은 "미사일만 시체를 쫓는다"다.
+            // shooter가 없는 것은 사격장 거치대뿐이라 예전처럼 아무나 문다.
+            if (shooter != null && !shooter.IsHostileTo(ship))
+                continue;
+
+            Vector2 to = (Vector2)ship.transform.position - from;
+
+            // 발사 방향 앞쪽 원뿔만. **up 기준이다** - 2D에서 forward는 화면 안쪽(+z)이라
+            // 내적이 항상 0에 붙어 아무나 잡힌다. direction이 곧 발사 방향이라 스폰 회전에
+            // 안 기댄다.
+            if (Vector2.Dot(heading, to.normalized) <= MissDot)
+                continue;
+
+            // 원뿔 안에서 가장 가까운 것. 목록 순서로 끊으면 뒤 배가 앞 배를 가린다.
+            float d = to.sqrMagnitude;
+
+            if (d < best)
+            {
+                best = d;
+                target = ship.transform;
+            }
+        }
+
+        return target;
     }
 
     /// <summary>표적을 받은 적이 있는가. 파괴된 Transform은 == null이 돼서 이걸로만 "잃었다"를 안다.</summary>

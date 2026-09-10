@@ -22,7 +22,7 @@
   "penetrationK": 0.18,
   "lifeTick": 600,
   "muzzleSpeed": 2,
-  "blastDamage": 1020,
+  "blastDamage": 2600,
   "thrust":3,
   "fuelTime":5,
   "maxRotationPerTick":2,

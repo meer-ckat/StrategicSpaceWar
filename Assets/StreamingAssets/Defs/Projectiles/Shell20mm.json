@@ -10,7 +10,7 @@
     "size": { "x": 0, "y": 0 },
     "offset": { "x": 0, "y": 0 }
   },
-  "mass": 0.12,
+  "mass": 0.5,
   "caliber": 20,
   "shatterVelocity": 1400,
   "penetrationK": 0.18,

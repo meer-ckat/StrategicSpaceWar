@@ -83,6 +83,13 @@ public sealed class SolidSkin : MonoBehaviour
         sortingOrder = order;
     }
 
+    /// <summary>PNG가 없을 때의 단색만 어둡게. PNG가 있으면 그림이 색을 들고 있어 아무것도 안 한다.</summary>
+    public void DimFallback(float factor)
+    {
+        if (string.IsNullOrEmpty(skinTexture))
+            tint = new Color(tint.r * factor, tint.g * factor, tint.b * factor, tint.a);
+    }
+
     private static Material _unlitShared;
     private static MaterialPropertyBlock _mpb;
     private static readonly int GlowId = Shader.PropertyToID("_Glow");
@@ -129,8 +136,9 @@ public sealed class SolidSkin : MonoBehaviour
         // 콜라이더의 bounds가 아니라 size다. bounds는 월드 기준이라 회전한 판이 1.41배로
         // 부풀어 그려진다. ThingDef가 붙이는 것은 박스뿐이므로 다른 종류는 볼 일이 없다.
         Vector2 size = TryGetComponent(out BoxCollider2D box) ? box.size : skinSize;
+        Vector2 offset = box != null ? box.offset : Vector2.zero;
 
-        Sprite drawn = FromPng(size);
+        Sprite drawn = FromPng(size, offset);
 
         if (drawn != null)
         {
@@ -170,17 +178,17 @@ public sealed class SolidSkin : MonoBehaviour
     }
 
     /// <summary>
-    /// def가 지목한 PNG. 크기가 안 맞으면 **에러를 찍고 null을 준다** - JsonUtility가 모르는
+    /// def가 지목한 PNG. 세로가 모자라면 **에러를 찍고 null을 준다** - JsonUtility가 모르는
     /// 키를 조용히 버리는 것을 <see cref="ThingDef.Validate"/>가 막는 것과 같은 태도다.
-    /// 조용히 늘려 쓰면 증상이 "포신이 좀 짧은 것 같은데"가 되고, 그건 못 찾는다.
+    /// 가로는 검사하지 않고 비율로 맞춘다 - 배치가 콜라이더 크기를 덮어쓰는 자리가 있어서다.
     /// </summary>
-    private Sprite FromPng(Vector2 size)
+    private Sprite FromPng(Vector2 size, Vector2 offset)
     {
         if (string.IsNullOrEmpty(skinTexture))
             return null;
 
-        // pivot이 콜라이더 높이에 달려 있어서, 같은 PNG라도 크기가 다르면 다른 스프라이트다.
-        string key = $"{skinTexture}:{size.x:F2}x{size.y:F2}";
+        // pivot이 콜라이더 크기·offset에 달려 있어서, 같은 PNG라도 자리마다 다른 스프라이트다.
+        string key = $"{skinTexture}:{size.x:F2}x{size.y:F2}@{offset.x:F2},{offset.y:F2}";
 
         // 플레이 모드를 나가면 런타임 스프라이트가 파괴돼 항목이 가짜 null이 된다.
         if (_sprites.TryGetValue(key, out Sprite cached) && cached != null)
@@ -197,11 +205,21 @@ public sealed class SolidSkin : MonoBehaviour
             return null;
         }
 
+        // **그림의 비율은 def 것이고 폭은 이 자리의 콜라이더 것이다.** 배치(Placement.size)가
+        // 콜라이더를 덮어쓰면 같은 def의 PNG가 자리마다 다른 폭으로 서야 한다 - 템플릿은 def당
+        // 한 장이라 그 폭을 미리 알 수 없다. 그래서 PPU를 고정하지 않고 폭에서 역산한다.
+        float ppu = texture.width / size.x;
+
+        // 콜라이더가 offset만큼 밀려 있으면 그림도 같은 만큼 밀린다 - 회전축(원점)은 그대로.
+        var pivot = new Vector2(
+            0.5f - offset.x / size.x,
+            PivotY(size.y, texture.height, ppu) - offset.y / (texture.height / ppu));
+
         var sprite = Sprite.Create(
             texture,
             new Rect(0f, 0f, texture.width, texture.height),
-            new Vector2(0.5f, PivotY(size.y, texture.height)),
-            ShipDef.PPU,
+            pivot,
+            ppu,
             0,
             SpriteMeshType.FullRect);
         sprite.hideFlags = HideFlags.HideAndDontSave;
@@ -216,7 +234,10 @@ public sealed class SolidSkin : MonoBehaviour
     /// 그 아래 끝에서 콜라이더 높이의 절반만큼 위에 있다. PNG가 콜라이더와 같은 높이면 0.5다.
     /// </summary>
     internal static float PivotY(float sizeY, int pngHeight)
-        => pngHeight > 0 ? sizeY * 0.5f / (pngHeight / (float)ShipDef.PPU) : 0.5f;
+        => PivotY(sizeY, pngHeight, ShipDef.PPU);
+
+    internal static float PivotY(float sizeY, int pngHeight, float ppu)
+        => pngHeight > 0 ? sizeY * 0.5f / (pngHeight / ppu) : 0.5f;
 
     /// <summary>
     /// 이 콜라이더(와 포신)가 요구하는 PNG 픽셀 크기.
@@ -229,24 +250,23 @@ public sealed class SolidSkin : MonoBehaviour
         Mathf.RoundToInt((size.y + Mathf.Max(0f, barrel)) * ShipDef.PPU));
 
     /// <summary>
-    /// 가로는 딱 맞아야 하고 세로는 남아도 된다. 남는 세로가 포신이다.
-    /// 반 픽셀은 봐준다 - 0.4 m 짜리 판처럼 정수 픽셀로 안 떨어지는 크기가 있다.
+    /// 가로는 콜라이더 폭에 맞춰 늘리고, 그 비율로 잰 세로가 콜라이더 높이 이상이면 된다.
+    /// 남는 세로가 포신이다. 한 픽셀은 봐준다 - 0.4 m 짜리 판처럼 정수 픽셀로 안 떨어지는 크기가 있다.
     /// </summary>
     internal static bool Fits(Vector2 size, int pngWidth, int pngHeight, out string reason)
     {
-        Vector2Int want = WantedPixels(size, 0f);
-        int wantW = want.x;
-        int wantH = want.y;
-
-        if (Mathf.Abs(pngWidth - wantW) > 1)
+        if (pngWidth <= 0 || size.x <= 0f)
         {
-            reason = $"가로가 {pngWidth} px인데 콜라이더({size.x} m)는 {wantW} px를 원한다.";
+            reason = "가로가 0이다.";
             return false;
         }
 
-        if (pngHeight < wantH - 1)
+        float ppu = pngWidth / size.x;
+        float heightM = pngHeight / ppu;
+
+        if (heightM < size.y - 1.5f / ppu)
         {
-            reason = $"세로가 {pngHeight} px인데 콜라이더({size.y} m)만 해도 {wantH} px다.";
+            reason = $"세로가 {pngHeight} px = {heightM:0.00} m인데 콜라이더는 {size.y} m다 (가로 {pngWidth} px 기준).";
             return false;
         }
 
@@ -260,7 +280,11 @@ public sealed class SolidSkin : MonoBehaviour
         if (_pngs.TryGetValue(file, out Texture2D cached) && cached != null)
             return cached;
 
-        string path = Path.Combine(DefDatabase.DefDirectory, file);
+        // Defs가 종류별 하위 폴더라 이름으로 찾는다. 같은 이름이 둘이면 첫 것 - 파일명이 곧 키다.
+        string[] found = Directory.Exists(DefDatabase.DefDirectory)
+            ? Directory.GetFiles(DefDatabase.DefDirectory, file, SearchOption.AllDirectories)
+            : System.Array.Empty<string>();
+        string path = found.Length > 0 ? found[0] : Path.Combine(DefDatabase.DefDirectory, file);
 
         if (!File.Exists(path))
         {

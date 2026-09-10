@@ -87,7 +87,7 @@ public class CutSceneManager
             go.SetActive(false);
 
             go.transform.position = spawnPos;
-            go.transform.localScale = new Vector3(facing < 0f ? -1f : 1f, 1f, 1f);
+            go.transform.rotation = Quaternion.Euler(0f, 0f, facing < 0f ? 180f : 0f);   // Campaign.Spawn과 같은 규칙
 
             go.AddComponent<Rigidbody2D>();
 
@@ -218,7 +218,10 @@ public class CutSceneManager
             }
 
             if (ship != null)
+            {
                 ship.SetPilotInput(Vector2.zero, 0f);
+                ship.pilotBoost = false;   // AI가 마지막 틱에 켠 부스터가 사람 손에 남지 않게
+            }
 
             if (_sleepingInput != null)
                 _sleepingInput.enabled = true;
@@ -228,6 +231,10 @@ public class CutSceneManager
     private static readonly Dictionary<string, CutScene_ShipObj> _ships = new();
 
     public static IReadOnlyDictionary<string, CutScene_ShipObj> Ships => _ships;
+    public static bool ControlsPlayer => _ships.ContainsKey("player");
+
+    /// <summary>컷신이 배를 하나라도 들고 있다. 격납고가 이 동안 문을 안 연다.</summary>
+    public static bool Active => _ships.Count > 0;
 
     public static bool TryGet(string name, out CutScene_ShipObj ship) => _ships.TryGetValue(name, out ship);
 

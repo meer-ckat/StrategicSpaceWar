@@ -6,22 +6,20 @@
   ],
   "layer": "Module",
   "collider": {
-    "size": {
-      "x": 1,
-      "y": 1
-    },
-    "offset": {
-      "x": 0,
-      "y": 0
-    }
+    "size": { "x": 1.6, "y": 2 },
+    "offset": { "x": 0, "y": 0 }
   },
   "projectile": "105mm",
   "muzzleSpeed": 900,
+  "muzzleVfx": "MuzzleFlash",
+  "muzzleFirePower": 0.22,
+  "muzzleColor": { "r": 1, "g": 0.72, "b": 0.35, "a": 1 },
   "roundsPerMinute": 300,
   "aim": 0,
   "slewRate": 30,
   "fireArc": 2,
-  "muzzleOffset": 1,
+  "traverse": 150,
+  "muzzleOffset": 3.5,
   "friendlyCheckRange": 100,
   "maxHealth": 250,
   "tint": {

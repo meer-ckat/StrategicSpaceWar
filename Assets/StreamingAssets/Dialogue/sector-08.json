@@ -1,0 +1,11 @@
+{
+  "defName": "sector-08",
+  "lines": [
+    { "message": "<color=yellow>시설 육안 확인.</color> 반사 구조가 지평선을 덮습니다.", "author": "전술", "duration": 5, "intensity": 1.5, "wait": 3 },
+    { "message": "증폭률이 계속 오릅니다. 임계까지 여유가 없습니다.", "author": "기관", "duration": 4.5, "intensity": 1.6 },
+    { "message": "저 폭발 반경에 변경 성단이 전부 들어갑니다. 저들 땅까지요.", "author": "기관", "duration": 5.5, "intensity": 1.7, "wait": 3 },
+    { "message": "<color=grey>관제 회신 없음. 이 거리에서는 안 닿습니다.</color>", "author": "통신", "duration": 4.5, "intensity": 1.2 },
+    { "message": "점령도 탈환도 아니다. 멈추기만 하면 된다.", "author": "함장", "duration": 5, "intensity": 1.4, "wait": 2 },
+    { "message": "외곽을 뚫고 안으로 들어간다. 통로는 좁다.", "author": "함장", "duration": 4.5, "intensity": 1.5 }
+  ]
+}

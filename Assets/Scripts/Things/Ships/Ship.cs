@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -173,6 +174,54 @@ public partial class Ship : Thing
     /// 보는 것만으로 "배가 갈라졌다"를 알 수 있다 - RoomView가 그걸로 오버레이를 다시 굽는다.
     /// </summary>
     public ShipGrid.Map Map => _map;//Ship이 Map을 Filed로 든다.
+
+    /// <summary>
+    /// 배 로컬 좌표 하나를 승무원이 부를 이름으로. "함수 좌현", "중앙부", "함미 우현".
+    ///
+    /// **저작하지 않는다.** 격자 범위 안에서의 상대 위치로만 정한다 - 배마다 구역 이름을
+    /// 손으로 적으면 배가 아홉 척이고 def가 데이터인 이 설계에서 그것만 코드가 된다.
+    /// 3x3이면 손상 보고로 충분하고, 더 잘게 나눠도 사람이 못 외운다.
+    ///
+    /// 축은 <see cref="Nose"/>/<see cref="Port"/>와 같은 규약이다: 로컬 +x가 함수,
+    /// +y가 좌현. **row가 아래로 증가하는 것은 칸 좌표계 사정이고 여기는 배 좌표계다.**
+    /// 반대편 배의 180도 회전도 로컬에는 없다 - 회전은 월드에만 있다.
+    /// </summary>
+    public string SectionName(Vector3 localPosition)
+    {
+        if (_map == null)
+            return "선체";
+
+        // 격자 원점과 크기에서 로컬 범위를 얻는다. ToLocal이 칸 -> 배 좌표라 두 끝을
+        // 통과시키면 그대로 경계가 나온다.
+        Vector2 a = _map.ToLocal(0, 0);
+        Vector2 b = _map.ToLocal(_map.width - 1, _map.height - 1);
+
+        float minX = Mathf.Min(a.x, b.x);
+        float maxX = Mathf.Max(a.x, b.x);
+        float minY = Mathf.Min(a.y, b.y);
+        float maxY = Mathf.Max(a.y, b.y);
+
+        string fore = Band(localPosition.x, minX, maxX, "함미", "중앙부", "함수");
+        string side = Band(localPosition.y, minY, maxY, "우현", "", "좌현");
+
+        if (side.Length == 0)
+            return fore;
+
+        return fore.Length == 0 ? side : $"{fore} {side}";
+    }
+
+    /// <summary>범위를 3등분해 이름 하나를 고른다. 가운데 이름이 빈 문자열이면 생략된다.</summary>
+    private static string Band(float v, float min, float max, string low, string mid, string high)
+    {
+        float span = max - min;
+
+        if (span <= 1e-3f)
+            return mid;
+
+        float t = Mathf.Clamp01((v - min) / span);
+
+        return t < 1f / 3f ? low : t < 2f / 3f ? mid : high;
+    }
     public ShipGrid.Map DesignMap;
 
     // 물리가 진실이다. 예전엔 Ship이 velocity를 따로 들고 transform을 직접 옮겼는데,
@@ -200,12 +249,8 @@ public partial class Ship : Thing
     /// </summary>
     public bool isMouseAim;
 
-    /// <summary>
-    /// 기수의 월드 방향. transform.right는 scale에 안 물들므로 좌우 반전(localScale.x=-1)
-    /// 함선은 부호를 직접 곱해야 그림이 보는 쪽이 나온다.
-    /// </summary>
-    public Vector2 NoseDirection =>
-        (Vector2)transform.right * Mathf.Sign(transform.localScale.x);
+    /// <summary>기수의 월드 방향 = 로컬 +X. 반대편 배는 180도 회전이라 부호 보정이 없다.</summary>
+    public Vector2 NoseDirection => transform.right;
 
     /// <summary>
     /// 컷신이 이 배의 포탑을 겨누게 하는 점. **null이면 아무 일도 안 일어난다** - 포탑은
@@ -374,56 +419,39 @@ public partial class Ship : Thing
         ShipDef blueprint = string.IsNullOrEmpty(shipDefName) ? null : ShipDef.Load(shipDefName);
         ShipDef design = RunShipFor(blueprint);
 
-        if (ShipBuilder.SpawnFrom(transform, design, this))
+        // 인스펙터에 남아 있던 목록은 곧 지울 자식을 가리킨다.
+        shipArmors.Clear();
+        shipEngines.Clear();
+        shipTanks.Clear();
+        shipGuns.Clear();
+        shipCriticals.Clear();
+
+        if (design != null)
+            design.Apply(this);
+
+        if (buildSeconds > 0f && design != null)
         {
-            // 인스펙터에 남아 있던 목록은 방금 지운 자식을 가리킨다.
-            shipArmors.Clear();
-            shipEngines.Clear();
-            shipTanks.Clear();
-            shipGuns.Clear();
-            shipCriticals.Clear();
+            // **건조 모드.** 판을 하나씩 심고, 다 심은 뒤에야 아래 Finish가 돈다.
+            // 그때까지 _structure._hasMap이 false라 파단 BFS가 첫 가드에서 멈추고,
+            // 방이 없어서 기압도 안 돈다 - 반쯤 지어진 배가 스스로 조각나는 것을
+            // 막는 것이 이 순서다.
+            UnderConstruction = true;
+
+            // 자리를 우리가 매 틱 맞추므로 솔버가 끼어들면 안 된다. Finish가 Dynamic으로
+            // 되돌린다.
+            rig.bodyType = RigidbodyType2D.Kinematic;
+
+            StartCoroutine(BuildOverTime(design, blueprint));
+            return;
         }
+
+        if (design != null)
+            ShipBuilder.Spawn(transform, design);
+
         DesignMap = ShipBuilder.StampFromDef(blueprint ?? design);
 
-        if(design!=null&&!string.IsNullOrEmpty(design.hullSkin))
-        {
-            try{
+        LoadHullSkin(design);
 
-                // 같은 그림은 한 번만 디코드한다. 아군·적군이 같은 급이면 소환 프레임에
-                // 같은 PNG를 두 번 디코드하고 있었다.
-                if (_hullSkinShared.TryGetValue(design.hullSkin, out Texture2D shared) && shared != null)
-                {
-                    shipHullPng = shared;
-                }
-                else
-                {
-                    byte[] bytes = File.ReadAllBytes(ShipDef.SkinPathOf(design.hullSkin));
-                    shipHullPng = new Texture2D(2, 2, TextureFormat.RGBA32, false)
-                    {
-                        // 기본 Repeat면 최외곽 판의 가장자리 샘플이 반대편 색과 섞인다.
-                        // ArmorSkin의 수제 쌍선형과 BackPlateView의 GetPixelBilinear가 같은
-                        // 가장자리 규칙(clamp)을 쓰게 여기서 못 박는다.
-                        wrapMode = TextureWrapMode.Clamp,
-                    };
-                    bool ok = shipHullPng.LoadImage(bytes);
-                    if(!ok)
-                    {
-                        Destroy(shipHullPng);
-                        shipHullPng = null;
-                        Debug.LogAssertion("I'm not fucking ok. IM NOT FUCKING OK. FIX. I couldnt load the image, and i fired from cpu. fuck it.");
-                    }
-                    else
-                    {
-                        _hullSkinShared[design.hullSkin] = shipHullPng;
-                    }
-                }
-
-            }
-            catch(Exception e)
-            {
-                Debug.LogAssertion("Hell ye: " + e);
-            }
-        }
         if (DesignMap != null)
         {
             _structure.SeedRear(DesignMap, shipHullPng);
@@ -433,6 +461,203 @@ public partial class Ship : Thing
             _structure.ForgetRear(design?.rearLost);
         }
 
+        Finish();
+    }
+
+    /// <summary>
+    /// 선체 그림 한 장. 건조 모드는 판을 다 심은 뒤에 부르므로 경로가 둘이라 함수로 뗐다.
+    /// </summary>
+    private void LoadHullSkin(ShipDef design)
+    {
+        if (design == null || string.IsNullOrEmpty(design.hullSkin))
+            return;
+
+        try{
+
+            // 같은 그림은 한 번만 디코드한다. 아군·적군이 같은 급이면 소환 프레임에
+            // 같은 PNG를 두 번 디코드하고 있었다.
+            if (_hullSkinShared.TryGetValue(design.hullSkin, out Texture2D shared) && shared != null)
+            {
+                shipHullPng = shared;
+            }
+            else
+            {
+                byte[] bytes = File.ReadAllBytes(ShipDef.SkinPathOf(design.hullSkin));
+                shipHullPng = new Texture2D(2, 2, TextureFormat.RGBA32, false)
+                {
+                    // 기본 Repeat면 최외곽 판의 가장자리 샘플이 반대편 색과 섞인다.
+                    // ArmorSkin의 수제 쌍선형과 BackPlateView의 GetPixelBilinear가 같은
+                    // 가장자리 규칙(clamp)을 쓰게 여기서 못 박는다.
+                    wrapMode = TextureWrapMode.Clamp,
+                };
+                bool ok = shipHullPng.LoadImage(bytes);
+                if(!ok)
+                {
+                    Destroy(shipHullPng);
+                    shipHullPng = null;
+                    Debug.LogAssertion("I'm not fucking ok. IM NOT FUCKING OK. FIX. I couldnt load the image, and i fired from cpu. fuck it.");
+                }
+                else
+                {
+                    _hullSkinShared[design.hullSkin] = shipHullPng;
+                }
+            }
+
+        }
+        catch(Exception e)
+        {
+            Debug.LogAssertion("Hell ye: " + e);
+        }
+    }
+
+    /// <summary>
+    /// 건조에 걸리는 초. 0이면 지금까지처럼 한 프레임에 완성된다 - 캠페인·컷신이
+    /// 소환하는 배가 전부 이쪽이다.
+    ///
+    /// **def가 아니라 소환자가 꽂는다.** 같은 scout이라도 격납고가 만들면 건조 연출이
+    /// 있고 캠페인이 소환하면 즉시여야 한다 - def에 넣으면 그 구분이 사라진다.
+    /// shipDefName과 같은 자리에서 Awake 전에 넣는다.
+    /// </summary>
+    public float buildSeconds;
+
+    /// <summary>
+    /// 아직 판을 심는 중인가. **격자·구조·후면이 아직 없다는 뜻이다** - 이 동안
+    /// 파단도 기압도 안 돌고(각자의 가드가 이미 막는다) 콜라이더가 전부 꺼져 있어서
+    /// 솔버와 충각에도 안 잡힌다. 탄은 맞는다(TraceWorld는 계층을 읽는다).
+    /// </summary>
+    public bool UnderConstruction { get; private set; }
+
+    /// <summary>
+    /// 판을 하나씩 심고 마지막에 <see cref="Finish"/>. 격납고가 배를 뽑는 연출이
+    /// 이 코루틴 하나다 - 시뮬레이션은 완성 순간에 통째로 켜진다.
+    /// </summary>
+    private IEnumerator BuildOverTime(ShipDef design, ShipDef blueprint)
+    {
+        int plates = design.placements?.Count ?? 0;
+        float perPlate = plates > 0 ? buildSeconds / plates : 0f;
+
+        yield return ShipBuilder.SpawnOverTime(
+            transform, design, perPlate,
+            _ =>
+            {
+                _platesPlaced++;
+                rig.mass = Mathf.Max(1f, transform.childCount * massPerPlate);
+            });
+
+        // **자리가 빌 때까지 완성을 미룬다.** 건조 자리는 모함 기준 고정이라 동료나
+        // 적이 마침 거기 있을 수 있는데, 그 상태로 Finish가 콜라이더를 켜면 두 배가
+        // 겹친 채로 태어나서 RamImpact가 매 틱 갈아버린다.
+        //
+        // 상한을 두는 이유: 무한정 기다리면 낀 자리에서 영영 Kinematic 골조로 남는다.
+        // 드물게 겹치는 것이 영영 안 나오는 것보다 낫다.
+        for (float waited = 0f; waited < BuildClearTimeout && !SpotIsClear(design); waited += 0.25f)
+            yield return new WaitForSeconds(0.25f);
+
+        DesignMap = ShipBuilder.StampFromDef(blueprint ?? design);
+        LoadHullSkin(design);
+
+        if (DesignMap != null)
+        {
+            _structure.SeedRear(DesignMap, shipHullPng);
+            _structure.ForgetRear(design?.rearLost);
+        }
+
+        UnderConstruction = false;
+        Finish();
+
+        // 모함 속도를 물려받는다. 안 주면 항행 중인 모함이 배를 그 자리에 두고 떠난다.
+        if (buildAnchor != null && buildAnchor.TryGetComponent(out Rigidbody2D mother))
+            rig.linearVelocity = mother.linearVelocity;
+
+        buildAnchor = null;
+    }
+
+    /// <summary>지금까지 심은 판 수. 0이면 아직 하나도 안 심어서 "다 죽었다"와 구분이 안 된다.</summary>
+    private int _platesPlaced;
+
+    /// <summary>건조 자리가 안 비어도 이 초가 지나면 그냥 완성한다.</summary>
+    private const float BuildClearTimeout = 20f;
+
+    private static readonly Collider2D[] _spotProbe = new Collider2D[8];
+
+    /// <summary>
+    /// 건조 자리에 남의 몸이 있나. 우리 콜라이더는 건조 중 전부 꺼져 있어서 자기를
+    /// 집지 않고, 모함은 명시적으로 뺀다 - 모함을 세면 영영 안 비어서 상한까지 기다린다.
+    /// </summary>
+    private bool SpotIsClear(ShipDef design)
+    {
+        if (design == null)
+            return true;
+
+        RectInt box = design.Bbox();
+        Rigidbody2D mother = buildAnchor != null ? buildAnchor.GetComponent<Rigidbody2D>() : null;
+
+        return SpotIsClear(rig.position, rig.rotation, new Vector2(box.width, box.height) * ShipGrid.CellSize, mother);
+    }
+
+    /// <summary>다 지어진 배가 저 자리로 옮겨가도 되나. 워프 정렬이 편대 자리를 검사할 때 쓴다.</summary>
+    public bool SpotIsClear(Vector2 at)
+    {
+        Vector2 size = DesignMap != null
+            ? new Vector2(DesignMap.width, DesignMap.height) * ShipGrid.CellSize
+            : new Vector2(10f, 5f);
+
+        return SpotIsClear(at, 0f, size, null);
+    }
+
+    private bool SpotIsClear(Vector2 at, float angle, Vector2 size, Rigidbody2D ignore)
+    {
+        int n = Physics2D.OverlapBoxNonAlloc(at, size, angle, _spotProbe);
+
+        for (int i = 0; i < n; i++)
+        {
+            Rigidbody2D body = _spotProbe[i] != null ? _spotProbe[i].attachedRigidbody : null;
+
+            if (body != null && body != rig && body != ignore)
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// 건조 중 이 자리에 붙어 있는다. 격납고가 꽂는다.
+    ///
+    /// **격납고 안이 아니라 밖이다.** 격납고는 4x3인데 나오는 배는 30x14일 수 있어서,
+    /// 안에서 지으면 배가 모함 선체를 통째로 뚫고 겹친다. 격납고는 컨테이너가 아니라
+    /// 문이고, 배는 그 문 바깥 빈 자리에서 자란다.
+    /// </summary>
+    public Transform buildAnchor;
+
+    /// <summary>buildAnchor 로컬 기준 자리. 선체 밖으로 빼는 거리가 여기 들어온다.</summary>
+    public Vector2 buildOffset;
+
+    /// <summary>
+    /// 건조 중 격침. **잔해를 안 남긴다** - HullStructure가 없어서 Breakaway 경로를 못
+    /// 타기도 하지만, 골조 잔해가 남으면 그것을 만든 격납고가 자기 잔해에 맞아 유폭한다
+    /// (CriticalModule이라 연쇄까지 간다). 폭발 한 방으로 가리고 지운다.
+    /// </summary>
+    private void WatchConstruction()
+    {
+        // 모함을 따라다닌다. 부모로 넣지 않는 이유는 리지드바디를 리지드바디 밑에 두는
+        // 것이 Unity 2D에서 물리를 망가뜨리기 때문이다 - 자리만 매 틱 맞춘다.
+        if (buildAnchor != null)
+            rig.position = buildAnchor.TransformPoint(buildOffset);
+
+        if (_platesPlaced == 0 || GetComponentInChildren<Armor>() != null)
+            return;
+
+        VfxOneShot.Play("Explosion", transform.position, 6f, 1.5f, 240f);
+        Destroy(gameObject);
+    }
+
+    /// <summary>
+    /// 판이 다 선 뒤의 조립. **건조 모드가 미루는 것이 전부 여기 있다** - 격자에서
+    /// 나오는 것(방·구조·후면)과 목록·질량이 한 덩어리라, 이 함수가 안 돌면 배는
+    /// 골조일 뿐이다.
+    /// </summary>
+    private void Finish()
+    {
         rig.bodyType = RigidbodyType2D.Dynamic;
         rig.gravityScale = 0f;
         // 항력을 물리에 넘긴다. 종단속도는 그대로 추력 / (질량 x drag).
@@ -516,6 +741,15 @@ public partial class Ship : Thing
 
     public override void OnTick()
     {
+        // 건조 중에는 조타도 사격도 없다. 아래 전부가 격자에서 나오는 값(방·구조·후면)을
+        // 전제하는데 그것이 아직 없다 - 각자의 가드가 막아주긴 하지만, 골조가 스스로
+        // 항행하려 드는 것 자체가 틀린 그림이다.
+        if (UnderConstruction)
+        {
+            WatchConstruction();
+            return;
+        }
+
         // 물리 콜백 밖에서, 이번 틱의 힘을 걸기 전에. 재부모화가 안전한 유일한 자리다.
         _mSplit.Begin();
         SplitIfBroken();
@@ -743,7 +977,7 @@ public partial class Ship : Thing
         // 부르고, 거기서 계층이 바뀌면 저작 중인 씬이 조용히 변한다.
         //
         // 파단으로 다시 부를 때는 이미 다 매달려 있어 아무 일도 안 한다.
-        ShipBuilder.MountLooseModules(transform, _map, armorAt, doorAt);
+        ShipBuilder.MountLooseModules(transform, _map, armorAt, doorAt, firstBuild: old == null);
 
         rooms = ShipGrid.BuildRooms(_map, armorAt, doorAt);
 
@@ -814,6 +1048,39 @@ public partial class Ship : Thing
                 {
                     if (_structure.RearBreached(room.cells[i]))
                         breaches++;
+                }
+
+
+                // **판이 통째로 없어진 방은 우주에 닿은 것이다.** 그러면 그 벽은 껍질이므로
+                // 물리 세계로 돌려보낸다 - MarkExterior의 정의를 그대로 따르는 것뿐이다.
+                //
+                // Armor.Die가 죽은 판의 이웃 8칸을 깨우지만 그건 구멍 둘레뿐이다. 방
+                // 반대편 벽은 아무 신호도 못 받아서, 안 켜면 방에 들어온 잔해가 그쪽
+                // 벽을 통과해 배 속으로 계속 가라앉는다.
+                //
+                // **관통(breaches)이 아니라 판 소실(standing < boundaryPlates)로 판정한다.**
+                // 서브셀 하나는 17cm짜리 구멍이라 잔해가 못 지나가고, 탄은 콜라이더를 안
+                // 보므로(TraceWorld가 계층에서 읽는다) 켤 이유가 없다. 파공마다 켜면
+                // 전투가 길어질수록 켜진 콜라이더가 늘어 절감분이 조용히 증발한다.
+                //
+                // 걸쇠가 방에 있어서 한 번만 돈다. 되묻지 않으므로 공기가 다시 차도
+                // 그대로 켜져 있다(Armor.SetBuried 참고).
+                if (standing < room.boundaryPlates && !room.wallsSurfaced)
+                {
+                    room.wallsSurfaced = true;
+
+                    // 같은 걸쇠를 함내 보고도 나눠 쓴다. "격실이 뚫렸다"의 경계가
+                    // 물리와 표시에서 다를 이유가 없다.
+                    RunLog.RoomBreached(this, room);
+
+                    if (IsPlayerControlled)
+                        HitReadout.RoomBreach();
+
+                    foreach (Armor wall in room.walls)
+                    {
+                        if (wall != null)
+                            wall.Surface();
+                    }
                 }
 
                 room.breaches = breaches;
@@ -958,21 +1225,8 @@ public partial class Ship : Thing
         return false;
     }
 
-    /// <summary>
-    /// 뱃머리가 향하는 월드 방향. 배는 격자에서 col 축으로 길게 그려지므로(destroyer가
-    /// 69x23) 코는 로컬 +X, 즉 <c>transform.right</c>다 - 포신이 transform.up인 것과
-    /// 다르고, 그래서 Gun.Slew의 -90도가 여기엔 없다.
-    ///
-    /// **localScale.x가 -1이면 뒤집는다.** 반대쪽에서 온 배는 렌더링이 거울상이라 코가
-    /// 반대편에 보이는데, transform.right는 rotation만 읽어서 scale을 모른다. ShipAi.Turn이
-    /// 목표 각도에 180도를 더하는 것과 같은 보정이고, 같은 규칙이라야 조준한 쪽으로 민다.
-    ///
-    /// **지금 부르는 데가 없다.** 추력은 월드 축이라 이 값을 안 읽는다 - 이건 포탑 사격각
-    /// (함체 기준 사각·블라인드 아크)을 넣을 때 쓰려고 남긴다. 그때 Gun이 "포신이 함체
-    /// 기준 몇 도인가"를 물어야 하고, 거울상 보정이 이미 여기 들어 있어야 두 벌이 안 생긴다.
-    /// </summary>
-    public Vector2 PortDirection => //그러게 이건 왜 필요하지
-        (Vector2)transform.up * (transform.localScale.x < 0f ? -1f : 1f);//일단 지금 배들이 전부 오른쪽 생성이라서 port를 위쪽으로 함.
+    /// <summary>좌현의 월드 방향. 배는 col 축으로 길어 코가 로컬 +X고, 그 왼쪽 +Y가 좌현이다.</summary>
+    public Vector2 PortDirection => transform.up;
 
     /// <summary>
     /// 뱃머리 왼쪽(횡추력 +y가 미는 쪽). 코를 90도 돌린 것.
@@ -1030,7 +1284,62 @@ public partial class Ship : Thing
 
         // 적분도 항력도 물리가 한다. 이 틱 끝의 Simulate에서 한꺼번에 처리된다.
         rig.AddForce(force);
+
+        HoldInBattleZone();
     }
+
+    /// <summary>
+    /// 전투 중에는 전장을 못 벗어난다. 플레이어 함선만.
+    ///
+    /// **로그라이크의 전투는 끝나야 다음이 있다.** 흘러 나가 버리면 그 판이 안 끝나고
+    /// 승리도 노획도 다음 구역도 없다. Battle.Stranded가 5초 뒤에 패배로 끊고는 있는데,
+    /// 그건 안전장치지 규칙이 아니다 - 플레이어는 자기가 왜 졌는지 모른다.
+    ///
+    /// **벽이 아니라 조류다.** 넘은 만큼에 비례해 되민다. 딱딱한 벽이면 부딪히는 순간
+    /// 속도가 사라져 물리가 거짓말을 하고, 충각으로 튕겨 나간 배가 벽에 박혀 못 돌아온다.
+    ///
+    /// AI는 안 건다 - 적이 스스로 도망가는 것은 이 게임에 아직 없고, 있게 되면 그건
+    /// 이탈이 아니라 후퇴라 다른 규칙이 붙는다.
+    /// </summary>
+    private void HoldInBattleZone()
+    {
+        if (!IsPlayerControlled)
+            return;
+
+        Battle battle = Battle.current;
+
+        if (battle == null || battle.Ended || !battle.HasZone)
+            return;
+
+        Vector2 away = (Vector2)transform.position - battle.Centre;
+        float distance = away.magnitude;
+        float over = distance - Ballistics.BattleZoneRadius;
+
+        if (over <= 0f || distance < 1e-3f)
+        {
+            _leftZone = false;
+            return;
+        }
+
+        // 질량을 곱해서 가속으로 준다 - 무거운 배가 더 멀리 나가면 안 된다.
+        rig.AddForce(-away / distance * (over * Ballistics.BattleZonePull * rig.mass));
+
+        if (_leftZone)
+            return;
+
+        _leftZone = true;
+
+        DialogueManager.current?.Spawn(
+            "전장을 벗어나고 있습니다. <color=yellow>기수를 돌리십시오.</color>",
+            "전술",
+            duration: 4f,
+            intensity: 1.2f,
+            style: "damage",
+            interrupt: true);
+    }
+
+    /// <summary>경계 밖에 있다고 한 번 말했나. 매 틱 말하면 그건 경고가 아니라 소음이다.</summary>
+    private bool _leftZone;
 
     /// <summary>
     /// 회전에도 관성이 있다. 입력을 놓으면 즉시 멈추지 않고 RCS 역분사로 감속한다.
@@ -1136,6 +1445,19 @@ public partial class Ship : Thing
         angleInput = angle;
     }
 
+    /// <summary>워프 뒤의 배는 식어 있다. 판과 후면 둘 다 - 한쪽만 끄면 뜯긴 단면의 앞뒤가 어긋난다.</summary>
+    public void CoolDown()
+    {
+        foreach (Armor plate in shipArmors)
+        {
+            if (plate != null)
+                plate.Cool();
+        }
+
+        if (TryGetComponent(out HullStructure structure))
+            structure.CoolRear();
+    }
+
     /// <summary>살아 있는 함선 전부. 적을 찾을 때마다 씬을 뒤지지 않으려고 여기서 센다.</summary>
     public static readonly List<Ship> All = new();
 
@@ -1162,9 +1484,19 @@ public partial class Ship : Thing
     /// Neutral은 아무와도 싸우지 않는다. 인스펙터에서 팀 지정을 잊었을 때 조용히 아군이
     /// 되는 것보다, 아무도 안 쏘는 쪽이 눈에 띈다.
     /// </summary>
+    /// <summary>
+    /// 암전 밑에 미리 세워 두고 아직 안 깨운 적. **양쪽 다 적이 아니다** - 잠든 배는 표적을
+    /// 안 잡고, 잠든 배도 표적이 안 된다. 사격 중지만으로는 모자란다: 동료 포탑이
+    /// DetectionDistance 2000으로 잠든 배를 잡아 도착 페이드 중에 교전을 연다. Campaign이
+    /// 켜고 WakeDormant가 끈다. 탄은 물리라 맞기는 한다.
+    /// </summary>
+    [NonSerialized] public bool dormant;
+
     public bool IsHostileTo(Ship other)
         => other != null
         && other != this
+        && !dormant
+        && !other.dormant
         && team != Team.Neutral
         && other.team != Team.Neutral
         && team != other.team

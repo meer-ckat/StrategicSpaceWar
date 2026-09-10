@@ -5,17 +5,22 @@
     "SolidSkin"
   ],
   "layer": "Module",
+  "skinTexture": "m12.png",
   "collider": {
-    "size": { "x": 3.4, "y": 1.3 },
-    "offset": { "x": 1.0, "y": 0 }
+    "size": { "x": 3.4, "y": 3 },
+    "offset": { "x": 0, "y": 0 }
   },
   "projectile": "305mm",
   "muzzleSpeed": 1100,
+  "muzzleVfx": "MuzzleFlash",
+  "muzzleFirePower": 0.8,
+  "muzzleColor": { "r": 1, "g": 0.65, "b": 0.25, "a": 1 },
   "roundsPerMinute": 24,
   "aim": 0,
   "slewRate": 9,
   "fireArc": 0.7,
-  "muzzleOffset": 2.6,
+  "traverse": 140,
+  "muzzleOffset": 7.5,
   "friendlyCheckRange": 260,
   "maxHealth": 700,
   "tint": {

@@ -10,7 +10,7 @@
   "doorRate": 1,
   "crews": 1,
   "FightDistance": 0,
-  "DetectionDistance": 380,
+  "DetectionDistance": 2000,
   "breakawaySpeed": 2,
   "placements": [
     {

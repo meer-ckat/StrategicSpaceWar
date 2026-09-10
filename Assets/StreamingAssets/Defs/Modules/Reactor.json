@@ -5,6 +5,7 @@
     "SolidSkin"
   ],
   "layer": "Module",
+  "skinTexture": "Reactor.png",
   "collider": {
     "size": {
       "x": 3,

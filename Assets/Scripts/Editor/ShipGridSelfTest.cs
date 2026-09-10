@@ -227,6 +227,79 @@ public static class ShipGridSelfTest
             HullStructure.SoloDebrisOriginSelfTest());
         DebrisHpTest();
 
+        // 모듈 배치는 기하다. 판 넓이 비율 · 모듈 겹침 넓이 · 마운트 = 최대 겹침 판 · 자리 = 상자 중심 칸.
+        {
+            static ModulePlacement.Plate Rect(Vector2Int cell, Vector2 size, float rot = 0f)
+            {
+                Vector2[] poly = ModulePlacement.PlatePolygon(cell, "?", rot, size, Vector2.zero, null);
+                return new ModulePlacement.Plate { cell = cell, poly = poly, area = Mathf.Abs(Ballistics.PolygonArea(poly)) };
+            }
+
+            var none = new List<ModulePlacement.Other>();
+            System.Func<Vector2Int, bool> ship = _ => true;
+            var at = new Vector2Int(5, 5);
+
+            // 0.4 m 패널(row 4, 세로 0.4)에 1x1 모듈이 0.25 파고들면 패널의 62% -> 파묻힘
+            var panel = new List<ModulePlacement.Plate> { Rect(new Vector2Int(5, 4), new Vector2(1f, 0.4f)) };
+            var r = ModulePlacement.Evaluate("?", at, 0f, Vector2.one, new Vector2(0f, 0.55f), ship, panel, none);
+            Check($"module: 얇은 판 62% 덮으면 InPlate (got {r.verdict})", r.verdict == ModulePlacement.Verdict.InPlate);
+
+            r = ModulePlacement.Evaluate("?", at, 0f, Vector2.one, new Vector2(0f, 0.2f), ship, panel, none);
+            Check($"module: 얇은 판 살짝 걸치면 Ok (got {r.verdict})", r.verdict == ModulePlacement.Verdict.Ok);
+
+            // 자리 = 상자 중심 칸. offset 0.6이면 옆 칸이 자리다
+            r = ModulePlacement.Evaluate("?", at, 0f, Vector2.one, new Vector2(0.6f, 0f), ship, new List<ModulePlacement.Plate>(), none);
+            Check($"module: offset 0.6의 자리는 (6,5) (got {r.cell})", r.cell == new Vector2Int(6, 5));
+
+            // 모듈끼리: 0.05 m² 겹침은 통과, 0.5 m²는 거부
+            var otherA = new List<ModulePlacement.Other>
+            {
+                new() { origin = new Vector2Int(6, 5), poly = ModulePlacement.ModulePolygon(new Vector2Int(6, 5), "?", 0f, Vector2.one, new Vector2(-0.05f, 0f), out _, out _) },
+            };
+            r = ModulePlacement.Evaluate("?", at, 0f, Vector2.one, Vector2.zero, ship, new List<ModulePlacement.Plate>(), otherA);
+            Check($"module: 0.05 m² 겹침은 Ok (got {r.verdict})", r.verdict == ModulePlacement.Verdict.Ok);
+
+            var otherB = new List<ModulePlacement.Other>
+            {
+                new() { origin = new Vector2Int(6, 5), poly = ModulePlacement.ModulePolygon(new Vector2Int(6, 5), "?", 0f, Vector2.one, new Vector2(-0.5f, 0f), out _, out _) },
+            };
+            r = ModulePlacement.Evaluate("?", at, 0f, Vector2.one, Vector2.zero, ship, new List<ModulePlacement.Plate>(), otherB);
+            Check($"module: 0.5 m² 겹침은 OnModule (got {r.verdict})", r.verdict == ModulePlacement.Verdict.OnModule);
+
+            // 실내 모듈이 우주 칸을 덮으면 InSpace
+            r = ModulePlacement.Evaluate("?", at, 0f, new Vector2(3f, 1f), Vector2.zero, c => c.x != 6, new List<ModulePlacement.Plate>(), none);
+            Check($"module: 실내 모듈이 우주를 덮으면 InSpace (got {r.verdict})", r.verdict == ModulePlacement.Verdict.InSpace);
+
+            // 대칭 복사: def 콜라이더 offset에 y가 있으면 배치 offset이 그만큼 메워야 상자가 거울상이 된다
+            {
+                var d = new Vector2(0f, 0.85f);
+                Vector2 o = ModulePlacement.MirrorOffset(d, 90f, Vector2.zero);
+                // 원본 rot 90: 배 좌표 offset Rotate(d,90) = (-0.85, 0). 복사본 rot -90: Rotate(d,-90) + o 가 (-0.85, 0)이어야 한다
+                Vector2 copy = Ballistics.Rotate(d, -90f) + o;
+                Check($"mirror: def y offset을 배치 offset이 메운다 (got {copy})", (copy - new Vector2(-0.85f, 0f)).magnitude < 1e-3f);
+                Check("mirror: dy가 0이면 (x, -y)", ModulePlacement.MirrorOffset(Vector2.zero, 30f, new Vector2(0.2f, -0.2f)) == new Vector2(0.2f, 0.2f));
+            }
+
+            if (ShipBuilder.IsExteriorModule("m12"))
+            {
+                // 갑판 판 6장(row 6)을 각각 0.15씩 무는 3.4x3 포: 외장이라 Ok, 마운트는 가운데(5,6)
+                var deck = new List<ModulePlacement.Plate>();
+                for (int x = 3; x <= 8; x++) deck.Add(Rect(new Vector2Int(x, 6), Vector2.one));
+                r = ModulePlacement.Evaluate("m12", at, 0f, Vector2.zero, Vector2.zero, c => c.y >= 6, deck, none);
+                Check($"module: 포는 갑판을 물어도 Ok (got {r.verdict})", r.verdict == ModulePlacement.Verdict.Ok);
+                Check($"module: 포 마운트는 제일 많이 덮은 판 (got {r.mount})", r.hasMount && r.mount.y == 6 && Mathf.Abs(r.mount.x - 5) <= 1);
+
+                // 45도 경사판 옆의 포: 그 판이 마운트
+                var slope = new List<ModulePlacement.Plate> { Rect(new Vector2Int(5, 7), new Vector2(1.41f, 1f), 45f) };
+                r = ModulePlacement.Evaluate("m12", at, 0f, Vector2.zero, Vector2.zero, c => c.y >= 6, slope, none);
+                Check($"module: 경사판 옆 포의 마운트는 그 판 (got {r.verdict} {r.mount})", r.hasMount && r.mount == new Vector2Int(5, 7));
+
+                // 허공의 포는 NoMount
+                r = ModulePlacement.Evaluate("m12", new Vector2Int(20, 20), 0f, Vector2.zero, Vector2.zero, _ => false, deck, none);
+                Check($"module: 허공의 포는 NoMount (got {r.verdict})", r.verdict == ModulePlacement.Verdict.NoMount);
+            }
+        }
+
         Debug.Log($"[ShipGrid] {_pass} passed, {_fail} failed.");
     }
 

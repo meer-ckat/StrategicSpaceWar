@@ -28,6 +28,12 @@ public sealed class Battle
     /// </summary>
     public Func<bool> objective;
 
+    /// <summary>싸울 것이 없는 노드(잔해밭·보급·기항). 이겨도 전승 대사는 안 나온다 - 아무도 안 싸웠다.</summary>
+    public bool peaceful;
+
+    /// <summary>경계 없는 들판. 적을 처음 본 자리에 못을 박으면 30 km 밖 자리가 중심이 돼 플레이어를 튕긴다.</summary>
+    public bool boundless;
+
     /// <summary>이겼는가. Ended가 참일 때만 뜻이 있다.</summary>
     public bool Won { get; private set; }
 
@@ -49,6 +55,21 @@ public sealed class Battle
     /// 앞이라 안 걸리지만, 다음 구역의 적을 한 프레임 뒤에 소환하는 순간 그 창이 열린다.
     /// </summary>
     private bool _sawHostile;
+
+    /// <summary>
+    /// 이 전투가 벌어지는 자리. 적을 **처음 본 순간** 한 번 정하고 안 움직인다.
+    ///
+    /// **구역이 장소가 되려면 좌표가 있어야 한다.** 지금까지 구역은 x값 하나였고, 그래서
+    /// 도착도 이탈도 종료도 경계가 없었다 - "우주를 항행한다"가 아니라 "옆 가게에 간다"로
+    /// 보이는 이유가 그것이다. 여기가 그 첫 경계다.
+    ///
+    /// 매 틱 다시 재지 않는 이유: 적이 흩어지거나 도망가면 중심이 따라 움직여서, 플레이어가
+    /// 밀리는 방향이 전투 중에 바뀐다. 벽이 움직이면 벽이 아니다.
+    /// </summary>
+    public Vector2 Centre { get; private set; }
+
+    /// <summary><see cref="Centre"/>가 정해졌나. 적을 보기 전에는 경계가 없다.</summary>
+    public bool HasZone { get; private set; }
 
     /// <summary>
     /// 연료가 바닥나 아무 적에게도 못 닿는 틱이 이어진 개수. drag=0에서 새로 생긴 상황 -
@@ -77,11 +98,35 @@ public sealed class Battle
         if (Ended)
             return;
 
+        // 전장은 목표와 무관하게 정한다. SetZone이 NoHostilesLeft 안에만 있었더니
+        // 목표가 교체된 구역(8구역 = TargetsDown)은 그 함수가 영영 안 불려서 경계 없이
+        // 굴렀다 - 마지막 구역에서만 조용히 규칙이 사라지는 버그다.
+        if (!HasZone && !boundless)
+            SeekZone();
+
         // 순서가 중요하다. 목표를 먼저 본다 - 마지막 적과 서로 죽이면 그건 승리다.
         if (objective != null && objective())
             End(true);
         else if (!PlayerStillFighting() || Stranded())
             End(false);
+    }
+
+    /// <summary>적을 처음 보는 순간 전장을 못박는다. 못 찾으면 다음 틱에 다시 본다.</summary>
+    private void SeekZone()
+    {
+        Ship player = Player();
+
+        if (player == null)
+            return;
+
+        for (int i = 0; i < Ship.All.Count; i++)
+        {
+            if (player.IsHostileTo(Ship.All[i]))
+            {
+                SetZone(player, Ship.All[i]);
+                return;
+            }
+        }
     }
 
     private void End(bool won)
@@ -129,6 +174,16 @@ public sealed class Battle
 
         // 여기까지 왔으면 지금 적이 없다. 그게 승리인지 아직 안 온 것인지는 걸쇠가 안다.
         return _sawHostile;
+    }
+
+    /// <summary>
+    /// 전장을 못박는다. 플레이어와 처음 본 적의 중간이다 - 어느 한쪽에 붙이면 그쪽이
+    /// 벽에 기대고 싸운다.
+    /// </summary>
+    private void SetZone(Ship player, Ship hostile)
+    {
+        Centre = ((Vector2)player.transform.position + (Vector2)hostile.transform.position) * 0.5f;
+        HasZone = true;
     }
 
     /// <summary>

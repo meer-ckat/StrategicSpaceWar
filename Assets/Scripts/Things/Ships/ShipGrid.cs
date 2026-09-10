@@ -40,6 +40,7 @@ public static class ShipGrid
         public Cell[,] cells;
         public int width;
         public int height;
+        public int version;
 
         /// <summary>
         /// 칸 (0,0)의 로컬 좌표. 예전에는 격자가 원점 중심이라고 가정했는데, 맵을 자식들에서
@@ -562,7 +563,7 @@ public static class ShipGrid
         chunk.Clear();
         return chunk;
     }
-
+   
     public static List<List<Vector2Int>> BuildStructure(Map map, bool[] alive)
     {
         List<List<Vector2Int>> chunks = _chunks;
@@ -623,6 +624,7 @@ public static class ShipGrid
         }
 
         chunks.Sort((a, b) => b.Count.CompareTo(a.Count));
+        map.version++;
         return chunks;
     }
 
