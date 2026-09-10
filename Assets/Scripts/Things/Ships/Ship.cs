@@ -1170,6 +1170,25 @@ public partial class Ship : Thing
         return true;
     }
 
+    /// <summary>offer(kN·s)를 살아 있는 탱크에 앞에서부터 채운다. 실제로 들어간 양을 돌려준다.</summary>
+    public float Refuel(float offer)
+    {
+        float poured = 0f;
+
+        foreach (Tank tank in shipTanks)
+        {
+            if (offer <= poured)
+                break;
+
+            if (!StillAboard(tank, this) || tank.Neutralized)
+                continue;
+
+            poured += tank.Refill(offer - poured);
+        }
+
+        return poured;
+    }
+
     /// <summary>
     /// request(kN·s)만큼 탱크에서 뺀다. 앞에서부터 순서대로 비운다 - 어느 탱크가
     /// 먼저 마르는지는 지금 안 정한다, 배치에 따라 자연히 갈릴 값이다.

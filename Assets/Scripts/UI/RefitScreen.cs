@@ -27,7 +27,8 @@ public sealed class RefitScreen : MonoBehaviour
     GUIGroup window, panel, comms;
     GUILabel plateValue, materialValue, commsSpeaker, commsText;
     GUIButton[] repairButtons;
-    GUIButton depart;
+    GUIButton depart, refuel;
+    GUILabel propellantValue;
     GUIStyle rowLabel, rowValue;
     GUIBoxLabel black;
     GUIStyle damagedBox, repairedBox;
@@ -111,6 +112,7 @@ public sealed class RefitScreen : MonoBehaviour
 
         plateValue = Row(inn, ref y, "손상 판");
         materialValue = Row(inn, ref y, "보유 자재");
+        propellantValue = Row(inn, ref y, "보유 추진제");
         y += Gap;
 
         float bw = (inn.width - Gap * 2f) / 3f;
@@ -125,6 +127,9 @@ public sealed class RefitScreen : MonoBehaviour
         repairButtons[2].callBack = () => Repair(RunState.Materials, repairButtons[2]);
         foreach (GUIButton b in repairButtons)
             Hoverable(b);
+        y += ButtonH + Gap;
+        refuel = Widget.Button(panel, "급유", new Rect(inn.x, y, inn.width, ButtonH), Refuel, button);
+        Hoverable(refuel);
         y += ButtonH + Gap;
         Widget.Label(panel, "R 수리 1   Shift+R 전량   Enter 출항", new Rect(inn.x, y, inn.width, 16f), eyebrow);
         y += 16f + Gap * 2f;
@@ -293,6 +298,11 @@ public sealed class RefitScreen : MonoBehaviour
             b.Opacity = can ? 1f : LogisticsScreen.DisabledOpacity;
         }
 
+        propellantValue.Content.text = $"<b>{RunState.Propellant}</b>";
+        bool canFuel = p != null && RunState.Propellant > 0 && p.shipTanks.Count > 0;
+        refuel.isEnabled = refuel.isInteractable = canFuel;
+        refuel.Opacity = canFuel ? 1f : LogisticsScreen.DisabledOpacity;
+
         // 수리가 자재를 쓰면 살 수 있던 모듈이 못 사는 것이 된다. 값은 버튼 글자 앞 숫자다.
         if (lostGroup != null)
             foreach (GUIItem item in lostGroup.Childrens)
@@ -335,6 +345,24 @@ public sealed class RefitScreen : MonoBehaviour
         LogisticsScreen.Punch(pressed);
         RefreshStatus();
         Tween01(x => RenderStatus(Mathf.RoundToInt(Mathf.Lerp(d0, d1, x)), Mathf.RoundToInt(Mathf.Lerp(m0, m1, x))));
+    }
+
+    // 창고의 추진제(kN·s)를 탱크에 붓는다. 빈 자리만큼만 들어가고 나머지는 창고에 남는다.
+    void Refuel()
+    {
+        Ship p = Campaign.current.Player;
+        if (p == null || !refuel.isInteractable)
+            return;
+
+        int poured = Mathf.RoundToInt(p.Refuel(RunState.Propellant));
+        if (poured <= 0)
+            return;
+
+        RunState.Propellant -= poured;
+        RunState.Save(p);
+        LogisticsScreen.Sfx(LogisticsScreen.SfxClick);
+        LogisticsScreen.Punch(refuel);
+        RefreshStatus();
     }
 
     void Tween01(Action<float> onX)

@@ -37,6 +37,14 @@ public class Tank : Thing, IDamageable
         return used;
     }
 
+    /// <summary>급유. 빈 만큼만 받고 실제로 받은 양을 돌려준다.</summary>
+    public float Refill(float offer)
+    {
+        float taken = Mathf.Min(offer, impulse - remaining);
+        remaining += taken;
+        return taken;
+    }
+
     /// <summary>로드 경로. 값을 그냥 놓는다 - TakeDamage의 부작용을 타지 않는다.</summary>
     public void RestoreHealth01(float fraction)
         => _health = maxHealth * Mathf.Clamp01(fraction);
