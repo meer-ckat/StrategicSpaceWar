@@ -555,6 +555,12 @@ public static partial class Ballistics
     /// <summary>모듈끼리 겹쳐도 되는 넓이(m²). 겹친 둘은 한 탄에 같이 맞으므로 사실상 금지.</summary>
     public const float ModuleOverlapMax = 0.1f;
 
+    /// <summary>
+    /// 들판 출구에서 워프하는 데 드는 Δv(m/s). newship 만탱크(≈26,000 m/s)의 1/4쯤 - 들판 횡단이
+    /// 1,000~2,000이라 이게 없으면 탱크가 항해 예산이 아니라 장식이다. 못 채우면 출항이 안 된다.
+    /// </summary>
+    public const float WarpDeltaV = 6000f;
+
     // 후면 열에 상수를 따로 두지 않는다. 후면이 달궈지는 두 사건이 앞판의 그것과 같은
     // 사건이라 같은 값을 쓴다 - 맞으면 HeatFromDamage, 뚫리면 HeatFromExposure.
     //

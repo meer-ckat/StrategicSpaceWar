@@ -68,6 +68,10 @@ public sealed class BackgroundView : MonoBehaviour
 
     private void Awake() => _instance = this;
 
+    // 플레이가 끝나면 Clear 없이 죽는다. 도메인 리로드가 꺼진 에디터에서는 GravLens의 static이 살아남아
+    // 사라진 블랙홀 자리에 렌즈만 남으므로 여기서 끈다.
+    private void OnDestroy() => GravLens.Off();
+
     /// <summary>
     /// 배경 카메라를 잡는다. 씬 리로드마다 다시 잡아야 한다 - 이 오브젝트는 살아남고
     /// 카메라는 씬과 함께 죽는다. == null이 Unity의 가짜 null이라 그걸 잡아낸다.

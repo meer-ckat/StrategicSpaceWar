@@ -223,6 +223,11 @@ public sealed class ContactView : MonoBehaviour
         float distance = Vector2.Distance(eye, gate.Value);
         string text = distance >= 1000f ? $"출구  {distance / 1000f:0.0} km" : $"출구  {distance:0} m";
 
+        Ship player = Campaign.current.Player;
+
+        if (player != null && player.shipTanks.Count > 0 && player.AvailableDeltaV() < Ballistics.WarpDeltaV)
+            text += $"  Δv 부족 {player.AvailableDeltaV():0}/{Ballistics.WarpDeltaV:0}";
+
         EdgeMarker(cam, gate.Value, "gate", text, StyleFor(FriendlyColor, ref _friendlyStyle));
     }
 

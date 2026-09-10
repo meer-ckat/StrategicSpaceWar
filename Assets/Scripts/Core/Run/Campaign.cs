@@ -950,11 +950,15 @@ public sealed class Campaign : TickBehaviour
 
         Vector2 gate = new(sector.gateX, sector.gateY);
 
-        if (((Vector2)player.transform.position - gate).sqrMagnitude <= gateRadius * gateRadius)
-        {
-            _departed = true;
-            Debug.Log($"[Campaign] 출구 도착. '{sector.name}' 출항.");
-        }
+        if (((Vector2)player.transform.position - gate).sqrMagnitude > gateRadius * gateRadius)
+            return;
+
+        // 워프는 탱크에서 나간다. 모자라면 출구에 서 있어도 안 나간다 - Depot·잔해가 필요해지는 자리.
+        if (!player.Burn(Ballistics.WarpDeltaV))
+            return;
+
+        _departed = true;
+        Debug.Log($"[Campaign] 출구 도착. '{sector.name}' 출항.");
     }
 
     // 다음 자리로 한 칸.

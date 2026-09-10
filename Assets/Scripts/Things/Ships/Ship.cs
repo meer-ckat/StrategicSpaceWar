@@ -1153,6 +1153,24 @@ public partial class Ship : Thing
     public float AvailableDeltaV() => RemainingImpulse() * 1000f / rig.mass;
 
     /// <summary>
+    /// 워프처럼 한 번에 Δv를 태운다. 모자라면 아무것도 안 빼고 false. 탱크가 없는 배는
+    /// <see cref="Drive"/>와 같은 이유로 언제나 된다.
+    /// </summary>
+    public bool Burn(float deltaV)
+    {
+        if (shipTanks.Count == 0)
+            return true;
+
+        float need = deltaV * rig.mass / 1000f;   // m/s × kg → N·s → kN·s
+
+        if (RemainingImpulse() < need)
+            return false;
+
+        ConsumeFuel(need);
+        return true;
+    }
+
+    /// <summary>
     /// request(kN·s)만큼 탱크에서 뺀다. 앞에서부터 순서대로 비운다 - 어느 탱크가
     /// 먼저 마르는지는 지금 안 정한다, 배치에 따라 자연히 갈릴 값이다.
     /// </summary>
