@@ -30,6 +30,9 @@ public class SubSectorTemplate
     /// <summary>도착만으로 주는 MTRL. 보급·기항 노드가 쓴다.</summary>
     public int materials;
 
+    /// <summary>이 자리에 닿으면 주는 추진제(kN·s). 워프 한 번이 newship 기준 80만쯤이다.</summary>
+    public int propellant;
+
     /// <summary>여기서 정비 화면이 열리는가. 수리를 살 수 있는 자리를 정하는 값.</summary>
     public bool refit;
 
@@ -329,6 +332,8 @@ public static class SubSectorGen
                 // 잔해·보급·기항은 Hulk로 세운다. 조종도 사격도 안 하고 떠 있으면서 맞는다.
                 hulk = Peaceful(t.Kind),
                 refit = t.refit,
+                materials = i == 0 ? t.materials : 0,     // 자리당 한 번. 첫 배에만 실어 둔다
+                propellant = i == 0 ? t.propellant : 0,
 
                 x = at.x + rng.Range(-60f, 60f),
                 y = at.y + rng.Range(-90f, 90f),

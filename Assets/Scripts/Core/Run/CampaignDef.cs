@@ -28,6 +28,9 @@ public class SpawnDef
     /// <summary>들판의 정비 자리. 이 잔해 옆에서 R을 누르면 정비 화면이 열린다. 생성기만 채운다.</summary>
     public bool refit;
 
+    /// <summary>들판의 자리에 닿으면 한 번 주는 물자. 생성기가 템플릿에서 옮긴다.</summary>
+    public int materials, propellant;
+
     /// <summary>
     /// 이것을 부수는 것이 이 구역의 목표다. 하나라도 있으면 구역의 승리 조건이
     /// "적이 없다"가 아니라 "표적이 다 죽었다"가 된다 - 8구역에서 호위를 다 잡아도

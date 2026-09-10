@@ -145,6 +145,9 @@ public sealed class Campaign : TickBehaviour
     /// 안 가 본 잔해밭이 출항 때 자재로 들어오면 자리를 고를 이유가 없다.
     /// </summary>
     private readonly List<Vector2> _wreckSpots = new();
+
+    /// <summary>닿으면 한 번 주는 자리. 값은 SpawnDef에 있고 준 뒤에는 뺀다.</summary>
+    private readonly List<SpawnDef> _supplySpots = new();
     private readonly List<Vector2> _visitedWrecks = new();
 
     /// <summary>다녀간 잔해에서 건지는 비율. 뜯는 것이 아니라 훑는 것이라 판 수 그대로는 아니다.</summary>
@@ -557,6 +560,7 @@ public sealed class Campaign : TickBehaviour
         _targets.Clear();
         _refitSpots.Clear();
         _wreckSpots.Clear();
+        _supplySpots.Clear();
         _visitedWrecks.Clear();
         Signals.Clear();
         RefitSpotNear = false;
@@ -570,6 +574,9 @@ public sealed class Campaign : TickBehaviour
 
             if (spawn.hulk && !spawn.refit && spawn.ship != SubSectorGen.Rock)
                 _wreckSpots.Add(at);
+
+            if (spawn.hulk && (spawn.materials > 0 || spawn.propellant > 0))
+                _supplySpots.Add(spawn);
 
             if (sector.Open && spawn.ship != SubSectorGen.Rock && !Near(Signals, at, SiteFold))
                 Signals.Add(at);
@@ -1036,7 +1043,7 @@ public sealed class Campaign : TickBehaviour
     {
         RefitSpotNear = false;
 
-        if (_departed || (_refitSpots.Count == 0 && _wreckSpots.Count == 0))
+        if (_departed || (_refitSpots.Count == 0 && _wreckSpots.Count == 0 && _supplySpots.Count == 0))
             return;
 
         Ship player = PlayerShip();
@@ -1056,6 +1063,20 @@ public sealed class Campaign : TickBehaviour
                 _visitedWrecks.Add(spot);
                 Debug.Log($"[Campaign] 잔해 확인 ({spot.x:0},{spot.y:0}).");
             }
+        }
+
+        // 보급 자리. 한 번 주고 목록에서 뺀다 - 같은 자리에 다시 와도 두 번 안 준다.
+        for (int i = _supplySpots.Count - 1; i >= 0; i--)
+        {
+            SpawnDef spot = _supplySpots[i];
+
+            if ((new Vector2(spot.x, spot.y) - at).sqrMagnitude > refitRadius * refitRadius)
+                continue;
+
+            RunState.Materials += spot.materials;
+            RunState.Propellant += spot.propellant;
+            Debug.Log($"[Campaign] 보급 MTRL +{spot.materials} PROP +{spot.propellant} ({spot.x:0},{spot.y:0}).");
+            _supplySpots.RemoveAt(i);
         }
 
         if (RefitSpotNear && Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)

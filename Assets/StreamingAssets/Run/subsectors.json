@@ -124,6 +124,7 @@
         "derelict"
       ],
       "materials": 16,
+      "propellant": 1000000,
       "refit": true,
       "weight": 3
     },
