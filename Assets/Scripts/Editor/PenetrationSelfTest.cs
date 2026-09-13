@@ -509,14 +509,27 @@ public static class PenetrationSelfTest
         // 자유 공간(Radiate)은 BlastRadius에서 멈춘다 - 그 둘이 같은 지점이어야 원이 하나다.
         // BlastRadius를 상수로 손수 적어 넣는 순간 여기서 걸린다.
         {
-            float atRadius = Mathf.Pow(Ballistics.BlastFalloff, Ballistics.BlastRadius);
+            bool ok = true;
+            float last = -1f;
 
-            bool ok = Mathf.Abs(atRadius - Ballistics.BlastCutoff) < 1e-4f
-                && Mathf.Pow(Ballistics.BlastFalloff, Ballistics.BlastRadius - 1f)
-                    > Ballistics.BlastCutoff;
+            // 세기마다 반경이 다르다. 각각에서 "반경에서 딱 하한"이 성립해야 하고, 세기가
+            // 커지면 반경도 커져야 한다 - 비율 컷오프 시절에는 이 단조성이 아예 없었다.
+            foreach (float damage in new[] { 90f, 840f, 1600f, 3200f })
+            {
+                float r = Ballistics.BlastRadiusFor(damage);
+                float atRadius = damage * Mathf.Pow(Ballistics.BlastFalloff, r);
 
-            Check($"blast radius matches falloff (got {atRadius:0.0000} "
-                + $"at r={Ballistics.BlastRadius:0.00})", ok, default);
+                ok &= Mathf.Abs(atRadius - Ballistics.BlastFloor) < 1e-2f
+                    && damage * Mathf.Pow(Ballistics.BlastFalloff, r - 1f) > Ballistics.BlastFloor
+                    && r > last;
+
+                last = r;
+            }
+
+            ok &= Ballistics.BlastRadiusFor(Ballistics.BlastFloor * 0.5f) <= 0f;
+
+            Check($"blast radius scales with damage (90 = {Ballistics.BlastRadiusFor(90f):0.00} m, "
+                + $"3200 = {Ballistics.BlastRadiusFor(3200f):0.00} m)", ok, default);
         }
 
         Debug.Log($"[Ballistics] {_pass} passed, {_fail} failed.");

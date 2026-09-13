@@ -23,6 +23,9 @@ public abstract partial class Projectile : Thing, ITickLate
     //탄두의 데미지
     public float blastDamage;
 
+    /// <summary>작약이 든 철갑탄(APHE). 뚫어야 터진다 - 막힌 탄은 신관이 안 물린 불발이다.</summary>
+    public bool apFuze;
+
     public int lifeTick = 1800;          // 30 s
     public float muzzleSpeed = 900f;     // m/s, used only if nothing calls Launch
     public LayerMask armorLayer;    // 본체 레이캐스트 - Armor 레이어만
@@ -257,7 +260,14 @@ public abstract partial class Projectile : Thing, ITickLate
             // 또 터지면서 이미 꺼진 자기를 복제한 파편(유령)을 낳는다. 한 발이 한 번만
             // 터진다는 것 자체가 규칙이라, 그 규칙을 여기서 지킨다.
             if (Spent)
+            {
+                // **자리를 옮기고 죽는다.** 그냥 return하면 transform이 이번 틱 시작 위치에
+                // 남아서, OnTick의 finally가 적는 궤적 마지막 구간이 길이 0이 된다 - 탄이
+                // 명중점 18 m 앞에서 끊기고, X-ray에는 "피탄 점은 있는데 탄이 안 온" 그림이
+                // 남는다. 작약(apFuze)을 넣은 뒤로는 주포 전부가 이 길로 죽는다.
+                transform.position = position;
                 return;
+            }
 
             lastCollider = _surfaces.primaryCollider;
 

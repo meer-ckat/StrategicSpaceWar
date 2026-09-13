@@ -184,7 +184,7 @@ public abstract partial class Projectile
             if (player != null && player.Rig == targetBody)
             {
                 CameraSystem.Shake(Mathf.Min(MaxHitShake, r.armorDamage * HitShakeScale));
-                DeathXray.AddHit(_surfaces.hitPoint, r.outcome, ProjectileId);
+                DeathXray.AddHit(_surfaces.hitPoint, r.outcome, ProjectileId, defName, generation > 0, r.penetrationBefore);
 
             }
         }
@@ -214,6 +214,13 @@ public abstract partial class Projectile
     private void Explode(in HitResult r)
     {
         if (blastDamage <= 0f || r.outcome == HitOutcome.Ricochet)
+            return;
+
+        // 작약이 든 철갑탄은 **뚫어야 터진다.** 신관은 장갑을 지나면서 물리므로 막힌 탄은
+        // 불발이고, 그래서 같은 한 발이 장갑 앞에서는 아무것도 아니고 뚫는 순간 제일 크다 -
+        // 고폭탄과 정확히 반대 곡선이다. 관통 뒤 남은 속도로 더 들어가는 일은 못 한다:
+        // 작약이 터지면서 탄이 자기를 쓴다.
+        if (apFuze && r.outcome != HitOutcome.Penetrated)
             return;
 
         if (_surfaces.count > 0 && _surfaces.armor[0] != null)

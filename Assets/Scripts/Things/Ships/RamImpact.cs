@@ -1188,7 +1188,7 @@ public static class RamImpact
     /// 유폭. 충각과 같은 전도인데 등방성이다 - along과 across가 같으면 띠가 아니라 원이 된다.
     /// 그래서 "폭발"이라는 별도 시스템이 없다. 충각은 배를 굽혀 자르고, 폭발은 둥글게 판다.
     ///
-    /// 어디까지 닿는지는 BlastCutoff가 정하고 damage는 "닿은 판이 죽느냐"만 정한다. destroyer로
+    /// 어디까지 닿는지는 damage와 BlastFloor가 같이 정한다(BlastRadiusFor). destroyer로
     /// 재보면 damage 800이면 판 17장 구멍, 1600이면 선체가 갈라진다.
     ///
     /// **매질이 둘이다.** 구조를 타고 가는 것(Conduct)과 빈 공간을 건너가는 것(Radiate).
@@ -1200,11 +1200,13 @@ public static class RamImpact
         // 한 폭발이 구조 전도와 자유 공간에 낳는 파편도 같은 순간의 한 wave다.
         using var spallBatch = SpallResolver.DeferPump();
 
+        DeathXray.AddBlast(origin.transform.position, damage);
         origin.ApplyDamageEvenly(damage);
 
         Conduct(origin, Vector2.up, damage,
             Ballistics.BlastFalloff, Ballistics.BlastFalloff,
-            Ballistics.BlastCutoff, Ballistics.BlastMaxPlates);
+            // Conduct의 컷오프는 폭심 대비 비율이라, 절대 하한을 여기서 이 폭발의 비율로 바꾼다.
+            Mathf.Clamp01(Ballistics.BlastFloor / Mathf.Max(1e-4f, damage)), Ballistics.BlastMaxPlates);
 
         Radiate(origin, Mathf.Sqrt(damage));
 
@@ -1246,9 +1248,9 @@ public static class RamImpact
         Collider2D[] hits = nested ? NestedNearby(_radiating) : _nearby;
 
         Vector2 pivot = origin.transform.position;
-        float cutoff = damage * Ballistics.BlastCutoff;
+        float cutoff = Ballistics.BlastFloor;
 
-        int n = Physics2D.OverlapCircleNonAlloc(pivot, Ballistics.BlastRadius, hits);
+        int n = Physics2D.OverlapCircleNonAlloc(pivot, Ballistics.BlastRadiusFor(damage), hits);
 
         // 조용히 잘리면 "다 닿았다"로 읽힌다. 버퍼가 꽉 찼다는 건 반경 안에 판이 아닌
         // 콜라이더가 잔뜩 있다는 뜻이므로, 그때는 레이어 마스크를 붙여야 한다.

@@ -644,7 +644,7 @@ public sealed class HullStructure : MonoBehaviour
     /// </summary>
     public static void BlastRear(Vector2 pivot, float damage)
     {
-        float cutoff = damage * Ballistics.BlastCutoff;
+        float cutoff = Ballistics.BlastFloor;
 
         for (int i = 0; i < All.Count; i++)
         {
@@ -653,7 +653,7 @@ public sealed class HullStructure : MonoBehaviour
             if (body == null || !body.NearRear(pivot) || !body.CellAt(pivot, out Vector2Int at))
                 continue;
 
-            int reach = Mathf.CeilToInt(Ballistics.BlastRadius / ShipGrid.CellSize);
+            int reach = Mathf.CeilToInt(Ballistics.BlastRadiusFor(damage) / ShipGrid.CellSize);
 
             for (int dc = -reach; dc <= reach; dc++)
             for (int dr = -reach; dr <= reach; dr++)
@@ -964,8 +964,65 @@ public sealed class HullStructure : MonoBehaviour
     /// 주인이 OnTick 맨 앞에서 부른다. 조각이 실제로 떨어져 나갔으면 true - 함선은 그때
     /// 방을 다시 짓고, 잔해는 할 일이 없다.
     /// </summary>
+    /// <summary>
+    /// 바닥을 잃은 선체 직속 모듈을 걷는다. **사건이 아니라 상태를 본다.**
+    ///
+    /// 모듈이 죽는 길이 원래 셋이었다 - 지을 때 자리가 없으면(ShipBuilder), 후면이 죽을 때
+    /// (KillRear -> KillModulesOn), 조각이 떠날 때(MakeDebris). 셋 다 **사건**이라 하나라도
+    /// 안 불리거나 칸이 어긋나면 모듈이 영영 산다. 실제로 그랬다: 판도 후면도 없는 자리에
+    /// 탄약고가 떠 있고, 콜라이더가 꺼진 채라 총알이 통과했다. 사건을 하나씩 고쳐도 넷째
+    /// 길이 또 나온다 - 불변식("모듈은 바닥이 있어야 산다")을 사건으로 유지하려던 것이 틀렸다.
+    ///
+    /// 그래서 매번 묻는다: 내 칸에 살아 있는 판이 있거나, 내 칸에 후면이 있는가. 둘 다 아니면
+    /// 죽는다. 판 위의 모듈은 판의 자식이라 여기 안 온다(판과 함께 죽는 것이 그쪽 규칙이다).
+    ///
+    /// **후면 판이 바뀐 프레임에만 돈다**(RearVersion). 모듈 수가 배당 열~수백인데 매 틱
+    /// 돌 이유가 없고, 바닥이 사라지는 것은 후면이나 판이 바뀌는 사건과 언제나 같이 온다.
+    /// </summary>
+    private void PruneFloatingModules()
+    {
+        if (_designMap == null || !_hasMap || _prunedVersion == RearVersion)
+            return;
+
+        _prunedVersion = RearVersion;
+
+        for (int i = transform.childCount - 1; i >= 0; i--)
+        {
+            Transform child = transform.GetChild(i);
+
+            if (ShipBuilder.IsPlate(child) || child.GetComponent<Thing>() == null)
+                continue;
+
+            // 살아 있는 판이 같은 칸에 있으면 그것이 바닥이다. 판의 자식이 아니어도 된다 -
+            // 실내 모듈이 판 위에 겹쳐 앉은 배치가 실제로 있다.
+            Vector2Int live = ModulePlacement.CentreCellOf(child, _map);
+
+            if (_map.Inside(live))
+            {
+                int idx = CellIndex(live);
+
+                if (idx >= 0 && idx < _alive.Length && _alive[idx])
+                    continue;
+            }
+
+            if (_rear.ContainsKey(ModulePlacement.CentreCellOf(child, _designMap)))
+                continue;
+
+            Debug.LogWarning(
+                $"[{name}] '{child.name}'의 바닥(판·후면)이 사라졌다. 떠 있는 모듈은 불사가 되므로 파괴한다.", child);
+
+            Destroy(child.gameObject);
+        }
+    }
+
+    /// <summary>마지막으로 걷은 RearVersion. 같은 값이면 바닥 상태가 안 바뀌었다.</summary>
+    private int _prunedVersion = -1;
+
     public bool TrySplitIfBroken()
     {
+        // 파단 판정보다 먼저. 걷어낸 모듈이 있으면 그 자리가 이번 BFS에 안 들어간다.
+        PruneFloatingModules();
+
         if (!_dirty)
             return false;
 
@@ -1479,9 +1536,15 @@ public sealed class HullStructure : MonoBehaviour
 
         if (bareOnly)
         {
-            foreach (Transform plate in go.transform)
+            foreach (Transform child in go.transform)
             {
-                if (plate.childCount > 0)
+                // **판이 아닌 자식도 모듈이다.** 바로 위에서 선체 직속 모듈(판 없이 후면에만
+                // 앉은 탄약고·원자로)을 자기 칸을 따라 여기로 옮겼는데, 그것들은 자식이 없어서
+                // childCount 검사를 그대로 통과했다. 그러면 셋이 한꺼번에 틀어진다:
+                // 콜라이더가 꺼져 총알이 모듈을 통과하고("맞아도 안 터진다"), 아래
+                // CentreSoloVisualDebris가 "자식은 맨판 하나"를 전제하고 GetChild(0)만 접어서
+                // 나머지 하나가 그만큼 어긋나 허공에 뜨고, 그 상태로 60초를 산다.
+                if (!ShipBuilder.IsPlate(child) || child.childCount > 0)
                 {
                     bareOnly = false;
                     break;

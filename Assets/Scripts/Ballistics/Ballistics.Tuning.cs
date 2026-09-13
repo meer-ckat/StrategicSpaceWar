@@ -397,8 +397,8 @@ public static partial class Ballistics
     /// <summary>
     /// 폭심에서 1 m 멀어질 때 남는 몫. 충각과 달리 방향이 없다 - 같은 값을 두 축에 다 준다.
     ///
-    /// **반경을 정하는 것은 blastDamage가 아니라 아래 BlastCutoff다.** 세기를 올리면 그 원
-    /// 안의 판이 더 확실히 죽을 뿐 원이 커지지 않는다.
+    /// 반경은 이 값과 아래 BlastFloor가 **함께** 정한다(BlastRadiusFor). 세기를 올리면 원도
+    /// 커지는데 로그로 자란다 - 10배가 한 배 반이다.
     ///
     /// **0.65에서 내려왔다(반경 6.95 m -> 3.60 m).** 폭발을 국소 집중형으로 바꾸는 튜닝이다 -
     /// 넓게 얇게 훑던 것이 좁게 깊게 판다.
@@ -488,8 +488,16 @@ public static partial class Ballistics
     /// </summary>
     public const float HullDepth = 6f;
 
-    /// <summary>폭심 피해의 이 비율 아래로 떨어지면 멈춘다. 곧 폭발 반경.</summary>
-    public const float BlastCutoff = 0.05f;
+    /// <summary>
+    /// 폭발이 멈추는 **절대** 하한(HP 단위). 예전에는 폭심 피해의 비율(0.05)이었는데, 비율은
+    /// damage가 분자와 분모에 같이 있어서 **모든 폭발의 반경이 똑같아진다** - 105mm 작약
+    /// 90짜리와 탄약고 3,200짜리가 같은 원이었다. 절대값으로 두면 반경이 ln(damage)로 자란다:
+    /// 세기가 10배면 원이 한 배 반.
+    ///
+    /// 40인 이유는 그 아래가 아무것도 안 죽이기 때문이다 - mk6 판 1 m²가 400이고 서브셀
+    /// 하나가 그 1/36(11)이라, 40이면 서브셀 서너 개를 긁는 자리에서 끊는다.
+    /// </summary>
+    public const float BlastFloor = 40f;
 
     /// <summary>
     /// 판 상한. 파편 연쇄 상한과 같은 이유다.
@@ -501,14 +509,15 @@ public static partial class Ballistics
     public const int BlastMaxPlates = 256;
 
     /// <summary>
-    /// 자유 공간을 건너가는 유폭의 반경(m). **손으로 적는 값이 아니다** -
-    /// BlastFalloff^r == BlastCutoff가 되는 지점을 그대로 푼 것이라, 위 둘을 만지면 따라온다.
-    /// 두 벌로 적어두면 튜닝을 바꾼 날 원과 감쇠가 조용히 어긋난다.
+    /// 세기 damage짜리 폭발이 닿는 반경(m). **손으로 적는 값이 아니다** -
+    /// damage x BlastFalloff^r == BlastFloor를 그대로 푼 것이라 튜닝을 따라온다.
+    /// 하한 이하의 폭발은 반경 0이다(아무것도 안 죽이는 폭발은 원도 없다).
     ///
-    /// 0.65 / 0.05면 약 6.95 m.
+    /// 0.435 / 40이면: 작약 90 = 0.97 m, 305mm 840 = 3.7 m, 원자로 1600 = 4.4 m,
+    /// 탄약고 3200 = 5.3 m, Sunkiller 10000 = 6.6 m.
     /// </summary>
-    public static readonly float BlastRadius =
-        Mathf.Log(BlastCutoff) / Mathf.Log(BlastFalloff);
+    public static float BlastRadiusFor(float damage) =>
+        damage <= BlastFloor ? 0f : Mathf.Log(BlastFloor / damage) / Mathf.Log(BlastFalloff);
 
     /// <summary>폭심 피해 중 파편으로 날아가는 몫. 판을 뚫고 안쪽 모듈까지 가는 것이 이 몫이다.</summary>
     public const float BlastFragmentFraction = 0.25f;

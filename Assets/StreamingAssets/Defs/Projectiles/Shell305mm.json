@@ -14,6 +14,8 @@
   "caliber": 305,
   "shatterVelocity": 2200,
   "penetrationK": 0.18,
+  "blastDamage": 840,
+  "apFuze": true,
   "lifeTick": 1200,
   "muzzleSpeed": 1100,
   "armorLayer": { "m_Bits": 64 },

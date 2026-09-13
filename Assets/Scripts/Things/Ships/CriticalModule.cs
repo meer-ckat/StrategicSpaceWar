@@ -21,7 +21,7 @@ public class CriticalModule : Thing, IDamageable
     public float maxHealth = 40f;
 
     /// <summary>
-    /// 죽을 때 자기 자리에 쏟는 피해. 폭발의 **반경**은 이 값이 아니라 Ballistics.BlastCutoff가
+    /// 죽을 때 자기 자리에 쏟는 피해. 폭발의 **반경**도 여기서 나온다 - Ballistics.BlastRadiusFor가
     /// 정한다 - 여기는 "닿은 판이 죽느냐"를 정하는 문턱이다. 재본 값: 800이면 큰 구멍,
     /// 1600이면 선체가 갈라진다.
     /// </summary>
