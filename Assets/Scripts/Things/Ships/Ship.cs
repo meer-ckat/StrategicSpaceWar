@@ -110,8 +110,14 @@ public partial class Ship : Thing
 
     private const float AmmoLowFraction = 0.25f;
 
-    /// <summary>한 발 꺼낸다. 탄약고가 설계에 없으면 언제나 true, 있는데 전부 비었거나 떠났으면 false.</summary>
-    public bool TakeRound()
+    /// <summary>
+    /// 한 발 꺼낸다. <paramref name="cost"/>는 그 탄이 먹는 칸 수(질량에서 나온다 - Gun.RoundCost).
+    /// 탄약고가 설계에 없으면 언제나 true, 있는데 어디서도 그만큼을 못 꺼내면 false.
+    ///
+    /// **한 탄약고에서 다 꺼낸다.** 305mm 한 발을 여러 탄약고에서 조금씩 긁으면 배가 거의 빈
+    /// 상태에서도 계속 쏘는데, 그건 "탄이 떨어진다"를 무의미하게 만든다.
+    /// </summary>
+    public bool TakeRound(int cost = 1)
     {
         if (!_hasMagazine)
             return true;
@@ -120,7 +126,7 @@ public partial class Ship : Thing
         {
             CriticalModule m = shipCriticals[i];
 
-            if (m != null && StillAboard(m, this) && m.TakeRound())
+            if (m != null && StillAboard(m, this) && m.TakeRound(cost))
             {
                 // 전이만 적는다 - 상태를 매 발 적으면 25% 아래에서 쏘는 모든 발이 경고다.
                 // 여기가 아니라 Gun에서 하면 포탑 수만큼 걸쇠가 생긴다.
@@ -136,7 +142,7 @@ public partial class Ship : Thing
                     else if (_ammoWarned < 1 && max > 0 && left <= max * AmmoLowFraction)
                     {
                         _ammoWarned = 1;
-                        RunLog.AmmoLow(left);
+                        RunLog.AmmoLow(Mathf.RoundToInt(100f * left / max));
                     }
                 }
 

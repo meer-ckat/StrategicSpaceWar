@@ -1722,7 +1722,8 @@ public sealed class ShipStatusHud : MonoBehaviour
         // 머리 오른쪽이 탄약이다. 대사가 "25%"를 한 번 말해도 숫자는 상시 있어야 한다.
         // 탄약고 없는 설계(dart)는 포 수만.
         int rounds = ship.Rounds, maxRounds = ship.MaxRounds;
-        string head = maxRounds > 0 ? $"{guns} · {rounds}/{maxRounds}" : (guns > 0 ? $"{guns}" : null);
+        // 칸 수는 만 단위라 화면에 쓸 숫자가 아니다. 쏠 수 있는 시간의 비율이 읽을 값이다.
+        string head = maxRounds > 0 ? $"{guns} · {100f * rounds / maxRounds:0}%" : (guns > 0 ? $"{guns}" : null);
         Color headColor = guns <= 0 || (maxRounds > 0 && rounds <= 0) ? CriticalColor
             : maxRounds > 0 && rounds <= maxRounds * 0.25f ? WarnColor
             : HudColor;

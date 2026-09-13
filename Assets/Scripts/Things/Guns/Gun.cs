@@ -82,6 +82,33 @@ public class Gun : Thing, IDamageable
     /// </summary>
     public string projectile;
 
+    /// <summary>이 포가 한 발에 쓰는 탄약 칸. 탄의 질량에서 나온다 - def를 읽는 것이라 포마다 안 적는다.</summary>
+    private int _roundCost;
+
+    private int RoundCost
+    {
+        get
+        {
+            if (_roundCost > 0)
+                return _roundCost;
+
+            ThingDef def = string.IsNullOrEmpty(projectile) ? null : DefDatabase.Get(projectile);
+            float mass = 0f;
+
+            if (def != null && !string.IsNullOrEmpty(def.raw))
+                mass = JsonUtility.FromJson<RoundMass>(def.raw).mass;
+
+            return _roundCost = Mathf.Max(1, Mathf.RoundToInt(mass / Ballistics.AmmoUnitMass));
+        }
+    }
+
+    /// <summary>탄 def에서 질량 하나만 읽는다. JsonUtility가 모르는 키를 조용히 버리는 것이 여기서는 이득이다.</summary>
+    [System.Serializable]
+    private struct RoundMass
+    {
+        public float mass;
+    }
+
     public float muzzleSpeed = 900f;
     public float roundsPerMinute = 60f;
 
@@ -551,7 +578,7 @@ public class Gun : Thing, IDamageable
             return;
         }
 
-        if (owner != null && !owner.TakeRound())
+        if (owner != null && !owner.TakeRound(RoundCost))
         {
             Hold = HoldReason.NoAmmo;
             return;

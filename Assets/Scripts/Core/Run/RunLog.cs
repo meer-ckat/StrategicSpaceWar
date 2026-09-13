@@ -231,7 +231,8 @@ public static class RunLog
     // ---- 상황 보고. 시뮬이 아는데 화면에 없던 것들. 전부 플레이어(Ally) 사건이다. ----
 
     /// <summary>탄약 25% 아래로 처음 내려갔다. <c>what</c>은 남은 발수. 걸쇠는 Ship이 든다.</summary>
-    public static void AmmoLow(int left) => Add(Kind.AmmoLow, left.ToString(), Ship.Team.Ally);
+    /// <summary>남은 탄약. **칸이 아니라 퍼센트다** - 칸은 만 단위라 사람이 읽는 값이 아니다.</summary>
+    public static void AmmoLow(int percent) => Add(Kind.AmmoLow, $"{percent}%", Ship.Team.Ally);
 
     /// <summary>탄약 0. 포탑은 돌지만 안 나간다 - 왜 안 쏘는지 모르는 것이 제일 나쁘다.</summary>
     public static void AmmoOut() => Add(Kind.AmmoOut, "0", Ship.Team.Ally);

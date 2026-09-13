@@ -345,7 +345,7 @@ public static class RunState
     /// "몇 군데 돌면 찬다"가 된다. 연구는 화물이 아니라 정보라 상한이 없다.
     /// </summary>
     public const int MaxPropellant = 3000000;
-    public const int MaxMunitions = 1200;
+    public const int MaxMunitions = 400000;
 
     /// <summary>
     /// 이 런의 돈. **화물이 아니라 계좌라 상한이 없다** - 위 두 상한이 보급 자리를 선택으로

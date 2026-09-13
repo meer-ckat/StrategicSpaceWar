@@ -175,6 +175,18 @@ public static partial class Ballistics
     /// </summary>
     public const float ModuleHitFraction = 0.15f;
 
+    // --- 탄약 ---
+
+    /// <summary>
+    /// 탄약 한 칸이 담는 질량(kg). **한 발이 한 칸이 아니다** - 20mm(0.5 kg)와 305mm(400 kg)를
+    /// 같은 1로 세면 CIWS 한 문이 주포와 같은 속도로 탄약고를 비운다. frigate로 재면 전 포
+    /// 동시 사격이 초당 423발인데 적재가 1,760발이라 4.2초에 바닥났다.
+    ///
+    /// 0.5인 이유는 제일 작은 탄(20mm 0.5 kg)이 정확히 한 칸이어서다 - 그 아래로 내리면
+    /// 소구경이 소수점이 되고, 올리면 20mm와 22mm가 같은 값이 된다.
+    /// </summary>
+    public const float AmmoUnitMass = 0.5f;
+
     // --- 승무원 ---
 
     /// <summary>

@@ -400,11 +400,11 @@ public sealed class MapScreen : MonoBehaviour
         Row(inn, ref y, "침로", $"{heading:000}°", row++);
         Row(inn, ref y, "속도", $"{player.velocity.magnitude:0} m/s", row++);
         if (hull != null) Row(inn, ref y, "판", $"{hull.AliveCount}", row++);
-        if (player.MaxRounds > 0) Row(inn, ref y, "탄약", $"{player.Rounds} / {player.MaxRounds}", row++, player.Rounds == 0);
+        if (player.MaxRounds > 0) Row(inn, ref y, "탄약", $"{100f * player.Rounds / player.MaxRounds:0}%", row++, player.Rounds == 0);
         // 창고. 가득 찬 칸은 보급 자리를 지나칠 이유가 된다 - 그것이 이 줄의 값어치다. 한 줄에 둘을 묶는다.
         bool full = RunState.Munitions >= RunState.MaxMunitions;
         Row(inn, ref y, "잔고", $"{RunState.Credits} CR", row++, false);
-        Row(inn, ref y, "탄약", $"{RunState.Munitions}/{RunState.MaxMunitions}", row++, full);
+        Row(inn, ref y, "탄약", $"{100f * RunState.Munitions / RunState.MaxMunitions:0}%", row++, full);
         Row(inn, ref y, "방출", $"×{player.Emission:0.0}", row++, player.Emission >= campaign.hunterLoud);
         if (player.shipTanks.Count > 0)
         {

@@ -45,7 +45,10 @@ public class CriticalModule : Thing, IDamageable
     /// <summary>낮을수록 크고 무거운 폭발로 들린다. 같은 클립으로 탄약고와 원자로를 가른다.</summary>
     public float blastPitch = 1f;
 
-    /// <summary>탄약고 용량(발). 0이면 탄약고가 아니다(원자로·격납고). 남은 발수가 곧 노획 MUN이다.</summary>
+    /// <summary>
+    /// 탄약고 용량(칸). 0이면 탄약고가 아니다(원자로·격납고). 남은 칸이 곧 노획 MUN이다.
+    /// 한 칸은 <see cref="Ballistics.AmmoUnitMass"/> kg이라 305mm 한 발이 800칸, 20mm가 한 칸이다.
+    /// </summary>
     public int maxRounds;
 
     public int Rounds { get; private set; }
@@ -73,12 +76,12 @@ public class CriticalModule : Thing, IDamageable
     public override void OnTick() { }
 
     /// <summary>로드 경로. 값을 그냥 놓는다 - TakeDamage의 부작용을 타지 않는다.</summary>
-    public bool TakeRound()
+    public bool TakeRound(int cost = 1)
     {
-        if (Neutralized || Rounds <= 0)
+        if (Neutralized || cost <= 0 || Rounds < cost)
             return false;
 
-        Rounds--;
+        Rounds -= cost;
         return true;
     }
 
