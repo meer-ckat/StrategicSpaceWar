@@ -26,6 +26,26 @@ public static class DeathXray
     public static long DownTick { get; private set; } = -1;
     public static string Cause { get; private set; } = "";
 
+    /// <summary>
+    /// 한 사건 = 같은 순간에 죽은 판 묶음. 유폭 한 방이 판 40장을 같은 틱에 죽이는데, 그걸 40개로
+    /// 세면 "무엇이 먼저였나"가 그 40장에 묻힌다 - 관통 한 발이 판 하나를 죽이고, 그 다음 유폭이
+    /// 40장을 죽인 것이 두 사건이다.
+    /// </summary>
+    public struct Group
+    {
+        public long tick;
+        public List<Vector2Int> cells;
+        public string tag;   // 그 순간의 RunLog 사건. "유폭" "절단" "관통". 없으면 ""
+    }
+
+    /// <summary>마지막 <see cref="MaxGroups"/>개. 0이 제일 오래된 것 - 재생 순서다.</summary>
+    public static readonly List<Group> Groups = new();
+
+    public const int MaxGroups = 10;
+
+    /// <summary>이 틱 안이면 같은 사건. 유폭의 붕괴 연쇄가 몇 틱에 걸쳐 흐를 수 있다.</summary>
+    private const int GroupTicks = 3;
+
     private static Ship _watched;
 
     /// <summary>매 프레임. 설계도가 바뀐 배(새 런, 새 구역 재건조)만 다시 읽는다 - 나머지 프레임은 참조 비교 하나.</summary>
@@ -70,6 +90,8 @@ public static class DeathXray
 
         IReadOnlyList<RunLog.Entry> log = RunLog.Entries;
 
+        BuildGroups(log);
+
         for (int i = log.Count - 1; i >= 0; i--)
         {
             RunLog.Entry e = log[i];
@@ -87,8 +109,67 @@ public static class DeathXray
         }
     }
 
+    private static void BuildGroups(IReadOnlyList<RunLog.Entry> log)
+    {
+        Groups.Clear();
+
+        // 죽은 순서대로 쌓여 있다. 틱이 가까우면 같은 묶음.
+        foreach (Lost l in LostPlates)
+        {
+            if (Groups.Count > 0 && l.tick - Groups[Groups.Count - 1].tick <= GroupTicks)
+            {
+                Groups[Groups.Count - 1].cells.Add(l.cell);
+                continue;
+            }
+
+            Groups.Add(new Group { tick = l.tick, cells = new List<Vector2Int> { l.cell }, tag = "" });
+        }
+
+        if (Groups.Count > MaxGroups)
+            Groups.RemoveRange(0, Groups.Count - MaxGroups);
+
+        // 그 순간의 RunLog 사건을 묶음에 붙인다. 유폭이 같은 틱에 여러 모듈이어도 태그는 하나.
+        for (int g = 0; g < Groups.Count; g++)
+        {
+            Group group = Groups[g];
+            long from = group.tick - GroupTicks;
+            long to = (g + 1 < Groups.Count ? Groups[g + 1].tick : long.MaxValue) - 1;
+
+            bool det = false, split = false, pen = false, crew = false, role = false;
+
+            for (int i = 0; i < log.Count; i++)
+            {
+                RunLog.Entry e = log[i];
+
+                if (e.team != Ship.Team.Ally || e.tick < from || e.tick > to)
+                    continue;
+
+                switch (e.kind)
+                {
+                    case RunLog.Kind.Detonated: det = true; break;
+                    case RunLog.Kind.HullSplit: split = true; break;
+                    case RunLog.Kind.Penetrated: pen = true; break;
+                    case RunLog.Kind.CrewLost: crew = true; break;
+                    case RunLog.Kind.RoleLost: role = true; break;
+                }
+            }
+
+            // 인과 순서로 잇는다. 관통이 탄약고를 때려 유폭이 나고 그것이 절단으로 - 한 순간에
+            // 셋이 다 일어날 수 있고, "유폭"만 남기면 그 관통 한 발이 사라진다. 그 한 발이 원인이다.
+            var tag = new System.Text.StringBuilder();
+            if (pen) tag.Append("관통");
+            if (det) tag.Append(tag.Length > 0 ? " → 유폭" : "유폭");
+            if (split) tag.Append(tag.Length > 0 ? " → 절단" : "절단");
+            if (crew) tag.Append(tag.Length > 0 ? " → 승무원" : "승무원");
+            if (role) tag.Append(tag.Length > 0 ? " → 상실" : "상실");
+            group.tag = tag.ToString();
+            Groups[g] = group;
+        }
+    }
+
     public static void Reset()
     {
+        Groups.Clear();
         _watched = null;
         Design = null;
         Citadel.Clear();

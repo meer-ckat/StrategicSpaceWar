@@ -302,15 +302,15 @@ public sealed class ShipStatusHud : MonoBehaviour
     /// <summary>암전이 시작되고 이만큼 뒤에 뜬다. GameManager.BlackFadeSeconds(1)와 같다 - 검정 위에 떠야 읽힌다.</summary>
     private const float XrayAfterBlackSeconds = 1f;
     private const float XrayCellMax = 14f;
-    private const float XrayRecentSeconds = 3f;    // 이 안에 죽은 판 = 치명타. 빨강
-    private const float XrayLateSeconds = 20f;     // 이 안 = 이번 교전. 주황. 그 밖 = 옛 상처. 회색
-
-    private static readonly HashSet<Vector2Int> _xrayLost = new();
+    private const float XrayStepSeconds = 0.7f;    // 사건 하나 = 이 시간. 열 개면 7초
+    private const float XrayFlashSeconds = 0.25f;  // 사건이 켜지는 순간 흰빛
 
     /// <summary>
-    /// 죽은 판을 **언제** 죽었나로 칠한다. 같은 빨강이면 "어디가 부서졌나"만 보이고
-    /// "무엇이 먼저였나"가 안 보인다 - 순서가 곧 원인이다. 시타델은 언제나 표시한다:
-    /// 탄약고 옆이 먼저 뚫린 그림이 "왜 유폭했나"의 답이다.
+    /// 마지막 열 사건을 **순서대로 재생한다.** 시간으로 칠하면 유폭 한 방이 판 40장을 같은 순간에
+    /// 죽여서 전부 빨강이 되고, 그 직전의 관통 한 발이 묻힌다 - 그 한 발이 원인인데.
+    /// 재생 중인 사건은 흰빛에서 빨강으로, 지난 사건은 주황, 열 개 밖의 옛 상처는 회색.
+    /// 시타델은 언제나 표시 - 탄약고 옆이 먼저 뚫린 그림이 "왜 유폭했나"의 답이다.
+    /// 다 돌면 그 자리에 멈춘다. 아무 키가 재시작이다.
     /// </summary>
     private static void DrawXray()
     {
@@ -326,7 +326,6 @@ public sealed class ShipStatusHud : MonoBehaviour
         if (!Mathf.Approximately(uiScale, 1f))
             GUI.matrix = Matrix4x4.Scale(new Vector3(uiScale, uiScale, 1f));
 
-        // 왼쪽 60%가 그림, 오른쪽이 글.
         var gridArea = new Rect(w * 0.06f, h * 0.14f, w * 0.54f, h * 0.68f);
         var textArea = new Rect(w * 0.64f, h * 0.14f, w * 0.30f, h * 0.68f);
 
@@ -335,14 +334,21 @@ public sealed class ShipStatusHud : MonoBehaviour
         float x0 = gridArea.x + (gridArea.width - design.width * cell) * 0.5f;
         float y0 = gridArea.y + (gridArea.height - design.height * cell) * 0.5f;
 
-        // 죽은 칸 → 죽은 틱. 같은 칸이 두 번 적혔으면 나중 것.
-        var lostAt = new Dictionary<Vector2Int, long>();
-        foreach (DeathXray.Lost l in DeathXray.LostPlates)
-            lostAt[l.cell] = l.tick;
+        // 재생 시계. X-ray가 뜬 순간부터.
+        float t = GameManager.DownSeconds - (ShutdownSeconds + DieFlashSeconds + XrayAfterBlackSeconds);
+        List<DeathXray.Group> groups = DeathXray.Groups;
+        int shown = Mathf.Min(groups.Count, Mathf.FloorToInt(t / XrayStepSeconds) + 1);   // 지금까지 켜진 사건 수
+        float inStep = t - (shown - 1) * XrayStepSeconds;
 
-        float dt = Core.TickManager.TickDeltaTime;
-        long down = DeathXray.DownTick;
-        int recent = 0, late = 0, old = 0;
+        // 칸 → 몇 번째 사건. 열 개 밖의 옛 상처는 -1.
+        var when = new Dictionary<Vector2Int, int>();
+        foreach (DeathXray.Lost l in DeathXray.LostPlates)
+            when[l.cell] = -1;
+        for (int g = 0; g < groups.Count; g++)
+            foreach (Vector2Int c in groups[g].cells)
+                when[c] = g;
+
+        Color current = Color.Lerp(Color.white, Palette.Breach, Mathf.Clamp01(inStep / XrayFlashSeconds));
 
         for (int col = 0; col < design.width; col++)
         for (int row = 0; row < design.height; row++)
@@ -354,16 +360,15 @@ public sealed class ShipStatusHud : MonoBehaviour
             bool citadel = DeathXray.Citadel.Contains(c);
             Color color;
 
-            if (lostAt.TryGetValue(c, out long tick))
+            if (when.TryGetValue(c, out int g))
             {
-                float ago = (down - tick) * dt;
+                if (g < 0) color = Palette.Steel;                           // 열 개 밖. 옛 상처
+                else if (g >= shown) color = Palette.Hull.WithAlpha(0.28f);  // 아직 안 온 사건. 멀쩡한 척
+                else if (g == shown - 1) color = current;                   // 지금 이 사건
+                else color = Palette.Heat;                                  // 지난 사건
 
-                if (ago <= XrayRecentSeconds) { color = Palette.Breach; recent++; }
-                else if (ago <= XrayLateSeconds) { color = Palette.Heat; late++; }
-                else { color = Palette.Steel; old++; }
-
-                if (citadel)
-                    color = Palette.Radiance;   // 죽은 시타델. 유폭이면 여기서 시작했다
+                if (citadel && g >= 0 && g < shown)
+                    color = Color.Lerp(color, Palette.Radiance, 0.6f);
             }
             else
                 color = citadel ? Palette.Heat.WithAlpha(0.9f) : Palette.Hull.WithAlpha(0.28f);
@@ -374,7 +379,7 @@ public sealed class ShipStatusHud : MonoBehaviour
 
         GUI.color = Color.white;
 
-        // 글. 원인 한 줄, 그 아래 마지막 아군 사건들, 범례, 넘기기.
+        // 오른쪽. 원인, 그 아래 사건 열 줄 - 켜진 것까지만 밝다.
         float y = textArea.y;
         GUI.Label(new Rect(textArea.x, y, textArea.width, 20f), "격파", _titleStyle);
         y += 24f;
@@ -383,39 +388,25 @@ public sealed class ShipStatusHud : MonoBehaviour
         GUI.color = Color.white;
         y += 40f;
 
-        GUI.Label(new Rect(textArea.x, y, textArea.width, RowHeight), "마지막 사건", _titleStyle);
+        GUI.Label(new Rect(textArea.x, y, textArea.width, RowHeight), $"마지막 {groups.Count}개 사건", _titleStyle);
         y += RowHeight;
 
-        IReadOnlyList<RunLog.Entry> log = RunLog.Entries;
-        int shown = 0;
+        float dt = Core.TickManager.TickDeltaTime;
+        long down = DeathXray.DownTick;
 
-        for (int i = log.Count - 1; i >= 0 && shown < 8; i--)
+        for (int g = 0; g < groups.Count; g++)
         {
-            RunLog.Entry e = log[i];
+            DeathXray.Group group = groups[g];
+            bool lit = g < shown;
+            bool now = g == shown - 1;
+            float ago = (down - group.tick) * dt;
+            string tag = string.IsNullOrEmpty(group.tag) ? "피탄" : group.tag;
 
-            if (e.team != Ship.Team.Ally || e.kind is RunLog.Kind.SectorEntered or RunLog.Kind.SectorCleared
-                or RunLog.Kind.Paid or RunLog.Kind.Supplied)
-                continue;
-
-            float ago = (down - e.tick) * dt;
-            string what = e.kind switch
-            {
-                RunLog.Kind.Penetrated => "관통",
-                RunLog.Kind.RoomBreached => "격실 파공",
-                RunLog.Kind.Detonated => e.what + " 유폭",
-                RunLog.Kind.HullSplit => "선체 절단",
-                RunLog.Kind.RoleLost => e.what + " 상실",
-                RunLog.Kind.CrewLost => "승무원 전멸",
-                RunLog.Kind.AmmoOut => "탄약 소진",
-                _ => e.kind.ToString(),
-            };
-
-            GUI.color = ago <= XrayRecentSeconds ? Palette.Breach : Palette.Hull;
-            GUI.Label(new Rect(textArea.x, y, textArea.width * 0.7f, RowHeight), what, _leftStyle);
-            GUI.color = DimColor;
+            GUI.color = !lit ? Palette.Hull.WithAlpha(0.25f) : now ? current : Palette.Hull;
+            GUI.Label(new Rect(textArea.x, y, textArea.width * 0.7f, RowHeight), $"{tag}  판 {group.cells.Count}장", _leftStyle);
+            GUI.color = lit ? DimColor : Palette.Hull.WithAlpha(0.15f);
             GUI.Label(new Rect(textArea.x + textArea.width * 0.7f, y, textArea.width * 0.3f, RowHeight), $"-{ago:0.0} s", _rightStyle);
             y += RowHeight;
-            shown++;
         }
 
         GUI.color = Color.white;
@@ -430,9 +421,9 @@ public sealed class ShipStatusHud : MonoBehaviour
             y += RowHeight;
         }
 
-        Legend(Palette.Breach, $"마지막 {XrayRecentSeconds:0}초  {recent}장");
-        Legend(Palette.Heat, $"이번 교전  {late}장");
-        Legend(Palette.Steel, $"그 전  {old}장");
+        Legend(Palette.Breach, "지금 이 사건");
+        Legend(Palette.Heat, "지난 사건");
+        Legend(Palette.Steel, "그 전 상처");
         Legend(Palette.Radiance, "시타델 (탄약고·원자로)");
 
         GUI.color = DimColor;
