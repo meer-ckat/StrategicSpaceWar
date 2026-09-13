@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using IMGUI;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 /// <summary>
@@ -336,6 +337,10 @@ public sealed class ShipStatusHud : MonoBehaviour
     }
     private const float XrayFlashSeconds = 0.25f;  // 사건이 켜지는 순간 흰빛
     private const float XrayGaugeThickness = 4f;   // LogisticsScreen.GaugeThickness와 같다
+    private static float _xrayReplayFrom;          // R로 되감은 시각(DownSeconds). 0이면 처음 그대로
+
+    /// <summary>새 런. DeathXray.Reset이 부른다 - 안 지우면 다음 죽음의 재생이 지난 되감기 시각에서 시작한다.</summary>
+    public static void XrayRewindReset() => _xrayReplayFrom = 0f;
 
     /// <summary>
     /// 마지막 열 사건을 **순서대로 재생한다.** 시간으로 칠하면 유폭 한 방이 판 40장을 같은 순간에
@@ -367,7 +372,11 @@ public sealed class ShipStatusHud : MonoBehaviour
         float y0 = gridArea.y + (gridArea.height - design.height * cell) * 0.5f;
 
         // 재생 시계. X-ray가 뜬 순간부터.
-        float t = GameManager.DownSeconds - (ShutdownSeconds + DieFlashSeconds + XrayAfterBlackSeconds);
+        // R = 처음부터 다시. 재생 시계를 지금으로 되돌린다 - 열 사건 16초를 한 번 보고 끝이면 X-ray가 아니라 컷신이다.
+        if (Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)
+            _xrayReplayFrom = GameManager.DownSeconds;
+
+        float t = GameManager.DownSeconds - Mathf.Max(_xrayReplayFrom, ShutdownSeconds + DieFlashSeconds + XrayAfterBlackSeconds);
         List<DeathXray.Group> groups = DeathXray.Groups;
         int shown = Mathf.Min(groups.Count, Mathf.FloorToInt(t / XrayStepSeconds) + 1);   // 지금까지 켜진 사건 수
         float inStep = t - (shown - 1) * XrayStepSeconds;
@@ -627,7 +636,7 @@ public sealed class ShipStatusHud : MonoBehaviour
         Legend(Palette.Heat, "충각 (갈린 자리)");
 
         GUI.color = DimColor;
-        GUI.Label(new Rect(textArea.x, textArea.yMax - RowHeight, textArea.width, RowHeight), "Space 길게  -  다시", _leftStyle);
+        GUI.Label(new Rect(textArea.x, textArea.yMax - RowHeight, textArea.width, RowHeight), "R  다시 보기      Space 길게  -  재시작", _leftStyle);
 
         // 재시작 게이지. 도착 카드(LogisticsScreen.ShowCard)와 같은 그림 - 위는 왼쪽에서, 아래는 오른쪽에서.
         // 누르는 동안만 보인다. 떼면 0으로 돌아가니 그림도 사라진다.

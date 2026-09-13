@@ -370,6 +370,7 @@ public static class DeathXray
 
     public static void Reset()
     {
+        ShipStatusHud.XrayRewindReset();
         Groups.Clear();
         Hits.Clear();
         _trailNext = _trailCount = 0;
