@@ -29,7 +29,7 @@ public class SpawnDef
     public bool refit;
 
     /// <summary>들판의 자리에 닿으면 한 번 주는 물자. 생성기가 템플릿에서 옮긴다.</summary>
-    public int materials, propellant, munitions;
+    public int credits, propellant, munitions;
 
     /// <summary>신호 크기(m). 이 거리 안이면 좌표가 잡히고, 지도 부채꼴 밝기가 signalSize / 거리다. 생성기가 템플릿에서 옮긴다.</summary>
     public float signalSize;
@@ -87,8 +87,8 @@ public class SectorDef
     /// </summary>
     public bool refit;
 
-    /// <summary>도착만으로 주는 MTRL. 보급 부표·기항지가 쓴다. 전투 노획과는 다른 축이다.</summary>
-    public int materials;
+    /// <summary>도착만으로 주는 크레딧. 기항지 지원금이다 - 격파 급여와 다른 축이다.</summary>
+    public int credits;
 
     /// <summary>
     /// 소구역 종류(Skirmish/Elite/Wreck/Depot/Port). 배경 소품이 이걸로 갈린다. 손으로 쓴

@@ -34,6 +34,9 @@ public sealed class Campaign : TickBehaviour
     // 격파한 적함의 설계 판 1장당 연구점수.
     public float researchPerPlate = 0.5f;
 
+    /// <summary>격파 급여. 적함 설계 판 1장당 크레딧 - 큰 배를 잡을수록 많이 받는다.</summary>
+    public float creditsPerPlate = 1.5f;
+
     /// <summary>
     /// 워프에서 빠져나온 속도(m/s). <see cref="slideTicks"/> 동안 제곱 곡선으로 0까지 줄어든다 -
     /// 처음에 확 죽고 끝이 길다. 한 틱에 0으로 자르면 급정거로 보인다. 카메라가 배를 픽셀에
@@ -262,8 +265,8 @@ public sealed class Campaign : TickBehaviour
     /// </summary>
     private readonly List<Vector2> _intelSpots = new();
 
-    /// <summary>다녀간 잔해에서 건지는 비율. 뜯는 것이 아니라 훑는 것이라 판 수 그대로는 아니다.</summary>
-    public float wreckSalvage = 0.25f;
+    /// <summary>다녀간 잔해에서 떼어 판 부품 값. 판 1장당 크레딧 - 훑는 것이라 격파 급여보다 훨씬 적다.</summary>
+    public float wreckStrip = 0.25f;
 
     /// <summary>
     /// 들판의 신호. 자리마다 하나 - 운석은 빼고, 같은 자리의 배들은 하나로 접는다.
@@ -328,11 +331,37 @@ public sealed class Campaign : TickBehaviour
     /// <summary>현재 들판에 항로 자료를 얻을 자리가 있는가. 지도 안내 문구가 읽는다.</summary>
     public bool RouteIntelAvailable => _intelSpots.Count > 0;
 
-    /// <summary>출구 k 너머를 회수 자료가 요약한 한 줄.</summary>
+    /// <summary>출구 k 너머를 회수 자료가 요약한 한 줄. 테스트·로그용 원자료다.</summary>
     public string GateIntel(int k) => _gateIntel != null && k >= 0 && k < _gateIntel.Length ? _gateIntel[k] ?? "" : "";
+
+    /// <summary>
+    /// 항법 기록을 플레이어 결정 언어로 옮긴 카드. 원자료의 적/보급/엄폐 수치가 아니라,
+    /// 다음 구역에서 무엇을 감수하고 무엇을 할 수 있는지를 지도에 준다.
+    /// </summary>
+    public RouteBriefing GateBriefing(int k) => _gateBriefings != null && k >= 0 && k < _gateBriefings.Length
+        ? _gateBriefings[k] : RouteBriefing.None;
+
+    public readonly struct RouteBriefing
+    {
+        public static readonly RouteBriefing None = new("정보 없음", "정보 없음", "정보 없음", "항로 자료가 부족함");
+
+        public readonly string risk;
+        public readonly string supplies;
+        public readonly string evasion;
+        public readonly string advice;
+
+        public RouteBriefing(string risk, string supplies, string evasion, string advice)
+        {
+            this.risk = risk;
+            this.supplies = supplies;
+            this.evasion = evasion;
+            this.advice = advice;
+        }
+    }
 
     private string[] _gateLabels;
     private string[] _gateIntel;
+    private RouteBriefing[] _gateBriefings;
 
     /// <summary>출구 신호의 크기. 기항지와 같다 - 들판에서 제일 큰 것.</summary>
     public const float GateSignalSize = 15000f;
@@ -1075,7 +1104,7 @@ public sealed class Campaign : TickBehaviour
             if (spawn.hulk && !spawn.refit && !spawn.scenery)
                 _wreckSpots.Add(at);
 
-            if (spawn.hulk && (spawn.materials > 0 || spawn.propellant > 0 || spawn.munitions > 0))
+            if (spawn.hulk && (spawn.credits > 0 || spawn.propellant > 0 || spawn.munitions > 0))
             {
                 // **사본을 든다.** 아래 보급이 남은 양을 빼는데, 원본은 SectorDef가 들고 있는 공유 객체다 -
                 // 거기서 빼면 같은 구역을 다시 준비할 때 이미 비어 있고(운석이 두 배로 쌓이던 것과 같은 함정),
@@ -1084,7 +1113,7 @@ public sealed class Campaign : TickBehaviour
                 {
                     x = spawn.x,
                     y = spawn.y,
-                    materials = spawn.materials,
+                    credits = spawn.credits,
                     propellant = spawn.propellant,
                     munitions = spawn.munitions,
                 });
@@ -1112,6 +1141,10 @@ public sealed class Campaign : TickBehaviour
 
         for (int k = 0; k < sector.GateCount; k++)
             _gateIntel[k] = DescribeRoute(beyond[k], sector.GateCount == 2 ? beyond[1 - k] : null);
+
+        _gateBriefings = new RouteBriefing[sector.GateCount];
+        for (int k = 0; k < sector.GateCount; k++)
+            _gateBriefings[k] = BriefRoute(beyond[k], sector.GateCount == 2 ? beyond[1 - k] : null);
 
         // **활성 여부는 자리 전체를 접은 뒤에 나온다.** 신호는 첫 배가 만들지만(NearSignal) 겉과 속이
         // 다를 수 있다 - trap은 표류 잔해 속에 습격조가 숨어 있다. 첫 배만 보면 그 자리가 "표류"로 읽힌다.
@@ -1466,20 +1499,16 @@ public sealed class Campaign : TickBehaviour
 
         // **잔해를 걷어내기 전에 센다.** Prepare가 지난 구역의 소환물을 지우므로 여기가
         // 마지막 기회다.
-        SalvageResult recovered = ComputeSalvage();
+        BountyResult earned = Bounty();
 
-        if (!recovered.IsEmpty)
+        if (!earned.IsEmpty)
         {
-            RunState.Materials += recovered.materials;
-            RunState.Propellant += recovered.propellant;
-            RunState.Munitions += recovered.munitions;
-            RunState.Research += recovered.research;
+            RunState.Credits += earned.credits;
+            RunState.Research += earned.research;
 
             Debug.Log(
-                $"[Campaign] 노획 MTRL +{recovered.materials} PROP +{recovered.propellant} " +
-                $"MUN +{recovered.munitions} RSCH +{recovered.research} " +
-                $"(누적 MTRL {RunState.Materials} PROP {RunState.Propellant} " +
-                $"MUN {RunState.Munitions} RSCH {RunState.Research}).");
+                $"[Campaign] 급여 CR +{earned.credits} RSCH +{earned.research} " +
+                $"(누적 CR {RunState.Credits} RSCH {RunState.Research}).");
         }
 
         // _sector++ 뒤에는 Current가 다음 구역이라 방금 깬 것을 여기서 잡아 둔다.
@@ -1488,10 +1517,10 @@ public sealed class Campaign : TickBehaviour
         _refitHere = cleared != null && cleared.refit;
 
         // 도착만으로 주는 물자. 전투 노획과 다른 축이라 따로 더한다.
-        if (cleared != null && cleared.materials > 0)
+        if (cleared != null && cleared.credits > 0)
         {
-            RunState.Materials += cleared.materials;
-            Debug.Log($"[Campaign] '{cleared.name}' 보급 MTRL +{cleared.materials}.");
+            RunState.Credits += cleared.credits;
+            Debug.Log($"[Campaign] '{cleared.name}' 지원금 CR +{cleared.credits}.");
         }
 
         // **잔해를 걷기 전에 센다** - 노획과 같은 이유로 여기가 마지막 기회다.
@@ -1681,24 +1710,25 @@ public sealed class Campaign : TickBehaviour
 
             // **들어가는 만큼만 싣고 나머지는 자리에 남는다.** 통째로 지우면 창고 상한이 그냥 벌점이 된다 -
             // 가득 찬 채로 지나간 보급이 영영 사라지니까. 남겨두면 비우고 다시 오는 것이 경로가 된다.
-            int mtrl = Take(RunState.Materials, spot.materials, RunState.MaxMaterials);
+            int cr = spot.credits;   // 돈은 창고가 아니라 계좌라 상한이 없다
             int prop = Take(RunState.Propellant, spot.propellant, RunState.MaxPropellant);
             int mun = Take(RunState.Munitions, spot.munitions, RunState.MaxMunitions);
 
-            if (mtrl == 0 && prop == 0 && mun == 0)
+            if (cr == 0 && prop == 0 && mun == 0)
                 continue;   // 셋 다 가득. 자리는 그대로 두고 비운 뒤 다시 온다
 
-            RunState.Materials += mtrl;
+            RunState.Credits += cr;
             RunState.Propellant += prop;
             RunState.Munitions += mun;
 
-            spot.materials -= mtrl;
+            spot.credits -= cr;
             spot.propellant -= prop;
             spot.munitions -= mun;
 
-            Debug.Log($"[Campaign] 보급 MTRL +{mtrl} PROP +{prop} MUN +{mun} ({spot.x:0},{spot.y:0}). 남은 것 {spot.materials}/{spot.propellant}/{spot.munitions}.");
+            Debug.Log($"[Campaign] 보급 CR +{cr} PROP +{prop} MUN +{mun} ({spot.x:0},{spot.y:0}). 남은 것 {spot.credits}/{spot.propellant}/{spot.munitions}.");
+            AnnounceSupply(player, cr, prop, mun, spot);
 
-            if (spot.materials <= 0 && spot.propellant <= 0 && spot.munitions <= 0)
+            if (spot.credits <= 0 && spot.propellant <= 0 && spot.munitions <= 0)
                 _supplySpots.RemoveAt(i);
         }
 
@@ -1711,6 +1741,38 @@ public sealed class Campaign : TickBehaviour
 
     /// <summary>창고에 실제로 들어가는 양. 상한을 넘는 몫은 자리에 남는다.</summary>
     private static int Take(int have, int offer, int cap) => Mathf.Clamp(cap - have, 0, Mathf.Max(0, offer));
+
+    /// <summary>
+    /// 보급이 도착한 순간을 화면에 띄운다.
+    ///
+    /// **이게 없으면 가는 이유가 없다.** 예전에는 Debug.Log 한 줄이 전부라 플레이어는 자원이 쌓이는지
+    /// 아닌지를 몰랐고, 쓰는 곳은 두 노드 뒤 정비 화면이었다. 받은 것과 쓰는 것 사이가 그만큼 멀면
+    /// 인과가 안 느껴지고, 안 느껴지는 보상을 찾아 6분을 우회할 사람은 없다.
+    ///
+    /// **얻은 양과 지금 총량을 같이 적는다.** "+200"만으로는 그게 큰지 작은지 모른다 - 분모가 있어야
+    /// 다음 자리에 갈지 말지가 판단이 된다. 남은 것이 있으면 그것도 적는다: 창고가 가득이라 두고 가는
+    /// 것이 곧 "여길 다시 올 이유"다.
+    ///
+    /// System 레인을 쓰는 이유는 이게 자막이 아니라 알림이어서다(머리글이 남는 레인).
+    /// </summary>
+    private static void AnnounceSupply(Ship player, int cr, int prop, int mun, SpawnDef spot)
+    {
+        if (DialogueManager.current == null)
+            return;
+
+        var got = new System.Text.StringBuilder();
+
+        if (mun > 0) got.Append($"MUN +{mun} ({RunState.Munitions})  ");
+        if (cr > 0) got.Append($"CR +{cr} ({RunState.Credits})  ");
+        if (prop > 0) got.Append($"PROP +{prop / 1000}k");
+
+        string left = spot.credits > 0 || spot.propellant > 0 || spot.munitions > 0
+            ? "  ·  창고 가득, 남기고 간다"
+            : "";
+
+        DialogueManager.current.Spawn(
+            got.ToString().TrimEnd() + left, "보급", duration: 5f, style: "system");
+    }
 
     /// <summary>신호 소멸 검사 주기(틱). 자리 수십 개 x Ship.All이라 매 틱 돌 이유가 없다 - 자리가 죽는 것은 초 단위 사건이다.</summary>
     public int signalSweepTicks = 30;
@@ -1836,6 +1898,56 @@ public sealed class Campaign : TickBehaviour
         return $"적 {Relative(here.hostiles, there.hostiles)} · 보급 {Relative(here.supplies, there.supplies)} · 엄폐 {Relative(here.rocks, there.rocks)}";
     }
 
+    /// <summary>
+    /// 지도용 판단 카드. 군사 용어를 줄이는 일이 아니라, 정보의 대상과 결과를 명시하는 일이다.
+    /// "적 많음" 대신 "위험 높음", "엄폐 많음" 대신 "회피 유리"처럼 행동 결과로 번역한다.
+    /// </summary>
+    public static RouteBriefing BriefRoute(SectorDef route, SectorDef other = null)
+    {
+        if (route == null)
+            return RouteBriefing.None;
+
+        RouteScan here = ScanRoute(route);
+        RouteScan there = other != null && !ReferenceEquals(route, other) ? ScanRoute(other) : default;
+        bool compare = other != null && !ReferenceEquals(route, other);
+
+        string enemy = compare ? Relative(here.hostiles, there.hostiles) : Level(here.hostiles);
+        string supply = compare ? Relative(here.supplies, there.supplies) : Level(here.supplies);
+        string cover = compare ? Relative(here.rocks, there.rocks) : CoverLevel(here.rocks);
+
+        string risk = enemy switch
+        {
+            "없음" => "없음",
+            "적음" => "낮음",
+            "많음" => "높음",
+            _ => "보통",
+        };
+        string supplies = supply switch
+        {
+            "없음" => "없음",
+            "적음" => "부족",
+            "많음" => "넉넉",
+            _ => "보통",
+        };
+        string evasion = cover switch
+        {
+            "없음" => "불리",
+            "적음" => "불리",
+            "많음" => "유리",
+            _ => "보통",
+        };
+
+        string advice = risk == "낮음" && supplies == "넉넉" ? "수리·보급 후 전진하기 좋음"
+            : risk == "높음" && supplies == "넉넉" ? "위험하지만 보급을 확보할 수 있음"
+            : risk == "높음" && evasion == "유리" ? "교전보다 우회·회피에 유리"
+            : evasion == "유리" ? "추격을 피하며 이동하기 좋음"
+            : risk == "낮음" ? "안전하게 다음 구역을 탐색하기 좋음"
+            : supplies == "넉넉" ? "보급 확보에 적합"
+            : "교전 대비 후 전진 권장";
+
+        return new RouteBriefing(risk, supplies, evasion, advice);
+    }
+
     private readonly struct RouteScan
     {
         public readonly int hostiles, supplies, rocks;
@@ -1867,7 +1979,7 @@ public sealed class Campaign : TickBehaviour
             if (!spawn.hulk && spawn.Side == Ship.Team.Enemy && !Near(hostileSites, at, SiteFold))
                 hostileSites.Add(at);
 
-            bool supply = spawn.refit || spawn.materials > 0 || spawn.propellant > 0 || spawn.munitions > 0;
+            bool supply = spawn.refit || spawn.credits > 0 || spawn.propellant > 0 || spawn.munitions > 0;
             if (supply && !Near(supplySites, at, SiteFold))
                 supplySites.Add(at);
         }
@@ -2061,45 +2173,39 @@ public sealed class Campaign : TickBehaviour
     /// 쓰는 것을 가르면, 나중에 "화면에 미리 보여주고 확정은 나중에" 같은 UI가 이 값을
     /// 몇 번을 다시 구해도 지갑이 안 늘어난다.
     /// </summary>
-    public readonly struct SalvageResult
+    /// <summary>격파 급여와 연구 자료. 물자는 여기서 안 나온다 - 아래 <see cref="Bounty"/> 참고.</summary>
+    public readonly struct BountyResult
     {
-        public readonly int materials;
-        public readonly int propellant;
-        public readonly int munitions;
+        public readonly int credits;
         public readonly int research;
 
-        public SalvageResult(int materials, int propellant, int munitions, int research)
+        public BountyResult(int credits, int research)
         {
-            this.materials = materials;
-            this.propellant = propellant;
-            this.munitions = munitions;
+            this.credits = credits;
             this.research = research;
         }
 
-        public bool IsEmpty =>
-            materials <= 0 && propellant <= 0 && munitions <= 0 && research <= 0;
+        public bool IsEmpty => credits <= 0 && research <= 0;
     }
 
     /// <summary>
-    /// 이번 구역에서 실제로 회수 가능한 것. **적 함선 잔해만 본다** - 시설(Hulk)은 애초에
-    /// 노획 대상이 아니다(거울 껍질을 부순다고 그 파편이 물자가 되지 않는다), 동료
-    /// (<see cref="_wingmen"/>)도 뺀다(내 편을 내가 약탈하지 않는다).
+    /// 이번 구역에서 번 돈. **노획이 아니라 급여다.**
     ///
-    /// **같은 적이라도 어떻게 죽였느냐로 값이 갈린다.** 별도 "정밀 처치 보너스" 규칙이
-    /// 없다 - 시뮬레이션이 이미 계산해 둔 파괴 상태를 읽을 뿐이다.
-    ///   - MTRL = 남은 판 수(<see cref="HullStructure.AliveCount"/>, 판 한 장 = 1). 떨어져
-    ///     나간 조각은 안 센다 - 배를 반토막 내면 노획도 반이다.
-    ///   - PROP = 안 터진 탱크(<see cref="Tank"/>)의 <see cref="Tank.remaining"/> 합. 탱크가
-    ///     죽으면(<see cref="Tank.Neutralized"/>) 그 연료는 이미 우주로 샜으니 0이다.
-    ///   - MUN = 안 터진 탄약고(<see cref="CriticalModule"/>, <c>providesPower == false</c>
-    ///     && !<see cref="CriticalModule.Neutralized"/>)의 blastDamage에 비례. 원자로는
-    ///     지금 버전에서 아무 자원도 안 준다 - "멀쩡한 부품 회수품"은 나중 자리다.
+    /// 예전에는 적함의 남은 판·안 터진 탱크·안 터진 탄약고를 세서 물자로 바꿨다. 두 가지가
+    /// 틀렸다. 하나는 게임 쪽 - 배를 죽이는 제일 흔한 방법이 탄약고 유폭이라 이기면 노획이
+    /// 0이었고, 알뜰히 부술수록 적게 받는 규칙은 승리를 벌준다. 다른 하나는 설정 쪽 -
+    /// 전차를 잡아서 변속기를 떼어 쓰는 일은 있어도 그 장갑판을 뜯어 내 전차 벽에 덧대지는
+    /// 않는다. 함선을 고치는 것은 베이스이고, 베이스는 돈을 받는다.
+    ///
+    /// 그래서 격파는 **설계 크기에 비례한 급여**다. 어떻게 죽였는지는 값에 안 들어간다 -
+    /// 판정하는 쪽이 전장이 아니라 회계라서 그렇다.
+    ///
+    /// 시설(Hulk)은 대상이 아니고(거울 껍질을 부순다고 급여가 나오지 않는다), 동료
+    /// (<see cref="_wingmen"/>)도 뺀다.
     /// </summary>
-    private SalvageResult ComputeSalvage()
+    private BountyResult Bounty()
     {
-        int materials = 0;
-        float propellant = 0f;
-        float munitions = 0f;
+        int credits = 0;
         float research = 0f;
 
         foreach (GameObject wreck in _spawned)
@@ -2107,18 +2213,17 @@ public sealed class Campaign : TickBehaviour
             if (wreck == null)
                 continue;
 
-            // 잔해(Hulk)는 다녀간 것만, 그것도 일부만. 잔해는 밀려날 수 있어 소환 좌표가 아니라
-            // 지금 자리로 잰다 - 반경은 정비 반경과 같다(같은 "옆에 갔다").
+            // 잔해(Hulk)는 다녀간 것만. 부품을 떼어 판 값이라 배 한 척을 잡은 것보다 적다.
+            // 잔해는 밀려날 수 있어 소환 좌표가 아니라 지금 자리로 잰다.
             if (!wreck.TryGetComponent(out Ship ship))
             {
                 if (Near(_visitedWrecks, wreck.transform.position, refitRadius)
                     && wreck.TryGetComponent(out HullStructure hull))
-                    materials += Mathf.RoundToInt(hull.AliveCount * wreckSalvage);
+                    credits += Mathf.RoundToInt(hull.AliveCount * wreckStrip);
 
                 continue;
             }
 
-            // 동료는 회수 대상이 아니다.
             if (_wingmen.Contains(ship))
                 continue;
 
@@ -2127,43 +2232,29 @@ public sealed class Campaign : TickBehaviour
             if (ship.IsCombatEffective)
                 continue;
 
-            if (wreck.TryGetComponent(out HullStructure structure))
+            if (!wreck.TryGetComponent(out HullStructure structure))
+                continue;
+
+            // 설계 전체를 센다. 잔해에 뭐가 남았는지는 안 본다 - 급여는 무엇을 주웠느냐가
+            // 아니라 무엇을 잡았느냐로 나온다.
+            ShipGrid.Map design = structure.DesignMap;
+            int designPlates = 0;
+
+            if (design != null)
             {
-                materials += structure.AliveCount;
-
-                // 연구는 남은 판이 아니라 설계 전체에서 나온다.
-                ShipGrid.Map design = structure.DesignMap;
-
-                if (design != null)
+                for (int col = 0; col < design.width; col++)
+                for (int row = 0; row < design.height; row++)
                 {
-                    for (int col = 0; col < design.width; col++)
-                    for (int row = 0; row < design.height; row++)
-                    {
-                        if (ShipGrid.Solid(design.cells[col, row]))
-                            research += researchPerPlate;
-                    }
+                    if (ShipGrid.Solid(design.cells[col, row]))
+                        designPlates++;
                 }
             }
 
-            foreach (Tank tank in wreck.GetComponentsInChildren<Tank>())
-            {
-                if (!tank.Neutralized)
-                    propellant += tank.remaining;
-            }
-
-            foreach (CriticalModule module in wreck.GetComponentsInChildren<CriticalModule>())
-            {
-                // 1 MUN = 1발. 남은 발수를 그대로 건진다 - 부수면 못 건진다는 원칙은 Neutralized가 지킨다.
-                if (module.maxRounds > 0 && !module.Neutralized)
-                    munitions += module.Rounds;
-            }
+            credits += Mathf.RoundToInt(designPlates * creditsPerPlate);
+            research += designPlates * researchPerPlate;
         }
 
-        return new SalvageResult(
-            materials,
-            Mathf.RoundToInt(propellant),
-            Mathf.RoundToInt(munitions),
-            Mathf.RoundToInt(research));
+        return new BountyResult(credits, Mathf.RoundToInt(research));
     }
 
     /// <summary>

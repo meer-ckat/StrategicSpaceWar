@@ -136,7 +136,7 @@ public static class FieldLog
             ? $"{player.Rounds}/{player.MaxRounds}"
             : "-";
 
-        return $"MTRL {RunState.Materials}\tMUN {RunState.Munitions}\tPROP {RunState.Propellant}\t탄약 {ammo}";
+        return $"CR {RunState.Credits}\tMUN {RunState.Munitions}\tPROP {RunState.Propellant}\t탄약 {ammo}";
     }
 
     /// <summary>

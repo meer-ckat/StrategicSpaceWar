@@ -44,23 +44,33 @@ public sealed class MapScreen : MonoBehaviour
 
     private Vector2 _mouseFollow;
 
-    private Vector2 MouseOffset()
+    /// <summary>마우스 자리를 IMGUI 논리 좌표로. Input System은 Screen px에 y가 아래->위고 GUI는 위->아래다.</summary>
+    private static Vector2 LogicalMouse()
     {
         if (Mouse.current == null)
             return Vector2.zero;
 
         Vector2 mouse = Mouse.current.position.ReadValue();
-
-        // Input System(Screen px) -> IMGUI logical 좌표.
-        // Input System Y는 아래->위, GUI Y는 위->아래라 뒤집는다.
         mouse.x *= GUIManager.LogicalWidth / Mathf.Max(1f, Screen.width);
         mouse.y *= GUIManager.LogicalHeight / Mathf.Max(1f, Screen.height);
         mouse.y = GUIManager.LogicalHeight - mouse.y;
-
-        return mouse - new Vector2(
-            GUIManager.LogicalWidth * 0.5f,
-            GUIManager.LogicalHeight * 0.5f);
+        return mouse;
     }
+
+    private Vector2 MouseOffset()
+        => Mouse.current == null
+            ? Vector2.zero
+            : LogicalMouse() - new Vector2(GUIManager.LogicalWidth * 0.5f, GUIManager.LogicalHeight * 0.5f);
+
+    /// <summary>
+    /// 이번 프레임에 찍은 자리. **고르기를 그리기 루프 안에서 한다** - 점의 화면 좌표(ToMap)와
+    /// 마우스 시차(FollowMouse)가 거기서만 정해지므로, 밖에서 다시 계산하면 두 벌이 갈라져
+    /// "보이는 자리와 집히는 자리가 다르다"가 된다.
+    /// </summary>
+    private Vector2? _clickAt;
+
+    /// <summary>집히는 반경(px). 점이 8~11 px이라 그 두 배쯤 - 손이 떨려도 집히고, 옆 자리는 안 집힌다.</summary>
+    private const float PickRadius = 22f;
 
     /// <summary>
     /// 매 프레임 원래 자리에서 새로 만든 GUI Rect에 마우스 오프셋만 더한다.
@@ -92,6 +102,10 @@ public sealed class MapScreen : MonoBehaviour
 
         if (IsOpen && _closingAt < 0f && keys != null && keys.jKey.wasPressedThisFrame)
             TryJump();
+
+        // 클릭은 담아만 두고 고르기는 그리기 루프가 한다.
+        if (IsOpen && _closingAt < 0f && Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
+            _clickAt = LogicalMouse();
 
         // 오른쪽 패널 굴리기. 지도는 전체 화면이라 이 창에서 휠을 다투는 것이 없다 - 마우스 자리를 안 본다.
         if (IsOpen && _closingAt < 0f && Mouse.current != null)
@@ -136,6 +150,7 @@ public sealed class MapScreen : MonoBehaviour
         _openedAt = Time.unscaledTime;
         _selectedAt = _openedAt;
         _sideScroll = 0f;   // 열면 본함부터. 지난번에 굴려 둔 자리에서 열리면 "내 배가 어디 갔나"가 된다
+        _clickAt = null;    // M을 마우스로 누르고 열었으면 그 클릭이 남아 엉뚱한 자리를 고른다
         _lastSelected = ContactView.Selected;
         CameraSystem.CutsceneDamp(0.25f, 0.25f);
         CameraSystem.CutsceneFrame(player.transform, null, 0f, BridgeSize);
@@ -263,6 +278,10 @@ public sealed class MapScreen : MonoBehaviour
         Vector2 me = ToMap(player.transform.position);
         Vector2? selected = ContactView.Selected;
 
+        // 클릭으로 고르기. 제일 가까운 점 하나만 - 겹친 자리에서 두 개가 같이 집히면 아무것도 안 집힌 것과 같다.
+        Vector2? pickHit = null;
+        float pickBest = PickRadius;
+
         for (int i = 0; i < ContactView.Known.Count; i++)
         {
             ContactView.Contact c = ContactView.Known[i];
@@ -275,6 +294,19 @@ public sealed class MapScreen : MonoBehaviour
             {
                 Vector2 p = ToMap(c.at);
                 float size = c.kind == "출구" ? GateDot : KnownDot;
+
+                // **점이 있는 것만 집힌다.** 부채꼴은 방위만 아는 것이라 지도에 찍힌 자리가 진짜 자리가
+                // 아니다 - 거기를 집게 하면 안 보이는 좌표를 클릭으로 알아내는 셈이 된다. 그쪽은 [ ]로.
+                if (_clickAt is Vector2 click && c.kind != "소멸")
+                {
+                    float d = Vector2.Distance(p, click);
+
+                    if (d < pickBest)
+                    {
+                        pickBest = d;
+                        pickHit = c.at;
+                    }
+                }
 
                 if (c.kind == "관측")
                     _alpha *= Mathf.Max(0.25f, c.strength);   // 유령은 시간이 갈수록 흐려진다
@@ -314,6 +346,13 @@ public sealed class MapScreen : MonoBehaviour
                 Vector2 tip = me + dir * reach * 0.5f;
                 Text(id + "_dbg", new Rect(tip.x + 6f, tip.y - RowH * 0.5f, 300f, RowH), Debug(c), _tick, 6);
             }
+        }
+
+        if (_clickAt != null)
+        {
+            // 빈 곳을 찍으면 선택을 놓는다. 안 놓으면 "고른 것 없음"으로 돌아갈 길이 없다.
+            ContactView.Selected = pickHit;
+            _clickAt = null;
         }
 
         _alpha = Step(n++);
@@ -363,8 +402,9 @@ public sealed class MapScreen : MonoBehaviour
         if (hull != null) Row(inn, ref y, "판", $"{hull.AliveCount}", row++);
         if (player.MaxRounds > 0) Row(inn, ref y, "탄약", $"{player.Rounds} / {player.MaxRounds}", row++, player.Rounds == 0);
         // 창고. 가득 찬 칸은 보급 자리를 지나칠 이유가 된다 - 그것이 이 줄의 값어치다. 한 줄에 둘을 묶는다.
-        bool full = RunState.Materials >= RunState.MaxMaterials || RunState.Munitions >= RunState.MaxMunitions;
-        Row(inn, ref y, "창고 M·U", $"{RunState.Materials}/{RunState.MaxMaterials} · {RunState.Munitions}/{RunState.MaxMunitions}", row++, full);
+        bool full = RunState.Munitions >= RunState.MaxMunitions;
+        Row(inn, ref y, "잔고", $"{RunState.Credits} CR", row++, false);
+        Row(inn, ref y, "탄약", $"{RunState.Munitions}/{RunState.MaxMunitions}", row++, full);
         Row(inn, ref y, "방출", $"×{player.Emission:0.0}", row++, player.Emission >= campaign.hunterLoud);
         if (player.shipTanks.Count > 0)
         {
@@ -502,11 +542,22 @@ public sealed class MapScreen : MonoBehaviour
                 campaign.ChosenLane == k);
 
             if (campaign.RouteIntelUnlocked)
-                Row(inn, ref y, "  항로 자료", campaign.GateIntel(k), row++);
+            {
+                // 한 줄짜리 군사 보고서가 아니라 결정 카드. 반드시 "다음 구역"이라고 먼저 적어
+                // 현재 들판의 접촉 정보와 섞이지 않게 한다.
+                Campaign.RouteBriefing plan = campaign.GateBriefing(k);
+                _alpha = Step(n++);
+                Text("map_route_next" + k, new Rect(inn.x, y, inn.width, RowH), "다음 구역 예측", _kicker, 2);
+                y += RowH;
+                Row(inn, ref y, "  위험", plan.risk, row++, plan.risk == "높음");
+                Row(inn, ref y, "  보급", plan.supplies, row++);
+                Row(inn, ref y, "  회피", plan.evasion, row++, plan.evasion == "불리");
+                Row(inn, ref y, "  판단", plan.advice, row++, plan.risk == "높음");
+            }
         }
 
         if (!campaign.RouteIntelUnlocked && campaign.RouteIntelAvailable)
-            Row(inn, ref y, "항로 자료", "잔해·보급 방문 시 회수", row++);
+            Row(inn, ref y, "다음 구역 정보", "잔해·보급 방문 시 회수", row++);
 
         Row(inn, ref y, "워프 Δv", $"{Ballistics.WarpDeltaV:0} m/s", row++);
 

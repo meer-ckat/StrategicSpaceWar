@@ -78,7 +78,7 @@ public static class RunState
         /// 두고 경쟁하게 된다. 회수 방식은 <see cref="Campaign"/>의 SalvageResult 계산이
         /// 정한다 - 여기는 그냥 지갑이다.
         /// </summary>
-        public int materials;
+        public int credits;
 
 
         /// <summary>전략 이동에 쓰는 추진제. 안 터진 탱크의 remaining 합에서 온다.</summary>
@@ -344,18 +344,22 @@ public static class RunState
     /// MTRL 16 / PROP 1,000,000 / MUN 200, 기항지가 MTRL 30 / MUN 400. 상한이 그 몇 배여야
     /// "몇 군데 돌면 찬다"가 된다. 연구는 화물이 아니라 정보라 상한이 없다.
     /// </summary>
-    public const int MaxMaterials = 300;
     public const int MaxPropellant = 3000000;
     public const int MaxMunitions = 1200;
 
-    public static int Materials
+    /// <summary>
+    /// 이 런의 돈. **화물이 아니라 계좌라 상한이 없다** - 위 두 상한이 보급 자리를 선택으로
+    /// 만드는 장치인데, 돈에 같은 것을 걸면 "부자가 되면 급여를 못 받는다"가 된다.
+    /// 쓰는 곳은 베이스뿐이다(수리·구매).
+    /// </summary>
+    public static int Credits
     {
-        get => Read().materials;
+        get => Read().credits;
 
         set
         {
             Progress p = Read();
-            p.materials = Mathf.Clamp(value, 0, MaxMaterials);
+            p.credits = Mathf.Max(0, value);
             Write(p);
         }
     }
@@ -703,7 +707,7 @@ public static class RunState
         ShipDef ship = Load();
 
         Debug.Log(
-            $"[RunState] {Sector + 1}구역, MTRL {Materials} PROP {Propellant} MUN {Munitions}, " +
+            $"[RunState] {Sector + 1}구역, CR {Credits} PROP {Propellant} MUN {Munitions}, " +
             $"배 '{ship?.basedOn ?? "?"}' 판 {ship?.placements.Count ?? 0}장. " +
             Application.persistentDataPath);
     }

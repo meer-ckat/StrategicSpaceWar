@@ -28,7 +28,7 @@ public class OpenSectorTemplate
     public string[] pool = Array.Empty<string>();
 
     /// <summary>도착만으로 주는 MTRL. 보급·기항 노드가 쓴다.</summary>
-    public int materials;
+    public int credits;
 
     /// <summary>이 자리에 닿으면 주는 추진제(kN·s). 워프 한 번이 newship 기준 80만쯤이다.</summary>
     public int propellant;
@@ -186,8 +186,11 @@ public static class OpenSectorGen
     /// 옛 생성기를 남겨 분기하지 않는 이유: 코드가 영원히 늘고, 이 게임의 런은 한 시간짜리다.
     /// 버전이 다르면 그 런을 버리고 새로 시작한다(<see cref="RunState.ValidateOrClear"/>).
     /// **생성 결과를 바꾸는 수정을 하면 이 숫자를 올린다** - 상수·수식·뽑기 순서 전부.
+    /// 저장 스키마가 바뀔 때도 같다 - 판정하는 자리가 여기 하나라서 문을 따로 내지 않는다.
     /// </summary>
-    public const int Version = 4;
+    /// <remarks>v5: 자재(노획)를 크레딧(급여)으로. Progress의 키가 materials에서 credits로 바뀌어
+    /// 옛 저장은 돈이 조용히 0이 된다 - 버리는 쪽이 낫다.</remarks>
+    public const int Version = 5;
 
     /// <summary>장 사이 소구역 수(깊이). 갈림길은 각 깊이에서 <see cref="Lanes"/>갈래.</summary>
     public const int LegsPerChapter = 2;
@@ -560,7 +563,7 @@ public static class OpenSectorGen
                 // 잔해·보급·기항은 Hulk로 세운다. 조종도 사격도 안 하고 떠 있으면서 맞는다.
                 hulk = Peaceful(t.Kind),
                 refit = t.refit,
-                materials = i == 0 ? t.materials : 0,     // 자리당 한 번. 첫 배에만 실어 둔다
+                credits = i == 0 ? t.credits : 0,     // 자리당 한 번. 첫 배에만 실어 둔다
                 propellant = i == 0 ? t.propellant : 0,
                 munitions = i == 0 ? t.munitions : 0,
                 signalSize = t.signalSize,

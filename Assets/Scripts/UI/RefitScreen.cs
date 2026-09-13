@@ -38,7 +38,10 @@ public sealed class RefitScreen : MonoBehaviour
     GUIStyle lostLabel, lostButton;
     Rect lostRect;
     float lostScrollMax;
-    List<Ship.LostModule> lost = new();
+    List<Ship.ModuleSlot> lost = new();
+
+    // 펼친 자리의 설계 배치 인덱스. -1이면 접혀 있다.
+    int openSlot = -1;
     bool ready;
     float barkUntil;
     Action<GUIItem, float> counting;
@@ -111,7 +114,7 @@ public sealed class RefitScreen : MonoBehaviour
         y += 36f;
 
         plateValue = Row(inn, ref y, "손상 판");
-        materialValue = Row(inn, ref y, "보유 자재");
+        materialValue = Row(inn, ref y, "잔고");
         propellantValue = Row(inn, ref y, "보유 추진제");
         munitionsValue = Row(inn, ref y, "보유 탄약");
         y += Gap;
@@ -125,7 +128,7 @@ public sealed class RefitScreen : MonoBehaviour
         };
         repairButtons[0].callBack = () => Repair(1, repairButtons[0]);
         repairButtons[1].callBack = () => Repair(10, repairButtons[1]);
-        repairButtons[2].callBack = () => Repair(RunState.Materials, repairButtons[2]);
+        repairButtons[2].callBack = () => Repair(RunState.Credits, repairButtons[2]);
         foreach (GUIButton b in repairButtons)
             Hoverable(b);
         y += ButtonH + Gap;
@@ -143,7 +146,7 @@ public sealed class RefitScreen : MonoBehaviour
 
         // 잃은 모듈. 수리 버튼과 통신 카드 사이 전부.
         Rect commsRect = new Rect(panelRect.x, panelRect.yMax - ButtonH - Gap - 100f, panelRect.width, 100f);
-        Widget.Label(panel, "잃은 모듈  (자재로 다시 산다)", new Rect(inn.x, y, inn.width, 16f), eyebrow);
+        Widget.Label(panel, "모듈  (베이스에서 산다)", new Rect(inn.x, y, inn.width, 16f), eyebrow);
         y += 20f;
         lostRect = new Rect(inn.x, y, inn.width, Mathf.Max(RowH, commsRect.y - Gap - y));
         lostLabel = GUIStyleMaker.Label(Palette.Hull, 14).RichText();
@@ -198,7 +201,7 @@ public sealed class RefitScreen : MonoBehaviour
         }
 
         Ship p = Campaign.current.Player;
-        lost = p != null ? p.LostModules() : new List<Ship.LostModule>();
+        lost = p != null ? p.ModuleSlots() : new List<Ship.ModuleSlot>();
 
         lostGroup = Widget.Window(window, "", lostRect, "Lost", GUIStyleMaker.Box(Color.clear));
         lostGroup.Scrollable = true;
@@ -217,62 +220,119 @@ public sealed class RefitScreen : MonoBehaviour
             return;
         }
 
-        // def별 묶음. 순서는 첫 등장 순.
+        // def별 묶음. 순서는 첫 등장 순. 같은 자리가 여럿이면 버튼은 그중 첫 것을 산다.
         var order = new List<string>();
         var count = new Dictionary<string, int>();
-        var first = new Dictionary<string, Ship.LostModule>();
-        foreach (Ship.LostModule m in lost)
+        var first = new Dictionary<string, Ship.ModuleSlot>();
+        foreach (Ship.ModuleSlot m in lost)
         {
-            if (!count.ContainsKey(m.placement.def))
+            // 묶는 열쇠는 설계의 def다. 강화로 다른 것이 서 있어도 자리는 그 자리다.
+            string key = m.placement.def;
+
+            if (!count.ContainsKey(key))
             {
-                order.Add(m.placement.def);
-                count[m.placement.def] = 0;
-                first[m.placement.def] = m;
+                order.Add(key);
+                count[key] = 0;
+                first[key] = m;
             }
-            count[m.placement.def]++;
+            count[key]++;
         }
 
         float rowStep = RowH + 6f;
         float bw = 84f;
         float y = lostRect.y;
+
         foreach (string def in order)
         {
-            Ship.LostModule m = first[def];
-            bool can = RunState.Materials >= m.cost;
-            string text = def + "  " + LogisticsScreen.Tint("x" + count[def], Palette.Steel);
+            Ship.ModuleSlot m = first[def];
+            string have = m.IsEmpty
+                ? LogisticsScreen.Tint("비어 있음", Palette.Breach)
+                : (m.current.defName == def ? "" : LogisticsScreen.Tint(m.current.defName, Palette.Telemetry));
+
+            string text = def + "  " + LogisticsScreen.Tint("x" + count[def], Palette.Steel)
+                + (have.Length > 0 ? "  " + have : "");
+
             Widget.Label(lostGroup, text, new Rect(lostRect.x, y, lostRect.width - bw - Gap, RowH), lostLabel);
-            GUIButton buy = Widget.Button(lostGroup, m.cost + " 자재", new Rect(lostRect.xMax - bw, y, bw, RowH), null, lostButton);
-            Ship.LostModule pick = m;
-            buy.callBack = () => Buy(pick, buy);
-            buy.isEnabled = buy.isInteractable = can;
-            buy.Opacity = can ? 1f : LogisticsScreen.DisabledOpacity;
+
+            // 빈 자리는 설계 그대로 되사기, 찬 자리는 펼쳐서 고른다. 둘이 같은 버튼인 이유는
+            // 어느 쪽이든 "이 자리에 무엇을 세우나" 하나이기 때문이다.
+            if (m.IsEmpty)
+            {
+                int price = Ship.PriceOf(def, m.placement);
+                bool can = RunState.Credits >= price;
+                GUIButton buy = Widget.Button(lostGroup, price + " CR", new Rect(lostRect.xMax - bw, y, bw, RowH), null, lostButton);
+                Ship.ModuleSlot pick = m;
+                buy.callBack = () => Buy(pick, null, buy);
+                buy.isEnabled = buy.isInteractable = can;
+                buy.Opacity = can ? 1f : LogisticsScreen.DisabledOpacity;
+            }
+            else
+            {
+                bool open = openSlot == m.index;
+                GUIButton expand = Widget.Button(lostGroup, open ? "닫기" : "교체", new Rect(lostRect.xMax - bw, y, bw, RowH), null, lostButton);
+                int pick = m.index;
+                expand.callBack = () => { openSlot = open ? -1 : pick; BuildLost(); };
+            }
+
             y += rowStep;
+
+            if (openSlot != m.index || m.IsEmpty)
+                continue;
+
+            Ship ship = Campaign.current.Player;
+            List<string> options = ship != null ? ship.Candidates(m) : new List<string>();
+
+            if (options.Count == 0)
+            {
+                Widget.Label(lostGroup, LogisticsScreen.Tint("   맞는 것이 없다", Palette.Steel),
+                    new Rect(lostRect.x, y, lostRect.width, RowH), lostLabel);
+                y += rowStep;
+                continue;
+            }
+
+            foreach (string option in options)
+            {
+                int price = Ship.PriceOf(option, m.placement);
+                bool can = RunState.Credits >= price;
+
+                Widget.Label(lostGroup, "   " + option, new Rect(lostRect.x, y, lostRect.width - bw - Gap, RowH), lostLabel);
+                GUIButton swap = Widget.Button(lostGroup, price + " CR", new Rect(lostRect.xMax - bw, y, bw, RowH), null, lostButton);
+                Ship.ModuleSlot at = m;
+                string what = option;
+                swap.callBack = () => Buy(at, what, swap);
+                swap.isEnabled = swap.isInteractable = can;
+                swap.Opacity = can ? 1f : LogisticsScreen.DisabledOpacity;
+                y += rowStep;
+            }
         }
+
         lostScrollMax = Mathf.Max(0f, y - lostRect.y - lostRect.height);
     }
 
-    void Buy(Ship.LostModule m, GUIButton pressed)
+    void Buy(Ship.ModuleSlot m, string defName, GUIButton pressed)
     {
         Ship p = Campaign.current.Player;
-        if (p == null || !ready || !pressed.isInteractable || RunState.Materials < m.cost)
+        int price = Ship.PriceOf(string.IsNullOrEmpty(defName) ? m.placement.def : defName, m.placement);
+
+        if (p == null || !ready || !pressed.isInteractable || RunState.Credits < price)
             return;
 
-        Thing bought = p.BuyModule(m);
+        Thing bought = p.BuyModule(m, defName);
         if (bought == null)
         {
             BuildLost();
             return;
         }
 
-        int m0 = RunState.Materials;
-        RunState.Materials -= m.cost;
+        int m0 = RunState.Credits;
+        RunState.Credits -= price;
         RunState.Save(p);
         repairedUntil[bought] = Time.unscaledTime + RepairFlash;
 
         LogisticsScreen.Sfx(LogisticsScreen.SfxClick);
         RefreshStatus();
         BuildLost();
-        Tween01(x => RenderStatus(p.DamagedPlateCount(), Mathf.RoundToInt(Mathf.Lerp(m0, RunState.Materials, x))));
+        Tween01(x => RenderStatus(p.DamagedPlateCount(), Mathf.RoundToInt(Mathf.Lerp(m0, RunState.Credits, x))));
     }
 
     GUILabel Row(Rect area, ref float y, string label)
@@ -283,19 +343,19 @@ public sealed class RefitScreen : MonoBehaviour
         return v;
     }
 
-    void RenderStatus(int damaged, int materials)
+    void RenderStatus(int damaged, int credits)
     {
         plateValue.Content.text = LogisticsScreen.Tint(damaged.ToString(), damaged > 0 ? Palette.Breach : Palette.Signal);
-        materialValue.Content.text = $"<b>{materials}</b>";
+        materialValue.Content.text = $"<b>{credits}</b>";
     }
 
     void RefreshStatus()
     {
         Ship p = Campaign.current.Player;
         int damaged = p != null ? p.DamagedPlateCount() : 0;
-        bool can = damaged > 0 && RunState.Materials > 0;
+        bool can = damaged > 0 && RunState.Credits > 0;
 
-        RenderStatus(damaged, RunState.Materials);
+        RenderStatus(damaged, RunState.Credits);
         foreach (GUIButton b in repairButtons)
         {
             b.isEnabled = b.isInteractable = can;
@@ -312,35 +372,35 @@ public sealed class RefitScreen : MonoBehaviour
         rearm.isEnabled = rearm.isInteractable = canArm;
         rearm.Opacity = canArm ? 1f : LogisticsScreen.DisabledOpacity;
 
-        // 수리가 자재를 쓰면 살 수 있던 모듈이 못 사는 것이 된다. 값은 버튼 글자 앞 숫자다.
+        // 수리가 돈을 쓰면 살 수 있던 모듈이 못 사는 것이 된다. 값은 버튼 글자 앞 숫자다.
         if (lostGroup != null)
             foreach (GUIItem item in lostGroup.Childrens)
                 if (item is GUIButton buy)
                 {
                     int.TryParse(buy.Content.text.Split(' ')[0], out int cost);
-                    bool ok = RunState.Materials >= cost;
+                    bool ok = RunState.Credits >= cost;
                     buy.isEnabled = buy.isInteractable = ok;
                     buy.Opacity = ok ? 1f : LogisticsScreen.DisabledOpacity;
                 }
     }
 
     // 배가 실제로 쓴 만큼만 뺀다. 수리마다 배를 저장한다 - Battle.End의 저장은 수리 전이라,
-    // 여기서 안 쓰면 자재는 빠졌는데(Materials setter는 즉시 쓴다) 수리는 다음 승리까지 파일에 없다.
+    // 여기서 안 쓰면 돈은 빠졌는데(Credits setter는 즉시 쓴다) 수리는 다음 승리까지 파일에 없다.
     void Repair(int want, GUIButton pressed)
     {
         Ship p = Campaign.current.Player;
         if (p == null || !pressed.isInteractable)
             return;
 
-        int d0 = p.DamagedPlateCount(), m0 = RunState.Materials;
+        int d0 = p.DamagedPlateCount(), m0 = RunState.Credits;
 
         repairing.Clear();
         foreach (Armor a in p.shipArmors)
             if (a != null && a.HealthFraction < Ship.DamagedBelow)
                 repairing.Add(a);
 
-        int used = p.RepairPlates(Mathf.Min(want, RunState.Materials));
-        RunState.Materials -= used;
+        int used = p.RepairPlates(Mathf.Min(want, RunState.Credits));
+        RunState.Credits -= used;
         if (used > 0)
             RunState.Save(p);
 
@@ -348,7 +408,7 @@ public sealed class RefitScreen : MonoBehaviour
         foreach (Armor a in repairing)
             if (a.HealthFraction >= Ship.DamagedBelow)
                 repairedUntil[a] = Time.unscaledTime + RepairFlash;
-        int d1 = p.DamagedPlateCount(), m1 = RunState.Materials;
+        int d1 = p.DamagedPlateCount(), m1 = RunState.Credits;
 
         LogisticsScreen.Sfx(LogisticsScreen.SfxClick);
         LogisticsScreen.Punch(pressed);
@@ -455,7 +515,7 @@ public sealed class RefitScreen : MonoBehaviour
         if (k.enterKey.wasPressedThisFrame)
             Depart();
         else if (k.rKey.wasPressedThisFrame && k.shiftKey.isPressed)
-            Repair(RunState.Materials, repairButtons[2]);
+            Repair(RunState.Credits, repairButtons[2]);
         else if (k.rKey.wasPressedThisFrame)
             Repair(1, repairButtons[0]);
     }

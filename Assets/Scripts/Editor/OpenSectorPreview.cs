@@ -53,7 +53,7 @@ public static class OpenSectorPreview
 
                     text.AppendLine(
                         $"  L{leg} 레인{lane}: {made.name,-14} {made.spawns.Count}척"
-                        + $" hulk{hulks} MTRL{made.materials,-3}"
+                        + $" hulk{hulks} MTRL{made.credits,-3}"
                         + $" 정비{(made.refit ? "O" : "X")} │ {ships}");
                 }
             }

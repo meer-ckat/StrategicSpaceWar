@@ -616,7 +616,7 @@ public sealed class ContactView : MonoBehaviour
                 return string.IsNullOrEmpty(spawn.label) ? kind : spawn.label;
             }
 
-            bool supply = spawn.refit || spawn.materials > 0 || spawn.propellant > 0 || spawn.munitions > 0;
+            bool supply = spawn.refit || spawn.credits > 0 || spawn.propellant > 0 || spawn.munitions > 0;
             kind = supply ? "보급" : "잔해";
             label = string.IsNullOrEmpty(spawn.label) ? kind : spawn.label;
         }

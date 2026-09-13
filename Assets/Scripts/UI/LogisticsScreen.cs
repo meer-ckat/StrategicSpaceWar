@@ -221,7 +221,7 @@ public sealed class LogisticsScreen : MonoBehaviour
         Rect stIn = Inset(statusRect, Padding);
         Widget.Label(status, "함선 상태", new Rect(stIn.x, stIn.y, stIn.width, 16f), eyebrow);
         plateValue = Row(status, stIn, 0, "손상 판", "");
-        materialValue = Row(status, stIn, 1, "보유 자재", "");
+        materialValue = Row(status, stIn, 1, "잔고", "");
 
         // COMMS: 항로도 좌상단에 잠깐 뜨는 카드. 레이아웃 요소가 아니라 위에 얹히는 것이라 항로가 길어져도 자리를 안 뺏는다.
         // 84였는데 본문 자리가 26px라 두 줄째가 그룹 마스크에 잘렸다. 15px 한글 두 줄 = 38.
@@ -407,8 +407,8 @@ public sealed class LogisticsScreen : MonoBehaviour
         if (facilities > 0)
             InfoRow(area, row++, "표적 시설", Tint(facilities.ToString(), Palette.Radiance));
         InfoRow(area, row++, "정비", s.refit ? Tint("가능", Palette.Signal) : Tint("불가", Palette.Steel));
-        if (s.materials > 0)
-            InfoRow(area, row++, "회수 자재", Tint($"+{s.materials}", Palette.Signal));
+        if (s.credits > 0)
+            InfoRow(area, row++, "지원금", Tint($"+{s.credits}", Palette.Signal));
 
         if (announce)
             foreach (GUIItem item in infoRows)
@@ -466,8 +466,8 @@ public sealed class LogisticsScreen : MonoBehaviour
             parts.Add(Tint($"TARGET ×{facilities}", Palette.Radiance));
         if (s.refit)
             parts.Add(Tint("REFIT", Palette.Signal));
-        if (s.materials > 0)
-            parts.Add(Tint($"+{s.materials}", Palette.Signal));
+        if (s.credits > 0)
+            parts.Add(Tint($"+{s.credits}", Palette.Signal));
         return parts.Count > 0 ? string.Join("  ", parts) : "CLEAR";
     }
 
@@ -477,7 +477,7 @@ public sealed class LogisticsScreen : MonoBehaviour
         int damaged = p != null ? p.DamagedPlateCount() : 0;
 
         plateValue.Content.text = Tint(damaged.ToString(), damaged > 0 ? Palette.Breach : Palette.Signal);
-        materialValue.Content.text = $"<b>{RunState.Materials}</b>";
+        materialValue.Content.text = $"<b>{RunState.Credits}</b>";
     }
 
     // ---- COMMS ------------------------------------------------------------
@@ -540,7 +540,7 @@ public sealed class LogisticsScreen : MonoBehaviour
             return "refit";
         if (Ships(s).Count > 0 || Facilities(s) > 0)
             return "hostile";
-        if (s.materials > 0)
+        if (s.credits > 0)
             return "salvage";
         return "clear";
     }

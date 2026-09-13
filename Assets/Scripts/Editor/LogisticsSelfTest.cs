@@ -39,7 +39,7 @@ public static class LogisticsSelfTest
 
         SectorDef depot = Sector(Spawn("asteroid", "Neutral", hulk: true));
         depot.refit = true;
-        depot.materials = 6;
+        depot.credits = 6;
         Check(LogisticsScreen.Ships(depot).Count == 0 && LogisticsScreen.Facilities(depot) == 0, "중립 hulk만 있으면 접촉 없음");
         Check(LogisticsScreen.Badge(depot).Contains("REFIT") && LogisticsScreen.Badge(depot).Contains("+6"), "정비·자재 배지");
         Check(LogisticsScreen.Badge(Sector()) == "CLEAR", "아무것도 없으면 CLEAR");
@@ -90,13 +90,18 @@ public static class LogisticsSelfTest
         risky.spawns[2].scenery = true;
 
         SectorDef supplied = Sector(Spawn("derelict", "Neutral", hulk: true));
-        supplied.spawns[0].materials = 6;
+        supplied.spawns[0].credits = 6;
 
         string riskyIntel = Campaign.DescribeRoute(risky, supplied);
         string suppliedIntel = Campaign.DescribeRoute(supplied, risky);
         Check(riskyIntel.Contains("적 많음") && riskyIntel.Contains("보급 적음"), "위험 갈래를 상대 비교한다");
         Check(suppliedIntel.Contains("적 적음") && suppliedIntel.Contains("보급 많음"), "보급 갈래를 상대 비교한다");
         Check(Campaign.DescribeRoute(null) == "자료 없음", "다음 갈래가 없으면 자료 없음");
+
+        Campaign.RouteBriefing riskyCard = Campaign.BriefRoute(risky, supplied);
+        Campaign.RouteBriefing suppliedCard = Campaign.BriefRoute(supplied, risky);
+        Check(riskyCard.risk == "높음" && riskyCard.supplies == "부족", "결정 카드는 위험·보급을 행동 언어로 번역한다");
+        Check(suppliedCard.risk == "낮음" && suppliedCard.supplies == "넉넉", "결정 카드는 보급 갈래를 읽기 쉽게 번역한다");
 
         // ---------------------------------------------------------
         // 5) Comms - 파일이 있으면 조건 넷이 전부 줄을 가진다
