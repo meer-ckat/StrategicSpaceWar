@@ -190,7 +190,8 @@ public static class OpenSectorGen
     /// </summary>
     /// <remarks>v5: 자재(노획)를 크레딧(급여)으로. Progress의 키가 materials에서 credits로 바뀌어
     /// 옛 저장은 돈이 조용히 0이 된다 - 버리는 쪽이 낫다.</remarks>
-    public const int Version = 5;
+    /// <remarks>v6: 출구 둘이 덩어리 중심이 됐다 - 전투(또는 잔해밭)가 우회가 아니라 경로다.</remarks>
+    public const int Version = 6;
 
     /// <summary>장 사이 소구역 수(깊이). 갈림길은 각 깊이에서 <see cref="Lanes"/>갈래.</summary>
     public const int LegsPerChapter = 2;
@@ -273,14 +274,28 @@ public static class OpenSectorGen
         bool combatUp = rng.Next01() < 0.5f;
 
         int clusters = (int)rng.Range(MinClusters, MaxClusters + 0.999f);
-        var centres = new List<Vector2>(clusters);
+        var centres = new List<Vector2>(clusters + GateClusters);
+
+        // **출구가 덩어리의 중심이다.** 예전에는 후보를 출구 3 km 앞에서 끊어서 출구 앞이 언제나
+        // 빈 우주였고, 30회 플레이의 답이 "전부 피하고 출구로"였다 - 회피가 선택지에 있는 한
+        // 어떤 경제도 회피를 못 이긴다. 출구를 덩어리 안에 두면 빈 공간이 출구까지 안 이어진다.
+        // 위 출구는 combatUp이면 전투, 아래 출구는 그 반대 - "어느 출구 = 어떤 위험"이 선택으로 남는다.
+        // 먼저 넣어야 뒤의 순위 채우기가 간격(ClusterSpacing)을 지켜 출구 옆에 안 붙는다.
+        centres.Add(new Vector2(GateX, GateY));
+        centres.Add(new Vector2(GateX, -GateY));
+
         int cursor = 0;
 
-        for (; cursor < _cells.Count && centres.Count < clusters; cursor++)
+        for (; cursor < _cells.Count && centres.Count < clusters + GateClusters; cursor++)
         {
             if (Clear(centres, _cells[cursor].at, ClusterSpacing))
                 centres.Add(Jitter(_cells[cursor].at, ref rng));
         }
+
+        // 출구 덩어리를 맨 뒤로 - 첫 자리(first: 들판 이름·종류)는 순위 덩어리 것이어야 한다.
+        centres.RemoveRange(0, GateClusters);
+        centres.Add(new Vector2(GateX, GateY));
+        centres.Add(new Vector2(GateX, -GateY));
 
 
         var placed = new List<Vector2>();
@@ -290,9 +305,13 @@ public static class OpenSectorGen
         // **덩어리마다 자기 수를 쓴다.** 예전에는 총합을 세고 centres[s % count]로 돌렸는데,
         // 그러면 덩어리가 뽑은 3/4가 통째로 증발하고 균등 분배가 된다 - 분포가 비슷해서
         // 눈으로는 안 들키지만 코드가 말하는 것과 하는 일이 다르다.
-        foreach (Vector2 centre in centres)
+        for (int c = 0; c < centres.Count; c++)
         {
-            int sites = (int)rng.Range(MinSitesPerCluster, MaxSitesPerCluster + 0.999f);
+            Vector2 centre = centres[c];
+
+            // 출구 덩어리는 꽉 채우고 자기 쪽 성격을 반드시 따른다 - 여기가 흐릿하면 출구 앞이 다시 빈다.
+            bool isGate = c >= centres.Count - GateClusters;
+            int sites = isGate ? MaxSitesPerCluster : (int)rng.Range(MinSitesPerCluster, MaxSitesPerCluster + 0.999f);
 
             for (int i = 0; i < sites; i++)
             {
@@ -300,7 +319,7 @@ public static class OpenSectorGen
                 // 다시 뽑는 것이 아니다** - 재시도는 확률이 조금만 치우쳐도 "이유 없이 자리가
                 // 없는" 들판을 만들고, 그건 절차 생성에서 제일 찾기 싫은 종류의 버그다.
                 bool combatSide = (centre.y > 0f) == combatUp;
-                bool biased = rng.Next01() < SideBias;   // 전부 한쪽이면 다른 쪽이 심심하다. 대부분만 치우친다
+                bool biased = isGate || rng.Next01() < SideBias;   // 전부 한쪽이면 다른 쪽이 심심하다. 대부분만 치우친다
                 bool depotNow = depot;
                 System.Predicate<OpenSectorTemplate> allow = !biased
                     ? (depotNow ? NotRefit : null)
@@ -481,6 +500,7 @@ public static class OpenSectorGen
     // 벗어나면 잠깐 비었다가 다음 것이 잡힌다. 박자(20초)는 Campaign의 떠돌이 타이머가 낸다.
     private const float SideBias = 0.75f;          // 덩어리가 자기 쪽 성격을 따를 확률. 1이면 위/아래가 완전히 갈린다
     private const float QuietRockScale = 2f;       // 조용한 쪽 덩어리의 운석 배수
+    private const int GateClusters = 2;          // 출구마다 하나. 출구는 덩어리 안에 있다
     private const int MinClusters = 15;
     private const int MaxClusters = 25;
     private const float ClusterSpacing = 6000f;    // 덩어리 중심 사이

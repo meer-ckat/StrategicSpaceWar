@@ -35,7 +35,7 @@ public sealed class Campaign : TickBehaviour
     public float researchPerPlate = 0.5f;
 
     /// <summary>격파 급여. 적함 설계 판 1장당 크레딧 - 큰 배를 잡을수록 많이 받는다.</summary>
-    public float creditsPerPlate = 1.5f;
+    public float creditsPerPlate = 0.3f;   // destroyer 533판 = 160 CR. 1.5는 800 CR이라 한 척이 내 배 전체 재건비의 80%였다
 
     /// <summary>
     /// 워프에서 빠져나온 속도(m/s). <see cref="slideTicks"/> 동안 제곱 곡선으로 0까지 줄어든다 -
@@ -743,7 +743,7 @@ public sealed class Campaign : TickBehaviour
         Vector2 side = new(-heading.y, heading.x);
         Vector2 at = (Vector2)player.transform.position + heading * wandererDistance + side * rng.Range(-400f, 400f);
 
-        Spawn(new SpawnDef
+        Ship wanderer = Spawn(new SpawnDef
         {
             ship = ship,
             team = "Enemy",
@@ -751,6 +751,28 @@ public sealed class Campaign : TickBehaviour
             y = at.y,
             facing = heading.x > 0f ? -1f : 1f,   // 플레이어를 마주본다
         }, dormant: false, buildSeconds: farBuildSeconds);
+
+        if (wanderer != null)
+            _noBounty.Add(wanderer);
+    }
+
+    /// <summary>
+    /// 급여가 없는 배. 떠돌이는 적 접촉이 없으면 15~25초마다 무한히 오고, 순찰·추격은 자리가 아니라
+    /// 압박이다 - 이것들을 세면 "죽이고 기다리고 반복"이 출구보다 낫다. 급여는 **자리**(들판에
+    /// 놓인 것)에만 있다. Rover는 <see cref="Rovers"/>가 이미 목록이라 여기엔 떠돌이만.
+    /// </summary>
+    private readonly HashSet<Ship> _noBounty = new();
+
+    private bool HasBounty(Ship ship)
+    {
+        if (_noBounty.Contains(ship))
+            return false;
+
+        foreach (Rover r in Rovers)
+            if (r.ship == ship)
+                return false;
+
+        return true;
     }
 
     private void SpawnHunter()
@@ -1368,6 +1390,7 @@ public sealed class Campaign : TickBehaviour
         }
 
         _spawned.Clear();
+        _noBounty.Clear();
         _targets.Clear();
         _toSpawn.Clear();
         _farSpawns.Clear();
@@ -2299,7 +2322,7 @@ public sealed class Campaign : TickBehaviour
                 continue;
             }
 
-            if (_wingmen.Contains(ship))
+            if (_wingmen.Contains(ship) || !HasBounty(ship))
                 continue;
 
             // 죽은 것만. 전멸이 승리였을 때는 저절로 참이었는데, 들판은 출항이 승리라

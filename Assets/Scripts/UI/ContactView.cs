@@ -466,8 +466,12 @@ public sealed class ContactView : MonoBehaviour
             if (campaign.GateAt(k) != at)
                 continue;
 
+            // 출구는 방위만 잡혀도 출구다 - "어느 출구로 갈까"가 이 들판의 판단이라 그것부터 보여야 한다.
             if (state < Reveal.Resolved)
-                return Unknown(out kind);
+            {
+                kind = "출구";
+                return "항로 표지";
+            }
 
             kind = "출구";
             string beyond = campaign.GateLabel(k);
@@ -479,16 +483,43 @@ public sealed class ContactView : MonoBehaviour
 
         // 좌표는 잡았지만 아직 500 m를 안 밟았다. 줄 수 있는 정직한 단서는 "움직이는 것이 있나" 하나다 -
         // Hulk는 추력이 없으므로 그 값이 곧 "위험이 스스로 다가올 수 있나"다. 정체는 여전히 안 준다.
-        if (state >= Reveal.Resolved && campaign.SignalAt(at, out Campaign.Signal sig))
-        {
-            kind = "신호";
-            return sig.crewed ? "활성" : "표류";
-        }
+        // 방위만 잡혀도 **대분류**는 준다 - 센서 시그니처다. "무장 방출"이지 "적 코르벳 3척"이 아니다.
+        // 예전에는 여기가 "신호" 하나였고, 그러면 갈 이유가 없다 - 모든 오픈월드는 대충 뭐 하는 곳인지는
+        // 알려준다(오너, 2026-09-13). 정확한 정체·규모는 여전히 Identified(500 m)가 준다.
+        string coarse = Coarse(sector, at, out kind);
 
-        return Unknown(out kind);
+        if (state >= Reveal.Resolved && campaign.SignalAt(at, out Campaign.Signal sig))
+            return coarse + (sig.crewed ? " · 활성" : " · 표류");
+
+        return coarse;
     }
     private static Reveal Max(Reveal a, Reveal b) => a > b ? a : b;
-    private static string Unknown(out string kind) { kind = "신호"; return "신호"; }
+
+    /// <summary>Identify와 같은 자리 찾기, 답만 거칠게. 자리가 안 잡히면 "신호".</summary>
+    private static string Coarse(SectorDef sector, Vector2 at, out string kind)
+    {
+        kind = "신호";
+        string label = "신호";
+
+        foreach (SpawnDef spawn in sector.spawns)
+        {
+            if (spawn.scenery
+                || (new Vector2(spawn.x, spawn.y) - at).sqrMagnitude > TrackerFold * TrackerFold)
+                continue;
+
+            if (!spawn.hulk)
+            {
+                kind = "적";
+                return "무장 방출";
+            }
+
+            bool supply = spawn.refit || spawn.credits > 0 || spawn.propellant > 0 || spawn.munitions > 0;
+            kind = supply ? "보급" : "잔해";
+            label = supply ? "보급 신호" : "표류 선체";
+        }
+
+        return label;
+    }
 
     /// <summary>운석 뒤의 신호. 행 후보만, 0.25초마다. 좌표를 아는 것은 검사도 안 한다 - 어차피 안 사라진다.</summary>
     private static void Occlude(Vector2 eye)
@@ -654,7 +685,7 @@ public sealed class ContactView : MonoBehaviour
         return Arrows[((sector % 8) + 8) % 8];
     }
 
-    private const int TrackerRows = 8;
+    private const int TrackerRows = 12;   // 8은 자리 25개 중 셋 중 하나만 보였다. 분류를 열어도 목록에 없으면 안 보인다
     private const float TrackerFold = 400f;   // Campaign.SiteFold와 같은 값. 자리 하나의 배들이 ±90 m 안이다
 
     private static GUIStyle _promptStyle;
