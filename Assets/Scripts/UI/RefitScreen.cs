@@ -376,23 +376,46 @@ public sealed class RefitScreen : MonoBehaviour
         bool can = damaged > 0 && RunState.Credits > 0;
 
         RenderStatus(damaged, RunState.Credits);
+
+        // 값이 버튼에 적혀 있어야 누르기 전에 안다. 판 한 장이 1 CR이라 장수가 곧 값이다.
+        int all = Mathf.Min(damaged, RunState.Credits);
+        repairButtons[0].Content.text = "수리 1  ·  1 CR  (R)";
+        repairButtons[1].Content.text = $"수리 10  ·  {Mathf.Min(10, all)} CR";
+        repairButtons[2].Content.text = $"전량 {all}장  ·  {all} CR  (⇧R)";
+
         foreach (GUIButton b in repairButtons)
         {
             b.isEnabled = b.isInteractable = can;
             b.Opacity = can ? 1f : LogisticsScreen.DisabledOpacity;
         }
 
-        propellantValue.Content.text = $"<b>{RunState.Propellant}</b>";
+        // **칸·kN·s 같은 내부 단위를 그대로 보이면 아무 결정도 못 한다.** 창고는 비율로,
+        // 배는 "지금 얼마나 차 있나"로 적는다 - 버튼을 누를지 말지가 그 두 값에서만 나온다.
+        propellantValue.Content.text = $"<b>{100f * RunState.Propellant / RunState.MaxPropellant:0}%</b>";
         bool canFuel = p != null && RunState.Propellant > 0 && p.shipTanks.Count > 0;
+        refuel.Content.text = canFuel ? "급유  ·  창고 전량" : p == null || p.shipTanks.Count == 0 ? "급유  ·  탱크 없음" : "급유  ·  창고 빔";
         refuel.isEnabled = refuel.isInteractable = canFuel;
         refuel.Opacity = canFuel ? 1f : LogisticsScreen.DisabledOpacity;
 
-        munitionsValue.Content.text = $"<b>{RunState.Munitions}</b>";
+        munitionsValue.Content.text = $"<b>{100f * RunState.Munitions / RunState.MaxMunitions:0}%</b>"
+            + (p != null && p.MaxRounds > 0 ? LogisticsScreen.Tint($"   함내 {100f * p.Rounds / p.MaxRounds:0}%",
+                p.Rounds <= p.MaxRounds * 0.25f ? Palette.Breach : Palette.Steel) : "");
         bool canArm = p != null && RunState.Munitions > 0 && p.Rounds < p.MaxRounds;
+        int fits = p == null ? 0 : Mathf.Min(RunState.Munitions, p.MaxRounds - p.Rounds);
+        rearm.Content.text = p != null && p.MaxRounds > 0 && p.Rounds >= p.MaxRounds ? "재보급  ·  가득 참"
+            : RunState.Munitions <= 0 ? "재보급  ·  창고 빔"
+            : p == null || p.MaxRounds <= 0 ? "재보급  ·  탄약고 없음"
+            : $"재보급  ·  함내 +{100f * fits / p.MaxRounds:0}%";
         rearm.isEnabled = rearm.isInteractable = canArm;
         rearm.Opacity = canArm ? 1f : LogisticsScreen.DisabledOpacity;
 
         bool canBuy = RunState.Credits > 0 && RunState.Munitions < RunState.MaxMunitions;
+        // 한 번 누르면 얼마가 나가고 창고가 얼마나 차는지. 돈이 바로 "다음 전투 몇 초"로 읽힌다.
+        int room = RunState.MaxMunitions - RunState.Munitions;
+        int spend = Mathf.Min(RunState.Credits, Mathf.CeilToInt((float)room / AmmoPerCredit));
+        buyAmmo.Content.text = canBuy
+            ? $"탄약 구입  ·  {spend} CR → +{100f * Mathf.Min(room, spend * AmmoPerCredit) / RunState.MaxMunitions:0}%"
+            : RunState.Credits <= 0 ? "탄약 구입  ·  잔고 없음" : "탄약 구입  ·  창고 가득";
         buyAmmo.isEnabled = buyAmmo.isInteractable = canBuy;
         buyAmmo.Opacity = canBuy ? 1f : LogisticsScreen.DisabledOpacity;
 

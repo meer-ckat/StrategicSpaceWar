@@ -225,7 +225,22 @@ public sealed class MapScreen : MonoBehaviour
         _alpha = Step(n++);
         float t = Core.TickManager.currentTick / 60f;
         Text("map_title", new Rect(inn.x, inn.y, inn.width * 0.6f, HeadH), $"TAC  //  {sector.name}", _title, 1);
-        Text("map_clock", new Rect(inn.x, inn.y, inn.width, HeadH), $"T+{(int)(t / 60f):00}:{(int)(t % 60f):00}     [ ] 고르기   M 닫기", _rightDim, 1);
+        Text("map_clock", new Rect(inn.x, inn.y, inn.width - 90f, HeadH), $"T+{(int)(t / 60f):00}:{(int)(t % 60f):00}     점 클릭 고르기 · J 점프", _rightDim, 1);
+
+        // 닫기. 키(M)만 있으면 처음 연 사람은 이 창에서 나가는 길을 모른다.
+        var closeRect = new Rect(inn.xMax - 82f, inn.y, 82f, HeadH - 2f);
+        bool closeHot = Hot(closeRect);
+        float keepAlpha = _alpha;
+        _alpha *= closeHot ? 0.35f : 0.18f;
+        Box("map_closebg", closeRect, closeHot ? _boxSelect : _boxSteel, 1);
+        _alpha = keepAlpha;
+        Text("map_close", closeRect, closeHot ? "✕ 닫기  M" : "✕ 닫기  M", closeHot ? _select : _rightDim, 2);
+
+        if (closeHot && _clickAt is Vector2 closeClick && closeRect.Contains(closeClick))
+        {
+            _clickAt = null;
+            Close();
+        }
         Rule("map_rule", new Rect(inn.x, inn.y + HeadH + 2f, inn.width, 1f), 0.5f, 1);
 
         float bodyY = inn.y + HeadH + Gap;
@@ -282,6 +297,27 @@ public sealed class MapScreen : MonoBehaviour
         Vector2? pickHit = null;
         float pickBest = PickRadius;
 
+        // 커서 밑의 점. **클릭하기 전에 무엇이 집힐지 보여준다** - 점 하나가 8 px이라, 표시가
+        // 없으면 집을 수 있다는 것도 무엇이 집힐지도 안 보인다. 고르는 규칙과 같은 반경을 쓴다.
+        Vector2 cursor = LogicalMouse();
+        Vector2? hoverHit = null;
+        float hoverBest = PickRadius;
+
+        if (rect.Contains(cursor))
+            foreach (ContactView.Contact c in ContactView.Known)
+            {
+                if (!c.located || c.kind == "소멸")
+                    continue;
+
+                float d = Vector2.Distance(ToMap(c.at), cursor);
+
+                if (d < hoverBest)
+                {
+                    hoverBest = d;
+                    hoverHit = c.at;
+                }
+            }
+
         for (int i = 0; i < ContactView.Known.Count; i++)
         {
             ContactView.Contact c = ContactView.Known[i];
@@ -313,8 +349,18 @@ public sealed class MapScreen : MonoBehaviour
                 else if (c.kind == "소멸")
                     _alpha *= DeadDim;                        // 치운 자리. 남아 있되 조용하다
 
+                bool hover = hoverHit == c.at;
+
                 if (on)
                     Dot(id + "_halo", p, size + 4f, _boxSelect, 3);   // 테는 얇게 - 두꺼우면 점이 아니라 덩어리다
+                else if (hover)
+                {
+                    float keep = _alpha;
+                    _alpha *= 0.6f;
+                    Dot(id + "_hov", p, size + 4f, _boxSteel, 3);
+                    _alpha = keep;
+                    Text(id + "_hovl", new Rect(p.x + size + 6f, p.y - RowH * 0.5f, 240f, RowH), c.label, _dim, 6);
+                }
 
                 Dot(id, p, size, BoxFor(c.kind), 4);
 
@@ -348,7 +394,9 @@ public sealed class MapScreen : MonoBehaviour
             }
         }
 
-        if (_clickAt != null)
+        // **지도 안을 찍었을 때만 먹는다.** 예전에는 오른쪽 패널을 눌러도 여기가 삼켜서, 패널의
+        // 빈 곳을 누르면 선택이 풀리고 패널의 어떤 줄도 클릭을 못 받았다.
+        if (_clickAt is Vector2 mapClick && rect.Contains(mapClick))
         {
             // 빈 곳을 찍으면 선택을 놓는다. 안 놓으면 "고른 것 없음"으로 돌아갈 길이 없다.
             ContactView.Selected = pickHit;
@@ -475,7 +523,10 @@ public sealed class MapScreen : MonoBehaviour
             if (Anchor(c))
             {
                 bool ok = campaign.CanJump(out string why);
-                _alpha = PickAlpha(); Row(inn, ref y, "J 점프", ok ? $"Δv {campaign.jumpDeltaV:0} · 앞 {campaign.jumpStandoff / 1000f:0.0} km" : why, row++, !ok);
+                _alpha = PickAlpha();
+
+                if (RowButton(inn, ref y, "점프  (J)", ok ? $"Δv {campaign.jumpDeltaV:0} · 앞 {campaign.jumpStandoff / 1000f:0.0} km" : why, row++, !ok) && ok)
+                    TryJump();
             }
         }
 
@@ -538,8 +589,10 @@ public sealed class MapScreen : MonoBehaviour
             // 항로 자료를 건졌으면 출구까지 가기 전에 목적지와 상대적 위험을 안다.
             string beyond = state >= ContactView.Reveal.Identified || campaign.RouteIntelUnlocked ? campaign.GateLabel(k) : "";
             string dist = state >= ContactView.Reveal.Resolved ? $"{g.magnitude / 1000f:0.0} km" : "불명";
-            Row(inn, ref y, "출구 " + (k == 0 ? "A" : "B") + (string.IsNullOrEmpty(beyond) ? "" : " · " + beyond), $"{bearing}  {dist}", row++,
-                campaign.ChosenLane == k);
+            // 누르면 그 출구를 고른다 - 고르면 방위·거리·항로 Δv가 위 "선택"에 그대로 뜬다.
+            if (RowButton(inn, ref y, "출구 " + (k == 0 ? "A" : "B") + (string.IsNullOrEmpty(beyond) ? "" : " · " + beyond),
+                          $"{bearing}  {dist}", row++, campaign.ChosenLane == k, ContactView.Selected == at))
+                ContactView.Selected = at;
 
             if (campaign.RouteIntelUnlocked)
             {
@@ -641,6 +694,45 @@ public sealed class MapScreen : MonoBehaviour
         }
 
         y += RowH + 4f;   // 안 그려도 자리는 센다. 안 그러면 스크롤이 내려갈수록 내용이 줄어든다
+    }
+
+    /// <summary>마우스가 이 사각형 위인가. 패널 Rect는 시차(FollowMouse)로 같이 움직이므로 클릭과 같은 좌표를 쓴다.</summary>
+    private bool Hot(Rect rect) => Mouse.current != null && rect.Contains(LogicalMouse());
+
+    /// <summary>
+    /// 누를 수 있는 줄. **이 화면의 행동은 전부 여기로 온다** - 점프도 출구 고르기도 키(J)만
+    /// 있었고, 키를 모르면 지도가 읽기 전용 표였다. 마우스가 올라가면 줄이 밝아지는 것이
+    /// "여기는 눌린다"의 유일한 표시다.
+    /// </summary>
+    private bool RowButton(Rect inn, ref float y, string label, string value, int i, bool warn = false, bool on = false)
+    {
+        bool clicked = false;
+
+        if (Visible(inn, y))
+        {
+            var row = new Rect(inn.x - 5f, y - 1f, inn.width + 10f, RowH + 2f);
+            bool hot = Hot(row);
+
+            if (hot || on)
+            {
+                float keep = _alpha;
+                _alpha *= hot ? 0.30f : 0.16f;
+                Box("map_bh" + i, row, on ? _boxSelect : _boxSteel, 1);
+                _alpha = keep;
+            }
+
+            Text("map_k" + i, new Rect(inn.x, y, inn.width * 0.6f, RowH), (hot ? "▸ " : "  ") + label, hot ? _name : _dim, 2);
+            Text("map_v" + i, new Rect(inn.x, y, inn.width, RowH), value, warn ? _warn : _right, 2);
+
+            if (hot && _clickAt is Vector2 click && row.Contains(click))
+            {
+                clicked = true;
+                _clickAt = null;   // 지도 고르기가 이 클릭을 또 먹으면 선택이 풀린다
+            }
+        }
+
+        y += RowH;
+        return clicked;
     }
 
     private void Row(Rect inn, ref float y, string label, string value, int i, bool warn = false)
