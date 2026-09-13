@@ -12,7 +12,7 @@ public sealed class RefitScreen : MonoBehaviour
     public static bool IsOpen;
 
     /// <summary>패널이 덮는 화면 오른쪽 비율. Campaign이 카메라 오프셋에 같은 값을 쓴다.</summary>
-    public const float PanelFraction = 0.4f;
+    public const float PanelFraction = 0.5f;   // 0.4는 모듈 행(이름 + 교체 + 후보 가격)이 안 들어갔다
 
     const int WindowLayer = UiLayer.Screen;   // LogisticsScreen과 같다. 둘이 동시에 열리는 일이 없다
     const float Margin = 24f, Padding = 16f, Gap = 8f, RowH = 22f, ButtonH = 40f;
@@ -144,15 +144,17 @@ public sealed class RefitScreen : MonoBehaviour
         depart = Widget.Button(panel, "출항", new Rect(inn.x, inn.yMax - ButtonH, inn.width, ButtonH), Depart, button);
         Hoverable(depart);
 
-        // 잃은 모듈. 수리 버튼과 통신 카드 사이 전부.
+        // 모듈 목록은 수리 버튼부터 출항 버튼까지 **전부** 쓴다. 통신 카드가 100 px을 상시 잡고
+        // 있었는데 거의 항상 안 보이는 것이라(isVisible false) 목록이 한 줄로 잘렸다. 카드는 목록 위에
+        // 떠서 말할 때만 덮는다 - Layer를 명시한다(겹치는 것끼리 동률이면 순서가 정의되지 않는다).
         Rect commsRect = new Rect(panelRect.x, panelRect.yMax - ButtonH - Gap - 100f, panelRect.width, 100f);
         Widget.Label(panel, "모듈  (베이스에서 산다)", new Rect(inn.x, y, inn.width, 16f), eyebrow);
         y += 20f;
-        lostRect = new Rect(inn.x, y, inn.width, Mathf.Max(RowH, commsRect.y - Gap - y));
+        lostRect = new Rect(inn.x, y, inn.width, Mathf.Max(RowH, inn.yMax - ButtonH - Gap - y));
         lostLabel = GUIStyleMaker.Label(Palette.Hull, 14).RichText();
         lostButton = GUIStyleMaker.Button(Palette.Hull, Palette.Bulkhead, Palette.Radiance, null, 13);
         BuildLost();
-        comms = Widget.Window(window, "", commsRect, "Comms", card);
+        comms = Widget.SetLayer(Widget.Window(window, "", commsRect, "Comms", card), WindowLayer + 2);
         Rect cmIn = LogisticsScreen.Inset(commsRect, 12f);
         Widget.Label(comms, "COMMUNICATION", new Rect(cmIn.x, cmIn.y, cmIn.width, 14f), eyebrow);
         commsSpeaker = Widget.Label(comms, "", new Rect(cmIn.x, cmIn.y + 16f, cmIn.width, 16f), GUIStyleMaker.Label(Palette.Hull, 12).Font(12, FontStyle.Bold));
@@ -203,7 +205,7 @@ public sealed class RefitScreen : MonoBehaviour
         Ship p = Campaign.current.Player;
         lost = p != null ? p.ModuleSlots() : new List<Ship.ModuleSlot>();
 
-        lostGroup = Widget.Window(window, "", lostRect, "Lost", GUIStyleMaker.Box(Color.clear));
+        lostGroup = Widget.SetLayer(Widget.Window(window, "", lostRect, "Lost", GUIStyleMaker.Box(Color.clear)), WindowLayer + 1);
         lostGroup.Scrollable = true;
         lostGroup.ScrollPosition = Vector2.zero;
         lostGroup.whenTick += (_, __) =>
