@@ -217,7 +217,7 @@ public static class RamImpact
         // 사거리 안에 남의 몸이 없으면 스윕할 것도 없다. 부술 수 있는 것(Armor)은 전부
         // HullStructure의 몸에 붙어 있으므로 후보는 All 목록뿐이다 - 포격전 거리에서는
         // 충각이 이 float 비교 몇 번으로 끝난다.
-        if (!GatherNearBodies(body, centre, rMax + step, velocity, Mathf.Abs(omega) * rMax, pushing, out bool carriedOnly))
+        if (!GatherNearBodies(body, centre, rMax + step, velocity, omega, rMax, pushing, out bool carriedOnly))
             return;
 
         // 앞에 있는 것이 전부 실려 가는 몸이면(박힌 운석을 밀고 가는 중) 압착뿐이라 몇 틱에 한 번만 센다.
@@ -694,7 +694,7 @@ public static class RamImpact
     /// 전원이 재사용해도 결과가 같다. 같은 틱에 태어난 잔해가 다음 틱까지 안 보이는
     /// 창이 생기지만, 그 창은 지금도 OnTick 순회 순서로 이미 존재한다.
     /// </summary>
-    private static readonly List<(Rigidbody2D body, Vector2 centre, float radius, Vector2 velocity)> _bodySnapshot = new();
+    private static readonly List<(Rigidbody2D body, Vector2 centre, float radius, Vector2 velocity, float omega)> _bodySnapshot = new();
     private static long _snapshotTick = -1;
 
     private static void RefreshBodySnapshot()
@@ -722,7 +722,8 @@ public static class RamImpact
             // **속도도 여기서 캐시한다.** 아래 GatherNearBodies가 몸마다 상대속도를 보는데,
             // 그 함수는 몸마다 불리므로 거기서 linearVelocity를 읽으면 네이티브 접근이
             // O(n²)가 된다 - 운석 90개면 틱당 8,100번이다. 스냅샷은 틱당 한 번이라 O(n)이다.
-            _bodySnapshot.Add((otherBody, otherBody.worldCenterOfMass, CachedRadius(otherBody), otherBody.linearVelocity));
+            _bodySnapshot.Add((otherBody, otherBody.worldCenterOfMass, CachedRadius(otherBody), otherBody.linearVelocity,
+                otherBody.angularVelocity * Mathf.Deg2Rad));
         }
     }
 
@@ -735,7 +736,7 @@ public static class RamImpact
     /// <param name="carriedOnly">근처 몸이 전부 나와 같이 움직이는 것뿐인가(상대 운동 없음, 밀고 있어서만 통과).</param>
     private static bool GatherNearBodies(
         Rigidbody2D self, Vector2 centre, float range,
-        Vector2 selfVelocity, float spinReach, bool pushing, out bool carriedOnly)
+        Vector2 selfVelocity, float selfOmega, float rMax, bool pushing, out bool carriedOnly)
     {
         using var _ = _mGather.Auto();
 
@@ -746,7 +747,7 @@ public static class RamImpact
 
         for (int i = 0; i < _bodySnapshot.Count; i++)
         {
-            (Rigidbody2D otherBody, Vector2 at, float radius, Vector2 otherVelocity)
+            (Rigidbody2D otherBody, Vector2 at, float radius, Vector2 otherVelocity, float otherOmega)
                 = _bodySnapshot[i];
 
             if (otherBody == self)
@@ -768,6 +769,10 @@ public static class RamImpact
             //
             // sqrt를 안 쓴다. `|dv| + spinReach < RamMinSpeed`를 `|dv| < 남은 몫`으로
             // 옮기면 제곱 비교로 끝난다 - 이 줄은 몸마다 x 몸마다라 O(n^2)다.
+            // 회전도 **상대**로 잰다. 박힌 채 같이 도는 두 몸은 서로에 대해 정지인데, 내 각속도만 보면
+            // spinReach가 RamMinSpeed를 넘는 순간 slack이 음수가 되어 still이 영영 false다 - 그러면
+            // 6틱 배치가 안 걸려 매 틱 스윕·전도가 돈다(프로파일러 Sweep 21회/8틱, 2026-09-13).
+            float spinReach = Mathf.Abs(selfOmega - otherOmega) * rMax;
             float slack = Ballistics.RamMinSpeed - spinReach;
             bool still = slack > 0f && (selfVelocity - otherVelocity).sqrMagnitude < slack * slack;
 

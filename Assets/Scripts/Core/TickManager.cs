@@ -88,8 +88,11 @@ namespace Core
         private bool _isTicking;
         private float _accumulator;
 
-        // 한 프레임에 너무 많은 틱이 몰리는 Spiral of Death 방지
-        private const int MaxTicksPerFrame = 8;
+        // 한 프레임에 너무 많은 틱이 몰리는 Spiral of Death 방지.
+        // 8이었는데(2026-09-13) 틱당 물리가 27 ms로 뛰자 8틱 = 216 ms 프레임이 되어 영영 못 따라잡았다 -
+        // 상한이 크면 방지가 아니라 나선 그 자체다. 3이면 프레임이 ~80 ms에서 멈추고 게임이 느려질 뿐
+        // 안 죽는다. 결정론은 그대로다 - 틱 순서는 불변이고 실시간만 늘어난다.
+        private const int MaxTicksPerFrame = 3;
 
 
         private void Awake()
