@@ -27,7 +27,11 @@ public sealed class RefitScreen : MonoBehaviour
     GUIGroup window, panel, comms;
     GUILabel plateValue, materialValue, commsSpeaker, commsText;
     GUIButton[] repairButtons;
-    GUIButton depart, refuel, rearm;
+    GUIButton depart, refuel, rearm, buyAmmo;
+
+    /// <summary>크레딧 1로 사는 탄약 칸. 격파 급여 한 척(destroyer 160 CR)이 V2 적재의 절반쯤이다 -
+    /// 한 판 이기면 반만 채워지므로 수리와 경쟁이 생긴다.</summary>
+    const int AmmoPerCredit = 500;
     GUILabel propellantValue, munitionsValue;
     GUIStyle rowLabel, rowValue;
     GUIBoxLabel black;
@@ -134,11 +138,14 @@ public sealed class RefitScreen : MonoBehaviour
             Hoverable(b);
         y += ButtonH + Gap;
 
-        float hw = (inn.width - Gap) * 0.5f;
-        refuel = Widget.Button(panel, "급유", new Rect(inn.x, y, hw, ButtonH), Refuel, button);
+        float tw = (inn.width - Gap * 2f) / 3f;
+        refuel = Widget.Button(panel, "급유", new Rect(inn.x, y, tw, ButtonH), Refuel, button);
         Hoverable(refuel);
-        rearm = Widget.Button(panel, "재보급", new Rect(inn.x + hw + Gap, y, hw, ButtonH), Rearm, button);
+        rearm = Widget.Button(panel, "재보급", new Rect(inn.x + tw + Gap, y, tw, ButtonH), Rearm, button);
         Hoverable(rearm);
+        // 크레딧이 살 것이 수리뿐이라 남아돌았다. 희소한 것(탄약)과 바꿀 수 있어야 돈이 결정이 된다.
+        buyAmmo = Widget.Button(panel, "탄약 구입", new Rect(inn.x + (tw + Gap) * 2f, y, tw, ButtonH), BuyAmmo, button);
+        Hoverable(buyAmmo);
         y += ButtonH + Gap * 2f;
 
         depart = Widget.Button(panel, "출항  (Enter)", new Rect(inn.x, inn.yMax - ButtonH, inn.width, ButtonH), Depart, button);
@@ -385,6 +392,10 @@ public sealed class RefitScreen : MonoBehaviour
         rearm.isEnabled = rearm.isInteractable = canArm;
         rearm.Opacity = canArm ? 1f : LogisticsScreen.DisabledOpacity;
 
+        bool canBuy = RunState.Credits > 0 && RunState.Munitions < RunState.MaxMunitions;
+        buyAmmo.isEnabled = buyAmmo.isInteractable = canBuy;
+        buyAmmo.Opacity = canBuy ? 1f : LogisticsScreen.DisabledOpacity;
+
         // 수리가 돈을 쓰면 살 수 있던 모듈이 못 사는 것이 된다. 값은 버튼 글자 앞 숫자다.
         if (lostGroup != null)
             foreach (GUIItem item in lostGroup.Childrens)
@@ -469,6 +480,27 @@ public sealed class RefitScreen : MonoBehaviour
         RunState.Save(p);
         LogisticsScreen.Sfx(LogisticsScreen.SfxClick);
         LogisticsScreen.Punch(rearm);
+        RefreshStatus();
+    }
+
+    // 크레딧을 탄약으로. 창고가 찰 만큼만 사고 남는 돈은 그대로 둔다 - 반올림으로 조용히
+    // 사라지면 "돈이 어디 갔나"가 되고, 그건 잔고가 있는 화면에서 제일 나쁜 버그다.
+    void BuyAmmo()
+    {
+        if (!buyAmmo.isInteractable)
+            return;
+
+        int room = RunState.MaxMunitions - RunState.Munitions;
+        int afford = Mathf.Min(RunState.Credits, Mathf.CeilToInt((float)room / AmmoPerCredit));
+
+        if (afford <= 0)
+            return;
+
+        RunState.Credits -= afford;
+        RunState.Munitions += afford * AmmoPerCredit;
+        RunState.Save(Campaign.current.Player);
+        LogisticsScreen.Sfx(LogisticsScreen.SfxClick);
+        LogisticsScreen.Punch(buyAmmo);
         RefreshStatus();
     }
 
