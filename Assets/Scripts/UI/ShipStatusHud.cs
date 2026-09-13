@@ -306,6 +306,33 @@ public sealed class ShipStatusHud : MonoBehaviour
     private const float XrayFlightSeconds = 1f;    // 지금 사건의 탄이 날아오는 시간
 
     private static readonly Dictionary<int, List<DeathXray.Trail>> _xrayChains = new();
+
+    /// <summary>Liang-Barsky. 선분을 사각형 안으로 자른다. 하나도 안 남으면 false.</summary>
+    private static bool ClipToRect(ref Vector2 a, ref Vector2 b, Rect r)
+    {
+        float t0 = 0f, t1 = 1f;
+        Vector2 d = b - a;
+        float[] p = { -d.x, d.x, -d.y, d.y };
+        float[] q = { a.x - r.xMin, r.xMax - a.x, a.y - r.yMin, r.yMax - a.y };
+
+        for (int i = 0; i < 4; i++)
+        {
+            if (p[i] == 0f)
+            {
+                if (q[i] < 0f) return false;
+                continue;
+            }
+
+            float t = q[i] / p[i];
+            if (p[i] < 0f) { if (t > t1) return false; if (t > t0) t0 = t; }
+            else { if (t < t0) return false; if (t < t1) t1 = t; }
+        }
+
+        Vector2 a0 = a;
+        a = a0 + d * t0;
+        b = a0 + d * t1;
+        return true;
+    }
     private const float XrayFlashSeconds = 0.25f;  // 사건이 켜지는 순간 흰빛
     private const float XrayGaugeThickness = 4f;   // LogisticsScreen.GaugeThickness와 같다
 
@@ -398,6 +425,13 @@ public sealed class ShipStatusHud : MonoBehaviour
 
         Vector2 ToScreen(Vector2 g) => new(x0 + (g.x + 0.5f) * cell, y0 + (g.y + 0.5f) * cell);
 
+        // 선은 그림 영역 안에서만. 탄 궤적이 45칸 밖에서 오므로 안 자르면 글 위를 가로지른다.
+        void Line(Vector2 a, Vector2 b, Color c, float lw)
+        {
+            if (ClipToRect(ref a, ref b, gridArea))
+                DrawLine(a, b, c, lw);
+        }
+
         Color TrailColor(SpallTrails.Kind k, out float lw)
         {
             switch (k)
@@ -416,7 +450,7 @@ public sealed class ShipStatusHud : MonoBehaviour
                 return;
 
             Color lc = TrailColor(tr.kind, out float lw);
-            DrawLine(ToScreen(tr.a), ToScreen(tr.b), lc, lw);
+            Line(ToScreen(tr.a), ToScreen(tr.b), lc, lw);
         });
 
         // 2) 지금 사건의 탄: id별로 구간을 모아 길이를 재고, flight만큼만 그린다.
@@ -433,7 +467,7 @@ public sealed class ShipStatusHud : MonoBehaviour
                 if (landed)
                 {
                     Color lc = TrailColor(tr.kind, out float lw);
-                    DrawLine(ToScreen(tr.a), ToScreen(tr.b), lc, lw);
+                    Line(ToScreen(tr.a), ToScreen(tr.b), lc, lw);
                 }
 
                 return;
@@ -462,13 +496,13 @@ public sealed class ShipStatusHud : MonoBehaviour
 
                 float f = Mathf.Clamp01(budget / Mathf.Max(1e-4f, len));
                 Vector2 b = Vector2.Lerp(tr.a, tr.b, f);
-                DrawLine(ToScreen(tr.a), ToScreen(b), Palette.Hull, 2f);
+                Line(ToScreen(tr.a), ToScreen(b), Palette.Hull, 2f);
                 head = ToScreen(b);
                 budget -= len;
             }
 
             // 머리. 닿기 전까지만 - 닿으면 판정 점이 그 자리를 대신한다.
-            if (!landed)
+            if (!landed && gridArea.Contains(head))
             {
                 float d = Mathf.Max(6f, cell * 0.7f);
                 GUI.color = Color.white;
@@ -495,6 +529,10 @@ public sealed class ShipStatusHud : MonoBehaviour
             };
 
             Vector2 p = ToScreen(hit.at);
+
+            if (!gridArea.Contains(p))
+                continue;
+
             float d = (hit.ram ? Mathf.Max(7f, cell * 0.9f) : Mathf.Max(5f, cell * 0.6f)) * (now ? pulse : 1f);
             GUI.color = hc;
             GUI.DrawTexture(new Rect(p.x - d * 0.5f, p.y - d * 0.5f, d, d), Texture2D.whiteTexture);

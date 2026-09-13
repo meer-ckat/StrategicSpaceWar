@@ -140,7 +140,7 @@ public sealed class GameManager : MonoBehaviour
             PlayerDown = true;
             _downTime = Time.unscaledTime;
             BeginSilence();
-            DeathXray.Capture();
+            DeathXray.Capture(player);
 
             // 죽는 순간 화면에 있던 대사(교전 중 통신)를 지운다 - 죽은 승무원이
             // 계속 떠들면 안 된다. ClearBefore(시각 기준)를 쓰는 이유: Battle.Tick도

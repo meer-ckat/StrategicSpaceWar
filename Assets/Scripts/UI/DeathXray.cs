@@ -126,10 +126,15 @@ public static class DeathXray
         if ((fromWorld - _shipPos).sqrMagnitude > r * r && (toWorld - _shipPos).sqrMagnitude > r * r)
             return;
 
-        Vector2 a = ToGrid(fromWorld), b = ToGrid(toWorld);
-        float margin = kind == SpallTrails.Kind.Shell ? ShellMargin : GridMargin;
+        // 빗나간 파편은 안 적는다. 최대 사거리까지 날아가는 선 수천 개가 원을 그려 배를 덮었다 -
+        // 정보가 아니라 소음이고, 판을 맞힌 파편만이 "왜 이 판이 죽었나"에 답한다.
+        if (kind == SpallTrails.Kind.Miss)
+            return;
 
-        if (!NearGrid(a, margin) && !NearGrid(b, margin))
+        Vector2 a = ToGrid(fromWorld), b = ToGrid(toWorld);
+
+        // 탄은 멀리서부터, 파편은 **내 격자 안에 닿은 것만** - 격자 밖 판은 남의 배다.
+        if (kind == SpallTrails.Kind.Shell ? !NearGrid(a, ShellMargin) && !NearGrid(b, ShellMargin) : !NearGrid(b, 1f))
             return;
 
         _trails[_trailNext] = new Trail { tick = _frameTick, a = a, b = b, kind = kind, id = id };
@@ -210,8 +215,12 @@ public static class DeathXray
         LostPlates.Add(new Lost { cell = designCell, tick = Core.TickManager.currentTick });
     }
 
-    /// <summary>격파 확정. 원인 한 줄은 RunLog의 마지막 아군 사건에서 읽는다.</summary>
-    public static void Capture()
+    /// <summary>
+    /// 격파 확정. 원인 한 줄은 RunLog의 마지막 아군 사건에서 읽고, 없으면 **배 상태에서 직접**
+    /// - IsCombatEffective가 거짓이 되는 조건 그대로(승무원·전원·추진제·무장/추진). "전투 불능"
+    /// 한 마디는 아무것도 안 가르친다.
+    /// </summary>
+    public static void Capture(Ship player)
     {
         DownTick = Core.TickManager.currentTick;
         Cause = "전투 불능";
@@ -219,6 +228,16 @@ public static class DeathXray
         IReadOnlyList<RunLog.Entry> log = RunLog.Entries;
 
         BuildGroups(log);
+
+        if (player != null)
+        {
+            if (!player.CrewAlive) Cause = "승무원 전멸";
+            else if (!player.HasPower) Cause = "전원 상실 - 원자로";
+            else if (player.shipTanks.Count > 0 && player.AvailableDeltaV() <= 0f) Cause = "추진제 소진";
+            else if (!player.HasUsableGun && player.AvailableThrust(true) <= 0f && player.AvailableThrust(false) <= 0f) Cause = "무장·추진 전멸";
+            else if (!player.HasUsableGun) Cause = "무장 전멸";
+            else Cause = "추진 전멸";
+        }
 
         for (int i = log.Count - 1; i >= 0; i--)
         {
