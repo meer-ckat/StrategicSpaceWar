@@ -24,6 +24,11 @@ public sealed class ShipStatusHud : MonoBehaviour
 
     private static readonly Color CriticalColor = Palette.Breach;
 
+    /// <summary>AIRFRAME 격자에서 탄약고·원자로 칸. 열·폭발의 색.</summary>
+    private static readonly Color CitadelColor = Palette.Heat;
+
+    private static readonly HashSet<Vector2Int> _citadel = new();
+
     private static readonly Color PanelBg = Palette.DeepSpace.WithAlpha(0.72f);
 
     private static readonly Color GunAimColor = Palette.Telemetry.WithAlpha(0.15f);
@@ -50,7 +55,7 @@ public sealed class ShipStatusHud : MonoBehaviour
     private const float AirframeHeight = 150f;
 
     private const float FlightWidth = 240f;
-    private const float FlightHeight = 143f;   // EMIT 행 하나(2026-09-12)
+    private const float FlightHeight = 164f;   // EMIT 행(2026-09-12) + SYS 행(2026-09-13)
 
     private const float WeaponWidth = 340f;
 
@@ -472,6 +477,23 @@ public sealed class ShipStatusHud : MonoBehaviour
                 && ShipGrid.Solid(current.cells[c, r]);
         }
 
+        // 시타델. 탄약고·원자로가 어느 칸인지 - 같은 blastDamage가 선수면 44칸, 중앙이면 두 동강이라
+        // 이걸 모르면 제일 극적인 사건이 운으로 읽힌다. 내 배만. 적함 것은 센서가 열 정보다.
+        // 좌표는 살아 있는 격자(current)로 찍고 shift로 설계 칸으로 되돌린다 - Alive와 같은 길.
+        _citadel.Clear();
+
+        if (ship.IsPlayerControlled)
+        {
+            foreach (CriticalModule m in ship.shipCriticals)
+            {
+                if (m == null || !Ship.StillAboard(m, ship))
+                    continue;
+
+                Vector2Int c = current.ToCell(ship.transform.InverseTransformPoint(m.transform.position));
+                _citadel.Add(new Vector2Int(c.x - shift.x, c.y - shift.y));
+            }
+        }
+
         int total = 0;
         int alive = 0;
 
@@ -541,7 +563,9 @@ public sealed class ShipStatusHud : MonoBehaviour
                         drawSize,
                         drawSize
                     ),
-                    Alive(col, row) ? HudColor : CriticalColor
+                    !Alive(col, row) ? CriticalColor
+                    : _citadel.Contains(new Vector2Int(col, row)) ? CitadelColor
+                    : HudColor
                 );
             }
         }
@@ -677,29 +701,18 @@ public sealed class ShipStatusHud : MonoBehaviour
         float speed = velocity.magnitude;
 
         // 진행 방향은 월드의 속도 벡터가 이미 그려 준다 - 나침반 숫자는 그 중복이었다.
-        // 눈이 세계에서 못 읽는 값은 접근 속도다: 탄속 대비 리드가 여기서 갈린다.
+        // 눈이 세계에서 못 읽는 값은 **거리**다: 교전거리 120~240 m가 화면 폭 36~64 m 밖이라
+        // 적이 얼마나 먼지 볼 길이 없었다. 접근속도(CLS)는 뺐다 - 리드 마커가 이미 그 답이다.
         Ship target = ship.NearestHostile();
 
-        string closing = "—";
-        Color closingColor = DimColor;
+        string range = "—";
+        Color rangeColor = DimColor;
 
         if (target != null)
         {
-            Vector2 toTarget =
-                (Vector2)target.transform.position
-                - (Vector2)ship.transform.position;
-
-            if (toTarget.sqrMagnitude > 1e-4f)
-            {
-                // +면 가까워지는 중. 상대속도를 표적 방향에 투영한 것의 반대 부호다.
-                float rate = -Vector2.Dot(
-                    target.velocity - ship.velocity,
-                    toTarget.normalized
-                );
-
-                closing = $"{rate:+0;-0} m/s";
-                closingColor = HudColor;
-            }
+            float d = Vector2.Distance(target.transform.position, ship.transform.position);
+            range = d >= 1000f ? $"{d / 1000f:0.0} km" : $"{d:0} m";
+            rangeColor = HudColor;
         }
 
         FuelStatus(
@@ -730,9 +743,9 @@ public sealed class ShipStatusHud : MonoBehaviour
         DrawValue(
             panel,
             ref y,
-            "CLS",
-            closing,
-            closingColor
+            "RNG",
+            range,
+            rangeColor
         );
 
         DrawValue(
@@ -761,6 +774,20 @@ public sealed class ShipStatusHud : MonoBehaviour
             $"×{emission:0.0}",
             emission >= 1.4f ? WarnColor : HudColor
         );
+
+        // 전기와 사람. 원자로가 나가면 조타·조준이 죽는데 증상이 "배가 말을 안 듣는다"뿐이었다 -
+        // 어느 쪽이 나갔는지 두 단어로. 잃은 쪽만 붉다.
+        {
+            float width = panel.width - Padding * 2f;
+            float x = panel.x + Padding;
+
+            DrawText(new Rect(x, y, width * 0.5f, RowHeight), "SYS", DimColor, _leftStyle);
+            DrawText(new Rect(x + width * 0.5f, y, width * 0.25f, RowHeight), "PWR",
+                ship.HasPower ? HudColor : CriticalColor, _rightStyle);
+            DrawText(new Rect(x + width * 0.75f, y, width * 0.25f, RowHeight), "CREW",
+                ship.CrewAlive ? HudColor : CriticalColor, _rightStyle);
+            y += RowHeight;
+        }
     }
 
 
@@ -859,11 +886,15 @@ public sealed class ShipStatusHud : MonoBehaviour
         for (int i = 0; i < _weapons.Count; i++)
             guns += _weapons[i].guns;
 
-        DrawPanel(
-            panel,
-            "WPN",
-            guns > 0 ? $"{guns}" : null,
-            guns > 0 ? HudColor : CriticalColor);
+        // 머리 오른쪽이 탄약이다. 대사가 "25%"를 한 번 말해도 숫자는 상시 있어야 한다.
+        // 탄약고 없는 설계(dart)는 포 수만.
+        int rounds = ship.Rounds, maxRounds = ship.MaxRounds;
+        string head = maxRounds > 0 ? $"{guns} · {rounds}/{maxRounds}" : (guns > 0 ? $"{guns}" : null);
+        Color headColor = guns <= 0 || (maxRounds > 0 && rounds <= 0) ? CriticalColor
+            : maxRounds > 0 && rounds <= maxRounds * 0.25f ? WarnColor
+            : HudColor;
+
+        DrawPanel(panel, "WPN", head, headColor);
 
         float y =
             panel.y + HeaderHeight;
