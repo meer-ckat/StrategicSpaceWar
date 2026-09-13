@@ -699,11 +699,28 @@ public static class ShipBuilder
                 ? new Vector2Int(p.mountCol - minCol, p.mountRow - minRow)
                 : new Vector2Int(p.col - minCol, p.row - minRow);
 
-            // 붙을 판이 없으면 선체 직속이다 - 실내 모듈은 그 칸의 후면이 죽을 때
+            // 붙을 판이 없으면 후면이 바닥이다 - 실내 모듈은 그 칸의 후면이 죽을 때
             // HullStructure.KillRear가 같이 죽이고 조각으로 떠나면 Breakaway가 데려간다.
-            // 자리가 틀린 것은 WarnModuleFits가 한 줄로 말한다.
             if (!plateAt.TryGetValue(mount, out Transform plate))
+            {
+                // **판도 후면도 없으면 바닥이 아예 없다.**
+                //
+                // KillModulesOn은 그 칸의 후면이 죽을 때만 돈다. 처음부터 후면이 없던 칸에는
+                // 그 사건이 영영 안 오므로 모듈이 불사가 된다 - 부서진 자리에 모듈만 떠 있고,
+                // StillAboard는 선체 직속 자식도 "이 배의 것"으로 세니 계속 쏘고 전투가 안 끝난다.
+                //
+                // **씬 경로(AdoptLooseModules)는 이미 이 자리를 파괴한다.** 같은 상황에 두 경로가
+                // 반대로 답하던 것이 결함이고, 실제 런에서 도는 쪽은 조용히 넘어가는 이쪽이었다.
+                if (OnRear(map, mount))
+                    continue;
+
+                Debug.LogWarning(
+                    $"[ShipBuilder] '{def.defName}'의 '{module.name}' 자리({mount})에 판도 후면도 없다(우주). " +
+                    "어디에도 안 매달린 모듈은 불사가 되므로 파괴한다. 배치를 고칠 것.");
+
+                Object.Destroy(module.gameObject);
                 continue;
+            }
 
             // 판 밑으로 한 겹 내려간다. 판이 죽으면 같이 죽고, 판이 잔해로 떨어져 나가면
             // 같이 날아간다 - 둘 다 별도 코드 없이 부모 자식 관계 하나로 나온다.

@@ -119,7 +119,7 @@ Shader "SUPERRADIANCE/PlateSkin"
             // 건조 와이어프레임 색과 전선 띠 색. Palette의 Telemetry·Radiance를 HDR로 - 라이팅 밖에서
             // 더하는 것이라 SpriteRenderer.color로는 못 보낸다(적열과 같은 규칙).
             static const half3 WireColor = half3(0.40, 0.78, 0.82) * 1.6;
-            static const half3 BandColor = half3(1.00, 0.78, 0.35) * 3.0;
+            static const half3 BandColor = half3(1.00, 0.78, 0.35) * 1.0;   // 적열과 같은 배율. 3배였을 때 화면을 태웠다
             static const float WireLine = 0.08;   // m. 48 PPU에서 4 px
 
             // 판 실루엣의 테두리인가. 사각형은 콜라이더 변까지의 거리, 폴리곤 판은 마스크의 빈 이웃.
@@ -260,8 +260,17 @@ Shader "SUPERRADIANCE/PlateSkin"
                     lit.rgb += HeatTint(_Heat) * _Heat * 1.0;
 
                 // 전선 띠. 지나간 뒤 Band 안쪽이 밝고 전선에서 멀어지며 죽는다.
+                //
+                // **알파를 곱한다.** 이 블렌드는 알파 채널이 One이라, 안 곱하면 판 폴리곤 **밖의**
+                // 투명 픽셀에도 색이 그대로 가산된다 - 판을 가로지르는 줄이 아니라 쿼드 전체를 덮는
+                // 쐐기가 되고, Bloom이 그걸 다시 부풀린다. 적열(위)은 열이 드물어서 이 실수가 안 보였다.
+                //
+                // 감쇠를 제곱한다. 선형이면 띠 가장자리가 아직 절반 밝기라 폭이 두 배로 읽힌다.
                 if (abs(ahead) < _Build.y)
-                    lit.rgb += BandColor * (1.0 - abs(ahead) / _Build.y);
+                {
+                    float falloff = 1.0 - abs(ahead) / _Build.y;
+                    lit.rgb += BandColor * (falloff * falloff) * lit.a;
+                }
 
                 return lit;
             }

@@ -1370,7 +1370,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::StoryScriptManager
   fontSize: 14
   lineWidth: 680
-  maxLines: 2
+  maxLines: 3
   platePadding: {x: 12, y: 8}
   topFraction: 0.01
   plateAlpha: 0.78
@@ -1485,12 +1485,28 @@ MonoBehaviour:
   wandererMinTicks: 900
   wandererMaxTicks: 1500
   wandererDistance: 1400
-  farBuildSeconds: 3
+  hunterDelayTicks: 5400
+  hunterDistance: 8000
+  hunterLoud: 1.4
+  hunterListenTicks: 60
+  hunterHeatTicks: 900
+  heatSecondsPerLevel: 20
+  jumpNoiseSeconds: 15
+  fireNoiseTicks: 180
+  patrolCount: 2
+  patrolDelayTicks: 600
+  patrolReach: 600
+  jumpDeltaV: 1500
+  jumpStandoff: 1500
+  jumpBlack: 0.35
+  dockSpeed: 80
+  farBuildSeconds: 1
   wakeDistance: 400
   gateRadius: 300
   refitRadius: 300
   wreckSalvage: 0.25
   waitForCutscene: 1
+  signalSweepTicks: 30
 --- !u!1 &1680672771
 GameObject:
   m_ObjectHideFlags: 0
@@ -1937,7 +1953,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 7100597543316558242, guid: 268f60fb423d6b342859c6fecea57d47, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 7143951334151111984, guid: 268f60fb423d6b342859c6fecea57d47, type: 3}
       propertyPath: m_LocalPosition.x

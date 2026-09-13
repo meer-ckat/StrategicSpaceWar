@@ -338,6 +338,24 @@ public partial class Ship : Thing
     /// </summary>
     public bool isMouseAim;
 
+    /// <summary>
+    /// 마우스 조준의 비례 밴드(도). 이 각도를 넘으면 전타, 안쪽에서는 비례해 줄인다.
+    /// 작을수록 붙는 맛이 딱딱하다 - 제동은 아래 물리항이 하므로 이 값이 떨림을 안 만든다.
+    /// </summary>
+    public float mouseAimBand = 5f;
+
+    /// <summary>
+    /// 적분 이득(1/도·초). 남는 오차를 시간으로 메운다 - 배가 움직이면 화면 한 점을 가리키는
+    /// **월드 각도가 계속 돌아서**, P와 D만으로는 그만큼 뒤처진 채로 평형이 잡힌다.
+    /// 0이면 PD 그대로다. 크면 느린 진동이 생기므로 밴드 안에서만 쌓고 상한을 건다.
+    /// </summary>
+    public float mouseAimKi = 0.35f;
+
+    /// <summary>적분항이 낼 수 있는 입력의 상한. 1이면 적분만으로 전타가 나온다 - 그러면 감기(windup)를 못 막는다.</summary>
+    public float mouseAimIClamp = 0.35f;
+
+    private float _aimIntegral;
+
     /// <summary>기수의 월드 방향 = 로컬 +X. 반대편 배는 180도 회전이라 부호 보정이 없다.</summary>
     public Vector2 NoseDirection => transform.right;
 
@@ -1605,6 +1623,16 @@ public partial class Ship : Thing
     {
         // 컷신이 켜면 입력과 무관하게 켜진다. 사람이 누르는 것과 같은 값을 쓰므로
         // BoosterComp는 누가 켰는지 몰라도 된다.
+        // **지도를 보는 동안은 손을 뗀다.** 클릭으로 자리를 고르게 하면 그 클릭이 곧 사격이 되고,
+        // WASD로 지도를 훑는 동안 배가 날아간다. 틱은 계속 도므로 배는 관성으로 흐른다 - 그것이 의도다.
+        // **값을 0으로 덮어쓰는 것이 요점이다** - PlayerInput을 끄면 마지막 값이 걸린 채 남는다(아래 주석).
+        if (MapScreen.IsOpen && IsPlayerControlled)
+        {
+            thrustInput = Vector2.zero;
+            angleInput = 0f;
+            pilotBoost = false;
+        }
+
         Boosting = cutsceneBoost || pilotBoost
             || (_boostAction != null && _boostAction.IsPressed());
     }
@@ -1753,8 +1781,57 @@ public partial class Ship : Thing
 
         float want = Mathf.Atan2(toCursor.y, toCursor.x) * Mathf.Rad2Deg;
         float have = Mathf.Atan2(nose.y, nose.x) * Mathf.Rad2Deg;
+        float error = Mathf.DeltaAngle(have, want);
+        float rate = angleRate;
 
-        angleInput = Mathf.Clamp(Mathf.DeltaAngle(have, want) / 15f, -1f, 1f);
+        // **D항은 상수가 아니라 제동 각이다.** 지금 각속도에서 실제로 멈추는 데 쓸 각을 오차에서
+        // 미리 뺀다. 그러면 어떤 배에서도 임계 제동이 되고, ShipAi의 turnLead처럼 초 단위 상수를
+        // 손으로 맞출 필요가 없다 - 그 상수가 15도/초짜리 함선 기준이라 fly에서 16배 과했다.
+        float braking = BrakingAngle(rate);
+
+        // **I항은 오버슛이 아니라 뒤처짐을 고친다.** 배가 움직이면 화면 한 점을 가리키는 월드 각도가
+        // 계속 돌아서, P와 D만으로는 그만큼 뒤처진 자리에서 평형이 잡힌다(위치 오차만 보는 제어기의
+        // 원리적 지연). 시간으로 메우는 것이 적분이다.
+        //
+        // **밴드 안에서만 쌓는다.** 밖에서 쌓으면 큰 선회 한 번에 통째로 감겨서(windup) 도착할 때
+        // 반대로 밀어붙인다 - 오버슛을 고치려다 오버슛을 만드는 전형이다. 밴드를 벗어나면 즉시 비운다.
+        float band = Mathf.Max(0.1f, mouseAimBand);
+
+        if (Mathf.Abs(error) < band)
+            _aimIntegral = Mathf.Clamp(
+                _aimIntegral + error * Time.deltaTime,
+                -mouseAimIClamp / Mathf.Max(1e-3f, mouseAimKi),
+                mouseAimIClamp / Mathf.Max(1e-3f, mouseAimKi));
+        else
+            _aimIntegral = 0f;
+
+        angleInput = Mathf.Clamp(
+            (error - braking) / band + _aimIntegral * mouseAimKi, -1f, 1f);
+    }
+
+    /// <summary>
+    /// 지금 각속도에서 멈추기까지 쓸 각(도, 부호 있음).
+    ///
+    /// **항력을 빼면 안 된다.** 제동 중에도 Angle()이 rate x angleDrag를 같이 깎으므로 실제 감속은
+    /// angleAccel + angleDrag x ω다. 항력을 무시한 ω²/(2a)는 그래서 **필요한 각을 과대평가**하고,
+    /// 제동을 일찍 밟은 뒤 남은 거리를 기어간다 - sunkiller(종단 48도/초)에서 48도 대 29.5도,
+    /// 거의 두 배다. 증상이 "조준에 시간이 오래 걸린다"였고 원인은 이득이 아니라 이 식이었다.
+    ///
+    /// dω/dt = -(a + d·ω)를 각도로 적분하면 닫힌 해가 나온다:
+    ///   θ = (d·ω - a·ln(1 + d·ω/a)) / d²
+    /// d가 0으로 가면 ω²/(2a)로 수렴하므로 항력 없는 배도 같은 식으로 덮인다.
+    /// </summary>
+    private float BrakingAngle(float rate)
+    {
+        float a = Mathf.Max(1f, angleAccel);
+        float w = Mathf.Abs(rate);
+        float d = angleDrag;
+
+        float angle = d > 1e-3f
+            ? (d * w - a * Mathf.Log(1f + d * w / a)) / (d * d)
+            : w * w / (2f * a);
+
+        return angle * Mathf.Sign(rate);
     }
 
     protected void Repair()

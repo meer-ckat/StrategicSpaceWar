@@ -570,6 +570,19 @@ public class ScriptManager : MonoBehaviour
             if (line == null)
                 continue;
 
+            // **배 선택이 열려 있는 동안은 한 줄도 안 나간다.**
+            //
+            // 프롤로그는 BeginOpeningWhenChosen이 애초에 안 틀지만, 구역 대사(sector-entered-N)는
+            // 그 문을 안 지난다 - 이어하는 런에서 선택 화면과 1구역 진입이 겹치면 대본이 그 위로 흐른다.
+            // 대사창은 그 화면에서 안 그리므로(DialogueManager) 줄이 보이지도 않은 채 수명만 흘러,
+            // 화면을 닫을 때는 이미 다 지나가 있다. 안 보이는 대사가 소모되는 것이 제일 나쁜 실패다.
+            //
+            // **여기가 맞는 자리다.** 코루틴이 WaitForSecondsRealtime이라 timeScale 0을 무시하므로
+            // 화면 쪽에서 멈출 방법이 없고, Play를 막으면 이미 시작된 대본이 못 멈춘다.
+            // 줄 사이에서 멈추면 연출 큐(RunCues)도 같이 멈춰서 적함 소환이 빈 화면에 안 뜬다.
+            while (ShipSelectScreen.IsOpen)
+                yield return null;
+
             // **연출은 대사보다 위다.** 말할 사람이 죽어도(Silenced) 세계에서 일어나는 일은
             // 일어난다 - 적함은 함내 누가 살았는지와 무관하게 나타난다. 아래로 내렸더니
             // "전술"이 조용한 판에서 적함 spawn이 통째로 빠지고, 그 뒤의 모든 지시가

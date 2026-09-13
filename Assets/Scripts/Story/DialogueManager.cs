@@ -1,9 +1,17 @@
 using System.Collections.Generic;
-using System.Text;
 using IMGUI;
 using UnityEngine;
 
-/// <summary>화면에 떠 있는 대사 한 줄. 순수 데이터다 - GameObject도 GUIItem도 없다.</summary>
+/// <summary>
+/// 화면에 떠 있는 대사 한 줄. **자기 위젯을 자기가 든다**(2026-09-13).
+///
+/// 예전에는 줄 전부를 문자열 하나로 이어 붙여 라벨 하나에 그렸다. 그래서 알파를 색 태그의 끝 두 자리로
+/// 흉내 내야 했고(줄마다 Opacity가 없으니까), 한 줄이 사라질 때 나머지가 문자열 안에서 순간이동했다.
+/// 줄 하나 = 리테인드 위젯 하나로 바꾸면 그 둘이 같이 사라진다 - 알파는 Opacity가, 자리 이동은 트윈이 한다.
+///
+/// **판과 글이 한 개체다.** <see cref="GUIBoxLabel"/>이 배경과 글을 같이 그리므로 둘로 나눌 이유가 없다.
+/// 나누면 자리를 옮길 때마다 둘을 같은 값으로 움직여야 하고, 그 둘이 갈라지는 프레임이 반드시 생긴다.
+/// </summary>
 public class Dialogue
 {
     public readonly string message;
@@ -21,6 +29,15 @@ public class Dialogue
     public float alpha;
     public bool leaving;
 
+    /// <summary>이 줄의 위젯. 재 보고 나서 태어난다 - 높이를 모르면 자리를 못 잡는다.</summary>
+    public GUIBoxLabel item;
+
+    /// <summary>이 줄이 먹는 세로(px). OnGUI에서 한 번 잰다. 0이면 아직 안 쟀다.</summary>
+    public float height;
+
+    /// <summary>지금 놓인 슬롯의 y. 위로 올릴지 말지를 이 값과 비교해서 정한다.</summary>
+    public float slotY;
+
     public Dialogue(string message, string author, string style, float duration, float typingDuration)
     {
         this.message = message;
@@ -29,15 +46,53 @@ public class Dialogue
         this.duration = duration;
         this.typingDuration = typingDuration;
     }
+
+    /// <summary>
+    /// 이 줄을 내보낸다. **여기서 뒤 줄들을 직접 올린다.**
+    ///
+    /// 순회가 필요한가 - 필요하다. 줄마다 높이가 다르므로(한 줄짜리와 세 줄짜리가 섞인다) "한 칸"이
+    /// 고정값이 아니고, 내 뒤에 몇 줄이 남아 있는지도 그때그때 다르다. 나보다 아래 있던 것만 내 높이만큼
+    /// 당기면 되는데, 그 판정이 곧 순회다. 매니저가 아니라 여기 두는 이유는 **나가는 것이 미는 사건**이기
+    /// 때문이다 - 나가는 줄이 자기가 비운 자리를 아는 유일한 자리다.
+    ///
+    /// 두 번 불러도 안전하다. 이미 leaving이면 아무것도 안 한다 - 안 그러면 뒤 줄이 두 번 올라간다.
+    /// </summary>
+    public void Leave()
+    {
+        if (leaving)
+            return;
+
+        leaving = true;
+
+        DialogueManager manager = DialogueManager.current;
+
+        if (manager == null || height <= 0f)
+            return;
+
+        float gap = height + DialogueManager.RowGap;
+
+        foreach (Dialogue other in manager.Texts)
+        {
+            // 나가는 중인 것은 안 민다 - 같이 사라질 것이라 옮겨봐야 안 보인다.
+            if (other == this || other.leaving || other.item == null || other.slotY <= slotY)
+                continue;
+
+            other.slotY -= gap;
+            other.item.MoveTo(
+                new Vector2(other.item.Rect.x, other.slotY),
+                DialogueManager.SlideTime, 0f, TweenHelper.EaseInOutQuad);
+        }
+    }
 }
 
 /// <summary>
-/// 하프라이프 2 자막(2026-09-12). **상자 하나, 글 한 덩어리.** 화면 위 가운데(에이스 컴뱃 자리) 반투명 판에
-/// 화자를 색으로 붙인 줄이 두 줄까지 쌓이고, 다 읽으면 사라진다. 그것이 전부다.
+/// 하프라이프 2 자막. **줄 하나가 판 하나.** 화면 위 가운데(에이스 컴뱃 자리) 반투명 판에 화자를 색으로
+/// 붙인 줄이 두 줄까지 쌓이고, 다 읽으면 사라진다. 그것이 전부다.
 ///
-/// 예전 1,450줄 - 레인 셋, 줄마다 판, 타이핑, 펀치, 흔들림, 지터, 난입 섬광, 배경 무늬 -
-/// 을 버렸다. 오너 판정: "대사 비중이 높은 게임 치곤 대사 UI가 개떡 같다." 읽히는 것이
-/// 연출보다 먼저고, 하프라이프는 연출 없이 20년을 읽혔다.
+/// **리테인드다**(2026-09-13). <see cref="Widget"/>로 한 번 짓고 매 프레임 Opacity만 만진다 -
+/// ImGui는 매 프레임 Rect를 되돌리므로(Materialise의 Reset) 줄이 제자리로 스냅해서 트윈이 안 보인다.
+/// 대가는 지우는 것을 손으로 해야 한다는 것이다: <see cref="Retire"/>가 트윈과 등록을 같이 걷는다.
+/// 안 걷으면 초당 60개가 GUIManager 표에 쌓인다.
 ///
 /// **여기는 대본을 모른다.** <see cref="ScriptManager"/>가 무엇을 언제, <see cref="DramaManager"/>가
 /// 왜, 여기가 어떻게 보이는가. 주어진 문자열과 style 하나로 그림이 정해진다.
@@ -45,12 +100,6 @@ public class Dialogue
 /// **크기는 세 배율을 곱한 값이다** - fontSize × 1.23(Malgun 글리프) × <see cref="GUIManager.UiScale"/>(씬 1.31).
 /// 14가 화면 22px이다. 인스펙터 값은 씬이 이기므로 바꾸면 SampleScene.unity도 같이.
 /// </summary>
-/// <remarks>
-/// **GUIManager보다 먼저 돈다**(DefaultExecutionOrder). ImGui 선언은 매 프레임 Rect·Opacity를 되돌리고(Reset),
-/// GUITween은 GUIManager.Update의 Tick에서 값을 쓴다. 선언 → 틱 순이어야 트윈이 이긴다.
-/// 반대면 트윈이 쓴 값을 다음 선언이 지워서 아무것도 안 움직인다.
-/// </remarks>
-[DefaultExecutionOrder(-100)]
 public class DialogueManager : MonoBehaviour
 {
     public static DialogueManager current;
@@ -61,7 +110,7 @@ public class DialogueManager : MonoBehaviour
     public int maxLines = 2;
     public Vector2 platePadding = new(12f, 8f);
 
-    /// <summary>판의 위 끝. 화면 높이 대비. 에이스 컴뱃처럼 위 중앙이다(2026-09-12) - 아래는 배와 계기판(AIRFRAME·WPN)의 자리라 대사가 거기 있으면 늘 뭔가와 겹친다. 줄이 늘면 아래로 자란다.</summary>
+    /// <summary>판의 위 끝. 화면 높이 대비. 에이스 컴뱃처럼 위 중앙이다 - 아래는 배와 계기판(AIRFRAME·WPN)의 자리라 대사가 거기 있으면 늘 뭔가와 겹친다. 줄이 늘면 아래로 자란다.</summary>
     public float topFraction = 0.01f;
 
     /// <summary>판 불투명도. 하프라이프는 0.5, 여기는 별이 많아 더 덮는다. 접근성 옵션으로 1까지 올릴 자리.</summary>
@@ -76,8 +125,15 @@ public class DialogueManager : MonoBehaviour
     public float lineGap = 0.6f;
 
     private const float FadeIn = 6f, FadeOut = 4f;
-    private const float EnterDrop = 14f, EnterTime = 0.18f;   // 새 줄이 오면 판이 위에서 살짝 내려앉는다
-    private const int PlateLayer = UiLayer.Dialogue, TextLayer = UiLayer.Dialogue + 1;
+    private const float EnterDrop = 14f, EnterTime = 0.18f;   // 새 줄은 위에서 살짝 내려앉는다
+
+    /// <summary>앞 줄이 나갈 때 뒤 줄이 올라가는 시간. 들어오는 것(0.18)보다 느리다 - 빈자리가 메워지는 것은 사건이 아니다.</summary>
+    public const float SlideTime = 0.36f;
+
+    /// <summary>줄 사이 세로 틈(px).</summary>
+    public const float RowGap = 4f;
+
+    private const int PlateLayer = UiLayer.Dialogue;
 
     public readonly List<Dialogue> Texts = new();
     public float LastLineTime => _lastLine;
@@ -86,12 +142,7 @@ public class DialogueManager : MonoBehaviour
     public void MarkLine() => _lastLine = Time.unscaledTime;
 
     private float _lastLine;
-    private float _blockHeight;
-    private string _measured;   // 이 문자열로 잰 높이다. 글이 바뀌면 다시 잰다
-    private GUIStyle _style, _plate;
-    private readonly StringBuilder _sb = new();
-    private GUIItem _plateItem, _textItem;   // 트윈을 죽일 때 필요하다 - 선언을 멈추면 ImGui가 걷지만 트윈 사전엔 남는다
-    private bool _enter;
+    private GUIStyle _plate;
 
     private void OnEnable() => current = this;
 
@@ -99,6 +150,11 @@ public class DialogueManager : MonoBehaviour
     {
         if (current == this)
             current = null;
+
+        for (int i = Texts.Count - 1; i >= 0; i--)
+            Retire(Texts[i]);
+
+        Texts.Clear();
     }
 
     // =========================================================
@@ -119,27 +175,44 @@ public class DialogueManager : MonoBehaviour
         duration = Mathf.Max(duration, typing + minimumHoldTime);
 
         // 난입은 앞줄을 즉시 내보낸다. 섬광도 흔들림도 없다 - 새 줄이 곧 사건이다.
+        // 뒤에서부터 도는 이유: Leave가 목록을 훑으며 뒤 줄을 올리므로, 앞에서부터 부르면 같은 줄이 여러 번 밀린다.
         if (interrupt)
-            foreach (Dialogue old in Texts)
-                old.leaving = true;
+            for (int i = Texts.Count - 1; i >= 0; i--)
+                Texts[i].Leave();
 
         var line = new Dialogue(message, author, style, duration, typing);
         Texts.Add(line);
-        _enter = true;
         _lastLine = Time.unscaledTime;
 
+        // 상한을 넘긴 만큼 오래된 것부터 내보낸다. Leave가 뒤 줄을 올리므로 자리는 저절로 맞는다.
         int live = 0;
         for (int i = Texts.Count - 1; i >= 0; i--)
             if (!Texts[i].leaving && ++live > Mathf.Max(1, maxLines))
-                Texts[i].leaving = true;
+                Texts[i].Leave();
 
         return line;
     }
 
-    public void Clear() => Texts.Clear();
+    public void Clear()
+    {
+        for (int i = Texts.Count - 1; i >= 0; i--)
+            Retire(Texts[i]);
+
+        Texts.Clear();
+    }
 
     /// <summary>realTime 이전에 태어난 줄만 지운다 - 죽기 전 통신은 지우고 그 순간 뜨는 유언은 살린다.</summary>
-    public void ClearBefore(float realTime) => Texts.RemoveAll(l => l.spawnRealTime < realTime);
+    public void ClearBefore(float realTime)
+    {
+        for (int i = Texts.Count - 1; i >= 0; i--)
+        {
+            if (Texts[i].spawnRealTime >= realTime)
+                continue;
+
+            Retire(Texts[i]);
+            Texts.RemoveAt(i);
+        }
+    }
 
     public static bool IsKnownStyle(string style) => Tag(style) != null;
 
@@ -168,6 +241,7 @@ public class DialogueManager : MonoBehaviour
     private void Update()
     {
         float dt = Time.unscaledDeltaTime;
+        bool hidden = ShipSelectScreen.IsOpen || LogisticsScreen.IsOpen || RefitScreen.IsOpen;
 
         for (int i = Texts.Count - 1; i >= 0; i--)
         {
@@ -175,114 +249,99 @@ public class DialogueManager : MonoBehaviour
             line.age += dt;
 
             if (line.age >= line.duration)
-                line.leaving = true;
+                line.Leave();   // 수명이 다한 것도 같은 문으로 나간다 - 뒤 줄 올리기가 한 자리에만 있다
 
             line.alpha = line.leaving
                 ? Mathf.MoveTowards(line.alpha, 0f, FadeOut * dt)
                 : Mathf.MoveTowards(line.alpha, 1f, FadeIn * dt);
 
             if (line.leaving && line.alpha <= 0f)
+            {
+                Retire(line);
                 Texts.RemoveAt(i);
-        }
+                continue;
+            }
 
-        // 전체 화면(정비·항로·선택)에서는 안 그린다. 데이터는 남아서 닫히면 돌아온다.
-        if (Texts.Count == 0 || ShipSelectScreen.IsOpen || LogisticsScreen.IsOpen || RefitScreen.IsOpen)
-        {
-            KillTweens();
-            return;
-        }
-
-        Styles();
-        ImGui.Begin();
-
-        float width = Mathf.Min(lineWidth, GUIManager.LogicalWidth - 64f);
-
-        // 높이는 알파와 무관하다. 측정 키에 알파를 넣으면 페이드 중 매 프레임 키가 바뀌어 한 번도 안 그린다.
-        if (_blockHeight <= 0f || _measured != Compose(false))
-            return;
-
-        string text = Compose(true);   // OnGUI가 이 글의 높이를 재고 나면 다음 프레임에 그린다
-
-        float h = _blockHeight + platePadding.y * 2f;
-        // 자리는 비율 하나가 정한다. 계기판 띠로 아래를 막던 Max는 뺐다(2026-09-12) - 그게 있으면 0.01을 적어도 178px에서 시작해 값이 죽은 것처럼 보인다.
-        float top = GUIManager.LogicalHeight * topFraction;
-        var box = new Rect((GUIManager.LogicalWidth - width) * 0.5f, top, width, h);
-
-        GUIBoxLabel plate = ImGui.BoxLabel("dlg_plate", box, "", _plate);
-        plate.Layer = PlateLayer;
-        plate.Opacity = Peak();
-
-        GUILabel label = ImGui.Label("dlg_text",
-            new Rect(box.x + platePadding.x, box.y + platePadding.y, width - platePadding.x * 2f, _blockHeight), text, _style);
-        label.Layer = TextLayer;
-
-        _plateItem = plate;
-        _textItem = label;
-
-        // 새 줄의 첫 프레임에만. MoveIn은 자리를 밀어 두고 원래 자리로 돌아온다 - 매 프레임 선언이
-        // Rect를 되돌려도 GUIManager의 틱이 그 뒤에 와서 트윈 값이 그려진다(실행 순서 -100).
-        if (_enter)
-        {
-            _enter = false;
-            var drop = new Vector2(0f, -EnterDrop);
-            plate.MoveIn(drop, EnterTime, 0f, TweenHelper.EaseOutQuad);
-            label.MoveIn(drop, EnterTime, 0f, TweenHelper.EaseOutQuad);
+            // 전체 화면(정비·항로·선택)에서는 숨기기만. 데이터도 위젯도 남아서 닫히면 그대로 돌아온다.
+            if (line.item != null)
+            {
+                line.item.isVisible = !hidden;
+                line.item.Opacity = line.alpha;
+            }
         }
     }
 
-    /// <summary>높이는 GUI 함수라 OnGUI에서만 잴 수 있다. 글이 바뀐 프레임에만 잰다.</summary>
+    /// <summary>
+    /// 높이는 GUI 함수라 OnGUI에서만 잴 수 있다. **재고 나서 위젯을 짓는다** - 높이를 모르면 자리를 못 잡고,
+    /// 자리를 모르는 채로 지으면 첫 프레임에 0,0에서 제자리로 튄다.
+    /// </summary>
     private void OnGUI()
     {
         if (Event.current.type != EventType.Layout || Texts.Count == 0 || !GUIStyleMaker.Initialized)
             return;
 
         Styles();
-        string text = Compose(false);
+        float width = Mathf.Min(lineWidth, GUIManager.LogicalWidth - 64f);
 
-        if (_measured == text)
-            return;
+        foreach (Dialogue line in Texts)
+        {
+            if (line.item != null)
+                continue;
 
-        float width = Mathf.Min(lineWidth, GUIManager.LogicalWidth - 64f) - platePadding.x * 2f;
-        _blockHeight = _style.CalcHeight(new GUIContent(text), width);
-        _measured = text;
+            var content = new GUIContent(Compose(line));
+            line.height = _plate.CalcHeight(content, width);
+            Build(line, content, width);
+        }
     }
 
-    /// <summary>줄마다 "화자  본문". 화자는 종류 색, 본문은 Hull. 알파는 색 태그의 끝 두 자리로 - 라벨 하나라 줄마다 Opacity가 없다.</summary>
-    private string Compose(bool withAlpha)
+    /// <summary>
+    /// 줄 하나를 짓는다. 자리는 **살아 있는 앞 줄들의 높이 합**이다 - 인덱스 곱하기 고정 높이가 아니다.
+    /// 줄마다 높이가 달라서(한 줄짜리와 세 줄짜리가 섞인다) 고정 간격으로 두면 긴 줄이 다음 줄을 덮는다.
+    /// </summary>
+    private void Build(Dialogue line, GUIContent content, float width)
     {
-        _sb.Clear();
+        float y = GUIManager.LogicalHeight * topFraction;
 
-        for (int i = 0; i < Texts.Count; i++)
+        foreach (Dialogue other in Texts)
         {
-            Dialogue line = Texts[i];
-            byte a = withAlpha ? (byte)Mathf.RoundToInt(Mathf.Clamp01(line.alpha) * 255f) : (byte)255;
-            string who = string.IsNullOrWhiteSpace(line.author) ? Tag(line.style) ?? "COMMS" : line.author;
+            if (other == line)
+                break;
 
-            if (i > 0)
-                _sb.Append('\n');
-
-            _sb.Append("<color=#").Append(ColorUtility.ToHtmlStringRGB(Accent(line.style))).Append(a.ToString("X2")).Append('>')
-               .Append(who).Append(":</color> <color=#").Append(ColorUtility.ToHtmlStringRGB(Palette.Hull)).Append(a.ToString("X2")).Append('>')
-               .Append(line.message).Append("</color>");
+            if (!other.leaving && other.height > 0f)
+                y += other.height + RowGap;
         }
 
-        return _sb.ToString();
+        line.slotY = y;
+        line.item = Widget.SetLayer(
+            Widget.BoxLabel(content, new Rect((GUIManager.LogicalWidth - width) * 0.5f, y, width, line.height), _plate),
+            PlateLayer);
+
+        line.item.isInteractable = false;   // 장식이다. 안 끄면 대사판이 그 밑의 버튼 입력을 통째로 먹는다
+        line.item.Opacity = line.alpha;
+        line.item.MoveIn(new Vector2(0f, -EnterDrop), EnterTime, 0f, TweenHelper.EaseOutQuad);
     }
 
-    private void KillTweens()
+    /// <summary>
+    /// 위젯을 걷는다. **트윈과 등록을 같이 걷어야 한다** - Unregister는 트윈을 모르므로, 안 죽이면
+    /// GUITween의 표에 죽은 아이템이 남아 매 프레임 돈다(LogisticsScreen.ClearCard와 같은 이유).
+    /// </summary>
+    private static void Retire(Dialogue line)
     {
-        if (_plateItem != null) GUITween.Kill(_plateItem);
-        if (_textItem != null) GUITween.Kill(_textItem);
-        _plateItem = _textItem = null;
+        if (line?.item == null)
+            return;
+
+        GUITween.Kill(line.item);
+        GUIManager.Unregister(line.item);
+        line.item = null;
     }
 
-    /// <summary>판은 제일 밝은 줄만큼 보인다 - 마지막 줄이 사라질 때 판도 같이 꺼진다.</summary>
-    private float Peak()
+    /// <summary>"화자  본문". 화자는 종류 색, 본문은 Hull. **알파는 안 넣는다** - 줄마다 위젯이 있으니 Opacity가 한다.</summary>
+    private static string Compose(Dialogue line)
     {
-        float peak = 0f;
-        foreach (Dialogue line in Texts)
-            peak = Mathf.Max(peak, line.alpha);
-        return peak;
+        string who = string.IsNullOrWhiteSpace(line.author) ? Tag(line.style) ?? "COMMS" : line.author;
+
+        return $"<color=#{ColorUtility.ToHtmlStringRGB(Accent(line.style))}>{who}:</color> " +
+               $"<color=#{ColorUtility.ToHtmlStringRGB(Palette.Hull)}>{line.message}</color>";
     }
 
     private static string Norm(string style) => (style ?? string.Empty).Trim().ToLowerInvariant();
@@ -323,10 +382,15 @@ public class DialogueManager : MonoBehaviour
 
     private void Styles()
     {
-        if (_style != null || !GUIStyleMaker.Initialized)
+        if (_plate != null || !GUIStyleMaker.Initialized)
             return;
 
-        _style = GUIStyleMaker.Label(Palette.Hull, fontSize, TextAnchor.UpperLeft).RichText().Wrap();
-        _plate = GUIStyleMaker.Box(Palette.DeepSpace.WithAlpha(plateAlpha));
+        // 판과 글이 한 스타일이다. 배경·글자 크기·여백·리치텍스트·줄바꿈을 전부 여기서 정한다.
+        _plate = GUIStyleMaker
+            .Box(Palette.DeepSpace.WithAlpha(plateAlpha), Palette.Hull, fontSize)
+            .Padding(Mathf.RoundToInt(platePadding.x), Mathf.RoundToInt(platePadding.y))
+            .Align(TextAnchor.UpperLeft)
+            .RichText()
+            .Wrap();
     }
 }

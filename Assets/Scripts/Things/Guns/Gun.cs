@@ -325,7 +325,11 @@ public class Gun : Thing, IDamageable
     /// 적이 있을 때만 쏜다. 플레이어 배의 잠긴 포탑은 IsManual이라 원래 마우스가 방아쇠다.
     /// </summary>
     protected virtual bool WantsToFire =>
-        (owner == null || !owner.cutsceneHoldFire)
+        // 지도를 보는 동안은 안 쏜다. 수동 조준은 좌클릭이고 지도의 자리 고르기도 좌클릭이라,
+        // 안 막으면 자리를 고를 때마다 포가 나간다. 자동 포탑까지 같이 막는 것은 조종간을 놓은
+        // 배가 혼자 교전을 여는 것이 이상해서다 - 지도는 "잠깐 손을 뗀다"는 뜻이다.
+        !(MapScreen.IsOpen && owner != null && owner.IsPlayerControlled)
+        && (owner == null || !owner.cutsceneHoldFire)
         && ((owner != null && owner.cutsceneForceFire)
             || (!IsManual && (!directionLockTo.HasValue || owner == null || owner.NearestHostile() != null))
             || (IsManual && Mouse.current != null && Mouse.current.leftButton.isPressed));
