@@ -7,6 +7,14 @@ using Core;
 /// </summary>
 public abstract partial class Projectile
 {
+    /// <summary>
+    /// 피격 흔들림의 피해당 크기와 상한. 카메라의 다른 흔들림(유폭 0.6, 워프 3.8~14)보다
+    /// 한 자리 작아야 한다 - 명중은 초당 여러 번 나는 일상이라, 같은 눈금이면 배 한 척이
+    /// 사라지는 사건이 잔소리에 묻힌다. <see cref="SoundManager"/>의 음량표와 같은 이유다.
+    /// </summary>
+    private const float HitShakeScale = 0.0015f;
+    private const float MaxHitShake = 0.45f;
+
     // CollectSurfaces의 _hits와 따로 쓴다. 같은 배열을 돌려쓰면 이번 충돌의 면 정보를
     // 아직 다 쓰기 전에 덮어쓰는 사고가 조용히 난다.
     private static readonly RaycastHit2D[] _moduleHits = new RaycastHit2D[8];
@@ -165,6 +173,17 @@ public abstract partial class Projectile
         // 소리와 나란한 자리인데 한 발 늦다 - 뒷벽 판정이 위 루프 안에서 나서, 그 답까지
         // 들고 나서야 화면에 적을 문장 하나가 정해진다. 누가 플레이어인지는 저쪽 몫이다.
         HitReadout.Hit(r.outcome, r.newState, rearHeld, targetBody, _ownerRigidbody);
+
+        // 맞는 쪽 화면이 아무 반응도 안 했다. 쏘는 쪽은 반동이 이미 배를 밀지만, 내 배가
+        // 맞는 것은 소리와 문장뿐이라 남의 일로 읽혔다. 크기를 armorDamage에서 뽑으므로
+        // 도탄은 저절로 작다 - RicochetArmorDamage가 이미 그 값을 깎아 놓는다.
+        if (targetBody != null)
+        {
+            Ship player = GameManager.Player();
+
+            if (player != null && player.Rig == targetBody)
+                CameraSystem.Shake(Mathf.Min(MaxHitShake, r.armorDamage * HitShakeScale));
+        }
 
         // Snapshot for the readout after the channel is final, not before.
         for (int i = 0; i < PenetrationManager.LastChannel.Length; i++)

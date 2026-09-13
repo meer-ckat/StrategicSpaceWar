@@ -38,6 +38,13 @@ public sealed class SoundManager : MonoBehaviour
         { "Critical", 0.90f },    // 폭음 바로 뒤에 겹쳐 나므로 살짝 아래
     };
 
+    /// <summary>
+    /// 매 재생마다 곱하는 피치 흔들림의 폭. 같은 샘플을 초당 다섯 번 돌리면 총소리가
+    /// 아니라 클릭 스팸으로 들린다 - 파일을 늘리지 않고 한 장을 여러 장으로 만드는 값이다.
+    /// 넘기면 음정이 흔들리는 것으로 들리기 시작한다.
+    /// </summary>
+    private const float PitchJitter = 0.06f;
+
     /// <summary>동시에 울릴 수 있는 소리의 수. 스폴 한 번에 파편이 24개 날아간다.</summary>
     [Header("Pool")]
     [SerializeField] private int maxVoices = 24;
@@ -60,6 +67,8 @@ public sealed class SoundManager : MonoBehaviour
     [SerializeField] private AudioMixerGroup mixerGroup;
 
     private static SoundManager _instance;
+
+    private uint _pitchSeed = 1;
 
     private readonly Dictionary<string, AudioClip> _clips = new();
     private readonly Dictionary<AudioClip, int> _lastFrame = new();
@@ -153,7 +162,12 @@ public sealed class SoundManager : MonoBehaviour
         source.volume = volume * (BaseVolume.TryGetValue(clipName, out float baseVolume)
             ? baseVolume
             : 1f);
-        source.pitch = pitch;
+        // CameraSystem의 화면 흔들림과 같은 이유로 UnityEngine.Random을 안 쓴다 - 소리도
+        // 결정론이다. 부르는 쪽이 정한 pitch에 곱하므로 유폭의 낮은 음정 같은 의도는 남는다.
+        var rng = new DeterministicRng(
+            Ballistics.Hash(0, Core.TickManager.currentTick, (int)_pitchSeed++));
+
+        source.pitch = pitch * rng.Range(1f - PitchJitter, 1f + PitchJitter);
         source.Play();
     }
 

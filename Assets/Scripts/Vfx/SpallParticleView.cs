@@ -50,15 +50,12 @@ public class SpallParticleView : MonoBehaviour
     private static readonly int ParticlesProperty = Shader.PropertyToID("impactParticles");
     private static readonly int SpeedProperty = Shader.PropertyToID("ImpactSpeed");
 
-    private VFXEventAttribute _eventAttribute;
     private long _shown = -1;
 
     private void Awake()
     {
         if (effect == null)
             effect = GetComponent<VisualEffect>();
-
-        _eventAttribute = effect.CreateVFXEventAttribute();
 
         // 튜닝 숫자는 여기 남기고 그래프가 받아 쓴다. 그래프에 프로퍼티가 없으면
         // 조용히 넘어간다 - HasInt 없이 SetInt를 부르면 콘솔에 경고가 쌓인다.
@@ -77,29 +74,39 @@ public class SpallParticleView : MonoBehaviour
         if (_shown == PenetrationManager.TotalHits)
             return;
 
+        // **이번 프레임에 난 명중을 전부 그린다.** 예전에는 제일 최근 하나였는데, 초당
+        // 다섯 발짜리 포가 둘만 돌아도 같은 프레임에 두 발이 들어와서 절반이 조용히
+        // 사라졌다 - 제일 격렬한 순간에 섬광이 제일 적게 나는 그림이었다.
+        int fresh = (int)Mathf.Min(
+            PenetrationManager.TotalHits - _shown, PenetrationManager.LogCount);
+
         _shown = PenetrationManager.TotalHits;
 
-        if (PenetrationManager.LogCount == 0)
-            return;
-
-        Draw(PenetrationManager.GetLog(0));
+        // GetLog(0)이 제일 최근이라 거꾸로 돈다 - 일어난 순서대로 그린다.
+        for (int age = fresh - 1; age >= 0; age--)
+            Draw(PenetrationManager.GetLog(age));
     }
 
     private void Draw(in HitResult r)
     {
+        // **명중마다 새로 만든다.** 위 클래스 주석의 2번이 그대로 걸리는 자리다 - 이벤트가
+        // attribute를 참조로 물고 나중에 처리하므로, 하나를 고쳐 쓰면 이번 프레임의 섬광이
+        // 전부 마지막 명중 지점에서 태어난다. 프레임당 몇 개짜리 할당이라 그만한 값이다.
+        VFXEventAttribute attr = effect.CreateVFXEventAttribute();
+
         // 표준 이름과 커스텀 이름 양쪽에 넣는다. 그래프가 아는 쪽만 실린다 -
         // Has 검사 없이 없는 이름에 Set하면 콘솔 경고가 쌓인다.
-        if (_eventAttribute.HasVector3(PositionAttribute))
-            _eventAttribute.SetVector3(PositionAttribute, r.spallOrigin);
+        if (attr.HasVector3(PositionAttribute))
+            attr.SetVector3(PositionAttribute, r.spallOrigin);
 
-        if (_eventAttribute.HasVector3(ImpactPositionAttribute))
-            _eventAttribute.SetVector3(ImpactPositionAttribute, r.spallOrigin);
+        if (attr.HasVector3(ImpactPositionAttribute))
+            attr.SetVector3(ImpactPositionAttribute, r.spallOrigin);
 
         // 그래프가 속도 크기를 소스 attribute로 읽는다. 안 보내면 0이라 파티클이
         // 제자리에 선다 - "방향이 없다"로 보이는 증상의 정체.
-        if (_eventAttribute.HasFloat(ImpactSpeedAttribute))
-            _eventAttribute.SetFloat(ImpactSpeedAttribute, impactSpeed);
+        if (attr.HasFloat(ImpactSpeedAttribute))
+            attr.SetFloat(ImpactSpeedAttribute, impactSpeed);
 
-        effect.SendEvent(ImpactEvent, _eventAttribute);
+        effect.SendEvent(ImpactEvent, attr);
     }
 }
