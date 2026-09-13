@@ -19,6 +19,17 @@ public class CameraSystem : MonoBehaviour
     {
         cam = GetComponent<Camera>();
         _instance = this;
+
+        // 플레이어 배는 이제 씬이 아니라 PlayerSpawner가 짓는다(Awake). 직렬화 참조가 비어
+        // 있으면 여기서 붙잡는다 - Start가 모든 Awake 뒤라 그때는 배가 이미 있다. 컷신이
+        // A/B를 바꿨다 되돌리는 경로가 이 값을 저장본으로 쓰므로 컷신보다 먼저여야 한다.
+        if (A == null || B == null)
+        {
+            Ship player = GameManager.Player();
+
+            if (player != null)
+                A = B = player.transform;
+        }
     }
 
     // --- 화면 흔들림 ---

@@ -415,148 +415,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &859860384
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 859860389}
-  - component: {fileID: 859860388}
-  - component: {fileID: 859860387}
-  - component: {fileID: 859860386}
-  - component: {fileID: 859860385}
-  m_Layer: 0
-  m_Name: Player
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &859860385
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 859860384}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 62899f850307741f2a39c98a8b639597, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Unity.InputSystem::UnityEngine.InputSystem.PlayerInput
-  m_Actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
-  m_NotificationBehavior: 0
-  m_UIInputModule: {fileID: 0}
-  m_DeviceLostEvent:
-    m_PersistentCalls:
-      m_Calls: []
-  m_DeviceRegainedEvent:
-    m_PersistentCalls:
-      m_Calls: []
-  m_ControlsChangedEvent:
-    m_PersistentCalls:
-      m_Calls: []
-  m_ActionEvents: []
-  m_NeverAutoSwitchControlSchemes: 0
-  m_DefaultControlScheme: 
-  m_DefaultActionMap: Player
-  m_SplitScreenIndex: -1
-  m_Camera: {fileID: 1621521343}
---- !u!114 &859860386
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 859860384}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 7154763d2ac89334f9f97981779c3601, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Ship
-  stableId: -1
-  defName: V2
-  spawnTick: 0
-  gridSize: {x: 0, y: 0}
-  drag: 0.02
-  angleAccel: 7.5
-  angleDrag: 0.5
-  angleBrake: 2
-  shipArmors: []
-  shipEngines: []
-  shipTanks: []
-  shipGuns: []
-  shipCriticals: []
-  massPerPlate: 420
-  shipDefName: V2
-  leakRate: 2
-  doorRate: 1
-  crews: 0
-  team: 1
-  FightDistance: 0
-  DetectionDistance: 0
-  isMouseAim: 0
-  buildSeconds: 0
-  buildAnchor: {fileID: 0}
-  buildOffset: {x: 0, y: 0}
-  breakawaySpeed: 2
---- !u!114 &859860387
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 859860384}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 282d5981c3ea8ed46bd1e63dcb88e03e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::HullStructure
---- !u!50 &859860388
-Rigidbody2D:
-  serializedVersion: 5
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 859860384}
-  m_BodyType: 0
-  m_Simulated: 1
-  m_UseFullKinematicContacts: 0
-  m_UseAutoMass: 0
-  m_Mass: 1
-  m_LinearDamping: 0
-  m_AngularDamping: 0.05
-  m_GravityScale: 0
-  m_Material: {fileID: 0}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_Interpolate: 0
-  m_SleepingMode: 1
-  m_CollisionDetection: 0
-  m_Constraints: 0
---- !u!4 &859860389
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 859860384}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 39.3, y: -4.4, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &937543335
 GameObject:
   m_ObjectHideFlags: 0
@@ -748,6 +606,56 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1126417326}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1183821067
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1183821069}
+  - component: {fileID: 1183821068}
+  m_Layer: 0
+  m_Name: Player Spawner
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1183821068
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1183821067}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 78aaf0cd0cbf0714ab55cae5b108f36a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: SUPERRADIANCE::PlayerSpawner
+  defaultShip: V2
+  spawnAt: {x: 39.3, y: -4.4}
+  team: 1
+  actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  actionMap: Player
+  camera: {fileID: 1621521343}
+--- !u!4 &1183821069
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1183821067}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -1135,6 +1043,7 @@ MonoBehaviour:
   shatterVelocity: 800
   penetrationK: 0.18
   blastDamage: 0
+  apFuze: 0
   lifeTick: 1800
   muzzleSpeed: 900
   armorLayer:
@@ -1321,8 +1230,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: '::'
   myType: 2
-  A: {fileID: 859860389}
-  B: {fileID: 859860389}
+  A: {fileID: 0}
+  B: {fileID: 0}
   ratio: 1.41
   minZoom: 20
   maxZoom: 400
@@ -1474,6 +1383,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Campaign
   interludeTicks: 90
   researchPerPlate: 0.5
+  creditsPerPlate: 0.3
   entrySpeed: 400
   slideTicks: 30
   entryStaggerTicks: 90
@@ -1504,7 +1414,7 @@ MonoBehaviour:
   wakeDistance: 400
   gateRadius: 300
   refitRadius: 300
-  wreckSalvage: 0.25
+  wreckStrip: 0.25
   waitForCutscene: 1
   signalSweepTicks: 30
 --- !u!1 &1680672771
@@ -2017,7 +1927,6 @@ SceneRoots:
   - {fileID: 1648365604}
   - {fileID: 1331620030}
   - {fileID: 1621521344}
-  - {fileID: 859860389}
   - {fileID: 717417174}
   - {fileID: 483467720}
   - {fileID: 1680672774}
@@ -2026,3 +1935,4 @@ SceneRoots:
   - {fileID: 2131825207}
   - {fileID: 1126417327}
   - {fileID: 1555388905}
+  - {fileID: 1183821069}
