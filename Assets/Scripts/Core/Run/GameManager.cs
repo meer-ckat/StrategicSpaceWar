@@ -1,5 +1,6 @@
 using IMGUI;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
@@ -124,6 +125,7 @@ public sealed class GameManager : MonoBehaviour
         if (!PlayerDown)
         {
             BootFade();
+            DeathXray.Observe(player);
 
             // 유폭 즉사는 IsCombatEffective가 false를 스칠 틈 없이 오브젝트가 사라질 수
             // 있다 - "봤던 플레이어가 없어졌다"도 격파다. 스폰 전의 null은 _sawPlayer가
@@ -138,6 +140,7 @@ public sealed class GameManager : MonoBehaviour
             PlayerDown = true;
             _downTime = Time.unscaledTime;
             BeginSilence();
+            DeathXray.Capture();
 
             // 죽는 순간 화면에 있던 대사(교전 중 통신)를 지운다 - 죽은 승무원이
             // 계속 떠들면 안 된다. ClearBefore(시각 기준)를 쓰는 이유: Battle.Tick도
@@ -184,9 +187,18 @@ public sealed class GameManager : MonoBehaviour
         if (DialogueStillPlaying() && holdElapsed < MaxDialogueWaitSeconds)
             return;
 
+        // X-ray를 읽을 시간. 검정 화면 위에 죽은 판과 원인이 떠 있는데 몇 초 만에 씬이 넘어가면
+        // 없는 것과 같다. 아무 키로 넘기고, 상한은 두 배로 - 자리를 비웠으면 알아서 간다.
+        bool keyed = Keyboard.current != null && Keyboard.current.anyKey.wasPressedThisFrame;
+
+        if (!keyed && holdElapsed < XrayHoldMaxSeconds)
+            return;
+
         _restarting = true;
         Restart();
     }
+
+    private const float XrayHoldMaxSeconds = 60f;
 
     private const float MaxDialogueWaitSeconds = 30f;
 
@@ -330,6 +342,7 @@ public sealed class GameManager : MonoBehaviour
         PlayerDown = false;
         _sawPlayer = false;
         _restarting = false;
+        DeathXray.Reset();
         _blackout = null;
         _blackoutMissing = false;
 

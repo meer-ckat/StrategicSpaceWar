@@ -148,12 +148,21 @@ public sealed class ShipStatusHud : MonoBehaviour
             || MapScreen.IsOpen || CutSceneManager.ControlsPlayer)
             return;
 
+        EnsureStyles();
+
+        // 격파 X-ray. 계기가 다 꺼지고 화면이 검어진 뒤, 재시작 전까지. 배가 이미 사라졌을 수
+        // 있으므로 아래 null 검사보다 먼저다 - DeathXray가 설계도를 따로 들고 있다.
+        if (GameManager.PlayerDown
+            && GameManager.DownSeconds >= ShutdownSeconds + DieFlashSeconds + XrayAfterBlackSeconds)
+        {
+            DrawXray();
+            return;
+        }
+
         Ship ship = GameManager.Player();
 
         if (ship == null)
             return;
-
-        EnsureStyles();
 
         Camera cam = Camera.main;
 
@@ -283,6 +292,154 @@ public sealed class ShipStatusHud : MonoBehaviour
             color = Palette.Breach.WithAlpha(color.a);
 
         rect.position += _sectionShake;
+    }
+
+
+    // ------------------------------------------------------------
+    // DEATH X-RAY
+    // ------------------------------------------------------------
+
+    /// <summary>암전이 시작되고 이만큼 뒤에 뜬다. GameManager.BlackFadeSeconds(1)와 같다 - 검정 위에 떠야 읽힌다.</summary>
+    private const float XrayAfterBlackSeconds = 1f;
+    private const float XrayCellMax = 14f;
+    private const float XrayRecentSeconds = 3f;    // 이 안에 죽은 판 = 치명타. 빨강
+    private const float XrayLateSeconds = 20f;     // 이 안 = 이번 교전. 주황. 그 밖 = 옛 상처. 회색
+
+    private static readonly HashSet<Vector2Int> _xrayLost = new();
+
+    /// <summary>
+    /// 죽은 판을 **언제** 죽었나로 칠한다. 같은 빨강이면 "어디가 부서졌나"만 보이고
+    /// "무엇이 먼저였나"가 안 보인다 - 순서가 곧 원인이다. 시타델은 언제나 표시한다:
+    /// 탄약고 옆이 먼저 뚫린 그림이 "왜 유폭했나"의 답이다.
+    /// </summary>
+    private static void DrawXray()
+    {
+        ShipGrid.Map design = DeathXray.Design;
+
+        if (design == null || design.width <= 0 || design.height <= 0)
+            return;
+
+        float w = GUIManager.LogicalWidth, h = GUIManager.LogicalHeight;
+        float uiScale = GUIManager.UiScale;
+        Matrix4x4 saved = GUI.matrix;
+
+        if (!Mathf.Approximately(uiScale, 1f))
+            GUI.matrix = Matrix4x4.Scale(new Vector3(uiScale, uiScale, 1f));
+
+        // 왼쪽 60%가 그림, 오른쪽이 글.
+        var gridArea = new Rect(w * 0.06f, h * 0.14f, w * 0.54f, h * 0.68f);
+        var textArea = new Rect(w * 0.64f, h * 0.14f, w * 0.30f, h * 0.68f);
+
+        float cell = Mathf.Min(gridArea.width / design.width, gridArea.height / design.height, XrayCellMax);
+        float gap = cell >= 4f ? 1f : 0f;
+        float x0 = gridArea.x + (gridArea.width - design.width * cell) * 0.5f;
+        float y0 = gridArea.y + (gridArea.height - design.height * cell) * 0.5f;
+
+        // 죽은 칸 → 죽은 틱. 같은 칸이 두 번 적혔으면 나중 것.
+        var lostAt = new Dictionary<Vector2Int, long>();
+        foreach (DeathXray.Lost l in DeathXray.LostPlates)
+            lostAt[l.cell] = l.tick;
+
+        float dt = Core.TickManager.TickDeltaTime;
+        long down = DeathXray.DownTick;
+        int recent = 0, late = 0, old = 0;
+
+        for (int col = 0; col < design.width; col++)
+        for (int row = 0; row < design.height; row++)
+        {
+            if (!ShipGrid.Solid(design.cells[col, row]))
+                continue;
+
+            var c = new Vector2Int(col, row);
+            bool citadel = DeathXray.Citadel.Contains(c);
+            Color color;
+
+            if (lostAt.TryGetValue(c, out long tick))
+            {
+                float ago = (down - tick) * dt;
+
+                if (ago <= XrayRecentSeconds) { color = Palette.Breach; recent++; }
+                else if (ago <= XrayLateSeconds) { color = Palette.Heat; late++; }
+                else { color = Palette.Steel; old++; }
+
+                if (citadel)
+                    color = Palette.Radiance;   // 죽은 시타델. 유폭이면 여기서 시작했다
+            }
+            else
+                color = citadel ? Palette.Heat.WithAlpha(0.9f) : Palette.Hull.WithAlpha(0.28f);
+
+            GUI.color = color;
+            GUI.DrawTexture(new Rect(x0 + col * cell, y0 + row * cell, cell - gap, cell - gap), Texture2D.whiteTexture);
+        }
+
+        GUI.color = Color.white;
+
+        // 글. 원인 한 줄, 그 아래 마지막 아군 사건들, 범례, 넘기기.
+        float y = textArea.y;
+        GUI.Label(new Rect(textArea.x, y, textArea.width, 20f), "격파", _titleStyle);
+        y += 24f;
+        GUI.color = Palette.Breach;
+        GUI.Label(new Rect(textArea.x, y, textArea.width, 30f), DeathXray.Cause, _objectiveStyle);
+        GUI.color = Color.white;
+        y += 40f;
+
+        GUI.Label(new Rect(textArea.x, y, textArea.width, RowHeight), "마지막 사건", _titleStyle);
+        y += RowHeight;
+
+        IReadOnlyList<RunLog.Entry> log = RunLog.Entries;
+        int shown = 0;
+
+        for (int i = log.Count - 1; i >= 0 && shown < 8; i--)
+        {
+            RunLog.Entry e = log[i];
+
+            if (e.team != Ship.Team.Ally || e.kind is RunLog.Kind.SectorEntered or RunLog.Kind.SectorCleared
+                or RunLog.Kind.Paid or RunLog.Kind.Supplied)
+                continue;
+
+            float ago = (down - e.tick) * dt;
+            string what = e.kind switch
+            {
+                RunLog.Kind.Penetrated => "관통",
+                RunLog.Kind.RoomBreached => "격실 파공",
+                RunLog.Kind.Detonated => e.what + " 유폭",
+                RunLog.Kind.HullSplit => "선체 절단",
+                RunLog.Kind.RoleLost => e.what + " 상실",
+                RunLog.Kind.CrewLost => "승무원 전멸",
+                RunLog.Kind.AmmoOut => "탄약 소진",
+                _ => e.kind.ToString(),
+            };
+
+            GUI.color = ago <= XrayRecentSeconds ? Palette.Breach : Palette.Hull;
+            GUI.Label(new Rect(textArea.x, y, textArea.width * 0.7f, RowHeight), what, _leftStyle);
+            GUI.color = DimColor;
+            GUI.Label(new Rect(textArea.x + textArea.width * 0.7f, y, textArea.width * 0.3f, RowHeight), $"-{ago:0.0} s", _rightStyle);
+            y += RowHeight;
+            shown++;
+        }
+
+        GUI.color = Color.white;
+        y += RowHeight;
+
+        void Legend(Color c, string text)
+        {
+            GUI.color = c;
+            GUI.DrawTexture(new Rect(textArea.x, y + 5f, 12f, 12f), Texture2D.whiteTexture);
+            GUI.color = Palette.Hull;
+            GUI.Label(new Rect(textArea.x + 18f, y, textArea.width - 18f, RowHeight), text, _leftStyle);
+            y += RowHeight;
+        }
+
+        Legend(Palette.Breach, $"마지막 {XrayRecentSeconds:0}초  {recent}장");
+        Legend(Palette.Heat, $"이번 교전  {late}장");
+        Legend(Palette.Steel, $"그 전  {old}장");
+        Legend(Palette.Radiance, "시타델 (탄약고·원자로)");
+
+        GUI.color = DimColor;
+        GUI.Label(new Rect(textArea.x, textArea.yMax - RowHeight, textArea.width, RowHeight), "아무 키  -  다시", _leftStyle);
+        GUI.color = Color.white;
+
+        GUI.matrix = saved;
     }
 
 

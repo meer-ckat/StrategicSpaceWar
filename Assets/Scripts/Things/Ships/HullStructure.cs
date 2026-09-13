@@ -138,6 +138,8 @@ public sealed class HullStructure : MonoBehaviour
     /// 그리고 <see cref="_alive"/> 장부에서도 이 칸을 뺀다. **여기가 장부를 유지하는
     /// 유일한 자리다** - 파단 BFS가 살아 있는 칸을 다시 세지 않는 이유가 이것이다.
     /// </summary>
+    private Ship _xrayShip;
+
     public void ReportPlateLost(Transform plate, float heat = 0f)
     {
         // 판이 하나 사라지면 그 판을 벽으로 세던 방의 파공 수가 바뀐다. 아래 어느
@@ -152,6 +154,14 @@ public sealed class HullStructure : MonoBehaviour
             _dirty = true;
             return;
         }
+
+        // X-ray 원장. 살아 있는 격자(_map)가 아니라 설계도 칸으로 적는다 - 죽은 뒤 그리는 그림이
+        // 설계도 위라서다. 플레이어 배가 아니면 DeathXray가 버린다.
+        if (_xrayShip == null)
+            TryGetComponent(out _xrayShip);
+
+        if (_xrayShip != null && _xrayShip.DesignMap != null)
+            DeathXray.PlateLost(_xrayShip, _xrayShip.DesignMap.ToCell(plate.localPosition));
 
         Vector2Int cell = _map.ToCell(plate.localPosition);
 
