@@ -534,6 +534,29 @@ public class ScriptManager : MonoBehaviour
     /// 대본을 한 줄씩 걸어간다. 말은 <see cref="DialogueManager"/>로, 연출은
     /// <see cref="DramaManager"/>로 나간다 - 이 코루틴이 아는 것은 순서와 시간뿐이다.
     /// </summary>
+    /// <summary>
+    /// 줄 사이 대기. **Space가 끊는다** - 다음 줄로 바로 간다. 큐는 줄 머리에서 이미 돌았으므로
+    /// 소환·이동 순서는 그대로고, 잘리는 건 읽는 시간뿐이다. awaitWreck(시뮬 결과 대기)은 이걸
+    /// 안 타서 못 넘긴다 - 그건 연출이 아니라 사실을 기다리는 것이다.
+    /// 누른 프레임을 소비해야 한다: 안 그러면 한 번 누른 Space가 이어지는 줄 전부를 한 프레임에 삼킨다.
+    /// </summary>
+    private static IEnumerator WaitOrSkip(float seconds)
+    {
+        float until = Time.unscaledTime + seconds;
+
+        // 이번 프레임의 Space는 이 줄을 띄운 입력일 수 있다 - 한 프레임 건너뛰고 듣는다.
+        yield return null;
+
+        while (Time.unscaledTime < until)
+        {
+            if (UnityEngine.InputSystem.Keyboard.current != null
+                && UnityEngine.InputSystem.Keyboard.current.spaceKey.wasPressedThisFrame)
+                yield break;
+
+            yield return null;
+        }
+    }
+
     private IEnumerator Run(DialogueScript script, string arg, bool viaSystem)
     {
         _running++;
@@ -568,7 +591,7 @@ public class ScriptManager : MonoBehaviour
                 // 말은 안 해도 시간은 흐른다. 연출 전용 줄의 wait이 곧 그 장면의 길이다 -
                 // 여기서 안 기다리면 유폭 셋이 한 프레임에 몰린다.
                 if (line.wait > 0f)
-                    yield return new WaitForSecondsRealtime(line.wait);
+                    yield return WaitOrSkip(line.wait);
 
                 continue;
             }
@@ -587,7 +610,7 @@ public class ScriptManager : MonoBehaviour
 
             SoundManager.AudioShot("Communication", 1, UnityEngine.Random.Range(0.5f, 1.1f));
 
-            yield return new WaitForSecondsRealtime(Mathf.Max(0.05f, wait));
+            yield return WaitOrSkip(Mathf.Max(0.05f, wait));
 
             // 시뮬레이션이 결과를 낼 때까지. 대사보다 아래인 것이 요점이다 - 줄이 뜨고
             // 읽히는 동안 창이 날아가고, 다 읽은 뒤에 그 결과를 기다린다.
