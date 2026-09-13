@@ -381,7 +381,7 @@ canon은 `STORY.md`가 단일 원본이다. 여기에는 시스템과 맞물리�
 |---|---|---|---|
 | MTRL | 자재 | 적함의 살아남은 판 수 + 노드 보상 | 정비 (판 1장 = 1) |
 | PROP | 추진제 | 죽지 않은 연료탱크의 잔량 | `[계획]` 보급 |
-| MUN | 탄약 | 안 터진 탄약고 blastDamage × 0.02 | `[계획]` 보급 |
+| MUN | 탄약 | 안 터진 탄약고의 남은 발수(1 MUN = 1발) | 격발이 탄약고에서 꺼낸다(`Ship.TakeRound`, 없으면 `NO AMMO`). 정비 재보급·보급 부표·기항지가 채운다 |
 | RSCH | 연구 | 적 설계도 판 수 × 0.5 (남은 판이 아니라 설계 전체) | 함선 해금 (비용 = 배치 수). 런을 넘어 누적 |
 
 원칙: **부수면 못 건진다.** 탄약고를 터뜨려 이기면 MUN이 0이다. 정밀 사격이 경제적으로 보상받는다.
@@ -427,7 +427,7 @@ StreamingAssets/
   Defs/<종류>/<이름>.json   물건 한 종류 = 파일 하나 (thingClass, comps, collider, 수치)
   Ships/<이름>.json         함선 한 척 = 배치 리스트 + 배 수치 (+ _hull.png)
   Run/campaign.json         장 8개, 소환 목록
-  Run/subsectors.json       소구역 템플릿
+  Run/opensectors.json       소구역 템플릿
   Run/comms.json            정비 화면 통신
   Dialogue/<이름>.json      대본
 ```

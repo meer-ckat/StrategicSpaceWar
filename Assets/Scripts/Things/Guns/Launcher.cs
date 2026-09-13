@@ -164,6 +164,8 @@ public class Launcher : Gun
         return target;
     }
 
+    protected override bool ReadyToFire() => NoTargeting || Acquire() != null;   // Acquire는 캐시라 공짜다
+
     protected override void Fire()
     {
         // WantsToFire와 같은 캐시를 읽는다 - 같은 간격 안이라 공짜다.

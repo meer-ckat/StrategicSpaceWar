@@ -102,6 +102,66 @@ public partial class Ship : Thing
     /// <summary>설계에 발전하는 모듈이 하나라도 있었는가. Awake가 한 번 정하고 안 바뀐다.</summary>
     private bool _needsPower;
 
+    // 설계에 탄약고가 있었는가. 없던 배(dart·asteroid)는 탄약을 안 센다 - _needsPower와 같은 질문이다.
+    private bool _hasMagazine;
+
+    /// <summary>한 발 꺼낸다. 탄약고가 설계에 없으면 언제나 true, 있는데 전부 비었거나 떠났으면 false.</summary>
+    public bool TakeRound()
+    {
+        if (!_hasMagazine)
+            return true;
+
+        for (int i = 0; i < shipCriticals.Count; i++)
+        {
+            CriticalModule m = shipCriticals[i];
+
+            if (m != null && StillAboard(m, this) && m.TakeRound())
+                return true;
+        }
+
+        return false;
+    }
+
+    public int Rounds
+    {
+        get
+        {
+            int n = 0;
+            for (int i = 0; i < shipCriticals.Count; i++)
+                if (shipCriticals[i] != null && !shipCriticals[i].Neutralized && StillAboard(shipCriticals[i], this))
+                    n += shipCriticals[i].Rounds;
+            return n;
+        }
+    }
+
+    public int MaxRounds
+    {
+        get
+        {
+            int n = 0;
+            for (int i = 0; i < shipCriticals.Count; i++)
+                if (shipCriticals[i] != null && !shipCriticals[i].Neutralized && StillAboard(shipCriticals[i], this))
+                    n += shipCriticals[i].maxRounds;
+            return n;
+        }
+    }
+
+    /// <summary>창고 탄약을 탄약고에 넣는다. 들어간 발수를 돌려준다 - Refuel과 같은 모양.</summary>
+    public int Rearm(int offer)
+    {
+        int loaded = 0;
+
+        for (int i = 0; i < shipCriticals.Count && loaded < offer; i++)
+        {
+            CriticalModule m = shipCriticals[i];
+
+            if (m != null && StillAboard(m, this))
+                loaded += m.Load(offer - loaded);
+        }
+
+        return loaded;
+    }
+
     /// <summary>
     /// 조타·사격·수리가 되는가. **저장값이 아니라 파생값이다.**
     ///
@@ -229,6 +289,9 @@ public partial class Ship : Thing
     public Vector2 velocity => rig != null ? rig.linearVelocity : Vector2.zero;
     public float hullAngle => rig != null ? rig.rotation : 0f;
     public float angleRate => rig != null ? rig.angularVelocity : 0f;   // 도/초
+
+    /// <summary>입력을 끝까지 넣었을 때의 각속도(도/초). Angle()의 감쇠가 추력과 같아지는 지점이다.</summary>
+    public float TerminalAngleRate => angleDrag > 1e-4f ? angleAccel / angleDrag : angleAccel;
 
     // 입력은 저장만 한다. 계산은 전부 틱 안에서.
     //
@@ -538,10 +601,11 @@ public partial class Ship : Thing
 
         yield return ShipBuilder.SpawnOverTime(
             transform, design, perPlate,
-            _ =>
+            placed =>
             {
                 _platesPlaced++;
                 rig.mass = Mathf.Max(1f, transform.childCount * massPerPlate);
+                ConstructionFx.Wireframe(placed);
             });
 
         // **자리가 빌 때까지 완성을 미룬다.** 건조 자리는 모함 기준 고정이라 동료나
@@ -564,6 +628,7 @@ public partial class Ship : Thing
 
         UnderConstruction = false;
         Finish();
+        StartCoroutine(ConstructionFx.Reveal(transform));
 
         // 모함 속도를 물려받는다. 안 주면 항행 중인 모함이 배를 그 자리에 두고 떠난다.
         if (buildAnchor != null && buildAnchor.TryGetComponent(out Rigidbody2D mother))
@@ -687,6 +752,16 @@ public partial class Ship : Thing
         // 붙는 것들(tension, UI)이 전부 그 거짓말 위에 선다.
         _engineerLost = shipEngines.Count == 0;
         _gunnerLost = shipGuns.Count == 0;
+
+        _hasMagazine = false;
+        for (int i = 0; i < shipCriticals.Count; i++)
+        {
+            if (shipCriticals[i] != null && shipCriticals[i].maxRounds > 0)
+            {
+                _hasMagazine = true;
+                break;
+            }
+        }
 
         for (int i = 0; i < shipCriticals.Count; i++)
         {
@@ -1153,6 +1228,26 @@ public partial class Ship : Thing
     public float AvailableDeltaV() => RemainingImpulse() * 1000f / rig.mass;
 
     /// <summary>
+    /// 주추력만으로 낼 수 있는 순항 속도(m/s). 추력과 항력이 같아지는 지점이라 <c>a / drag</c>다.
+    /// Ark 실측 169 m/s가 이 값이고, 관성 정지 거리 564 m가 <c>v / drag</c>(563)와 맞는다 -
+    /// 모델이 측정과 같은 것을 말하고 있다는 확인이다.
+    /// </summary>
+    public float CruiseSpeed =>
+        drag > 1e-4f && rig != null && rig.mass > 0f
+            ? AvailableThrust(true) * 1000f / rig.mass / drag
+            : 0f;
+
+    /// <summary>
+    /// 여기서 거리 d를 가는 데 드는 Δv(m/s).
+    ///
+    /// **순항 몫이 속도와 무관하다는 것이 요점이다.** 순항 중에는 추력이 항력과 같으므로 초당
+    /// <c>drag x v</c>를 쓰고, 걸리는 시간이 <c>d / v</c>라 곱하면 <c>drag x d</c>로 v가 사라진다 -
+    /// 부스터로 빨리 가도 연료는 같이 들고 시간만 준다. 거기에 한 번 가속하는 몫 <c>v</c>를 더한다.
+    /// 감속은 0이다 - 관성 정지는 항력이 공짜로 해 준다(단 그 거리가 v/drag뿐이라 60 km에선 계속 밀어야 한다).
+    /// </summary>
+    public float TravelCost(float distance) => drag * distance + CruiseSpeed;
+
+    /// <summary>
     /// 워프처럼 한 번에 Δv를 태운다. 모자라면 아무것도 안 빼고 false. 탱크가 없는 배는
     /// <see cref="Drive"/>와 같은 이유로 언제나 된다.
     /// </summary>
@@ -1437,6 +1532,22 @@ public partial class Ship : Thing
     public bool Boosting { get; private set; }
 
     /// <summary>
+    /// 방출량. 남이 이 배를 보는 거리의 배율 - 탐지 거리에 곱한다. 순항 0.6, 전추력 1.0, 부스터 +1.0.
+    /// 빨리 가면 들키고 조용히 가면 늦는다. 이동 중의 결정은 이 숫자 하나에서 나온다. 계수는 오너 손잡이.
+    /// 수리는 안 센다 - 정비는 틱이 선 화면이라 열원이 될 시간이 없다.
+    /// </summary>
+    public float Emission =>
+        EmissionIdle + Mathf.Min(1f, thrustInput.sqrMagnitude) * EmissionThrust + (Boosting ? EmissionBoost : 0f);
+
+    public const float EmissionIdle = 0.6f, EmissionThrust = 0.4f, EmissionBoost = 1f;
+
+    /// <summary>
+    /// 이 배의 포가 마지막으로 발사한 틱. **방출량에 안 섞는다** - Emission은 탐지 거리에 곱해지는 값이라
+    /// 거기에 넣으면 한 발 쏠 때마다 사거리가 늘어 교전 균형이 통째로 바뀐다. 사격은 "들킨다"에만 쓴다.
+    /// </summary>
+    [System.NonSerialized] public long lastFireTick = long.MinValue;
+
+    /// <summary>
     /// 누르고 있는 동안만 참이어야 하는 값이라 **메시지를 안 쓴다.**
     ///
     /// <c>PlayerInput</c>의 SendMessage는 누를 때는 오는데 뗄 때 안 오는 설정이 있다
@@ -1554,7 +1665,7 @@ public partial class Ship : Thing
         _hostileTick = Core.TickManager.currentTick;
 
         Ship best = null;
-        float bestSqr = DetectionDistance * DetectionDistance;
+        float bestSqr = float.PositiveInfinity;
 
         for (int i = 0; i < All.Count; i++)
         {
@@ -1565,8 +1676,9 @@ public partial class Ship : Thing
 
             float sqr = ((Vector2)other.transform.position - (Vector2)transform.position)
                 .sqrMagnitude;
+            float reach = DetectionDistance * other.Emission;   // 시끄러운 배는 멀리서 보인다
 
-            if (sqr >= bestSqr)
+            if (sqr >= reach * reach || sqr >= bestSqr)
                 continue;
 
             bestSqr = sqr;

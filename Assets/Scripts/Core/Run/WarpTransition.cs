@@ -110,7 +110,7 @@ public static class WarpTransition
 
     // 현재 root transform을 늘리는 구조라면,
     // 물리 틱을 선체 복구보다 먼저 풀지 않도록 맞춘다.
-    private const float ArriveLead = 0.32f;
+    private const float ArriveLead = 0f;   // 게이지가 다 찬 순간이 진입이다(2026-09-12). 섬광과 같은 프레임
 
     private const float ArriveStretch = 1.55f;
     private const float ArriveRecover = 0.32f;
@@ -316,6 +316,11 @@ public static class WarpTransition
         string to = campaign.Current != null ? campaign.Current.name : "";
         yield return Transit(screen, campaign, from, to);   // 끝은 암전이다
 
+        // 도착 카드. 검정 위에 구역 이름과 위·아래 게이지. 둘 다 차는 순간 들어간다 - Arrive의 첫 프레임이 Enter다.
+        screen.ShowCard(campaign.Current, "도착", TitleSeconds);
+        yield return new WaitForSecondsRealtime(TitleSeconds);
+        screen.ClearCard();
+
         LogisticsScreen.IsOpen = false;   // 계기판·대사 게이트. 여기서부터 화면은 전투다
         yield return Arrive(screen, campaign);
 
@@ -337,6 +342,11 @@ public static class WarpTransition
         // 배는 안 움직인다 - 움직이는 것은 거품이고, 우리는 거품 안에 있다.
         CameraSystem.CutsceneDamp(0f, 0f);
         CameraSystem.CutsceneFrame(player.transform, null, 0f, TransitSize);
+
+        // **켠 자리가 끄는 자리다.** Charge가 켠 것은 Prepare의 CutSceneManager.Clear가
+        // 돌려주지만(플레이어를 Borrow했으니 _ships에 있다), 여기는 그 Clear **뒤**라
+        // 아무도 안 끈다 - 워프 한 번에 부스터가 영구히 켜졌고 증상은 "shift를 떼도
+        // 계속 분사한다"였다. 원인이 전투 코드가 아니라 지난 구역의 연출이라 안 보인다.
         player.cutsceneBoost = true;
 
         Vector2 at = player.transform.position;
@@ -363,6 +373,7 @@ public static class WarpTransition
         BackgroundView.transitYawPerSecond = 0f;
         WarpFx.Off();
         screen.Caption(null);
+        player.cutsceneBoost = false;
         CameraSystem.ReleaseCutscene(blend: false);
     }
 

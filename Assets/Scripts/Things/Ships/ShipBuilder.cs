@@ -660,6 +660,9 @@ public static class ShipBuilder
             if (p.fuel < 1f && spawned != null && spawned.TryGetComponent(out Tank tank))
                 tank.RestoreFuel01(p.fuel);
 
+            if (p.rounds < 1f && spawned != null && spawned.TryGetComponent(out CriticalModule mag))
+                mag.RestoreRounds01(p.rounds);
+
             // **한 오브젝트의 Thing 전부에 찍는다.** ThingDef.Spawn은 thingClass 하나만
             // 돌려주는데 comps에도 Thing이 올 수 있다 - Ballistic Door가 BallisticArmor에
             // Door를 얹은 것이 그렇다. 돌려받은 것에만 찍으면 나머지가 -1로 남는다.

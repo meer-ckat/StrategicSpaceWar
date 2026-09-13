@@ -29,7 +29,13 @@ public class SpawnDef
     public bool refit;
 
     /// <summary>들판의 자리에 닿으면 한 번 주는 물자. 생성기가 템플릿에서 옮긴다.</summary>
-    public int materials, propellant;
+    public int materials, propellant, munitions;
+
+    /// <summary>신호 크기(m). 이 거리 안이면 좌표가 잡히고, 지도 부채꼴 밝기가 signalSize / 거리다. 생성기가 템플릿에서 옮긴다.</summary>
+    public float signalSize;
+
+    /// <summary>식별됐을 때 지도에 뜨는 이름(템플릿 label). 비면 적/잔해/보급으로 뭉뚱그린다.</summary>
+    public string label = "";
 
     /// <summary>
     /// 이것을 부수는 것이 이 구역의 목표다. 하나라도 있으면 구역의 승리 조건이
@@ -37,6 +43,16 @@ public class SpawnDef
     /// 거울이 남아 있으면 안 끝나는 이유다.
     /// </summary>
     public bool target;
+
+    /// <summary>
+    /// 배경으로 깔린 것. 신호도 자리도 아니고 엄폐·충각 사고만 한다.
+    ///
+    /// **이 값이 없을 때는 def 이름(asteroid)이 그 질문에 답했다.** 그런데 템플릿의 pool에도
+    /// asteroid가 있어서(driftfield·trap이 [derelict, asteroid]다) 자리가 통째로 운석으로
+    /// 태어나는 일이 흔했고, 그러면 정비 자리인데 신호에 안 뜨고 트래커에도 안 나온다 -
+    /// 플레이어가 우연히 지나가야 R이 뜬다. 증상이 "가끔 보급이 없는 들판"이라 안 보인다.
+    /// </summary>
+    public bool scenery;
 
     public float x;
     public float y;
@@ -90,7 +106,31 @@ public class SectorDef
     /// </summary>
     public float gateX, gateY;
 
+    /// <summary>둘째 출구. (0,0)이면 출구는 하나다(옛 저장·손대본). 닿은 출구가 곧 갈래(lane)다.</summary>
+    public float gate1X, gate1Y;
+
+    public int GateCount => !Open ? 0 : (gate1X != 0f || gate1Y != 0f) ? 2 : 1;
+    public Vector2 GateAt(int k) => k == 0 ? new Vector2(gateX, gateY) : new Vector2(gate1X, gate1Y);
+
     public bool Open => gateX != 0f || gateY != 0f;
+
+    /// <summary>
+    /// 들판 한 변(m). 오픈섹터 60 km, 메인 100 km. 0이면 예전 구역(씬에 놓인 것만). 출구가
+    /// 없어도 들판이다 - 메인은 대본이 승리를 정하고 들판은 그 둘레에 깔리는 운석뿐이다.
+    /// </summary>
+    public float field;
+
+    public bool Field => field > 0f || Open;
+
+    /// <summary>
+    /// 들판 범위(배 좌표). **원점의 뜻이 둘이라 여기서 한 번에 갈린다** - 오픈섹터는
+    /// 도착점이 -X 변 가운데라 x가 0부터 시작하고, 손대본 구역은 도착점이 한가운데라
+    /// 원점 중심이다(워프 도착점 불변식). 범위를 읽는 쪽이 이 차이를 각자 알면 폭을
+    /// 바꾸는 날 한쪽만 따라오고, 증상은 "운석이 들판 밖에 있다"뿐이다.
+    /// </summary>
+    public Rect FieldBounds => Open
+        ? new Rect(0f, -field * 0.5f, field, field)
+        : new Rect(-field * 0.5f, -field * 0.5f, field, field);
 }
 
 /// <summary>

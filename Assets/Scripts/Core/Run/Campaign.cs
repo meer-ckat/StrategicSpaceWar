@@ -30,12 +30,6 @@ public sealed class Campaign : TickBehaviour
     /// <summary>구역 사이의 사이. 전투가 끝나자마자 다음 적이 뜨면 무슨 일이 났는지 안 보인다.</summary>
     public int interludeTicks = 90;
 
-    /// <summary>
-    /// 탄약고 blastDamage 1당 MUN 몇을 주는가. **물리에서 뽑은 값이 아니라 첫 느낌 값이다** -
-    /// destroyer 주포 탄약고가 blastDamage 1600이니 0.02면 MUN 32. 회수 경제를 실제로
-    /// 굴려보고 감으로 고칠 손잡이다, Ballistics.Tuning처럼 근거가 있는 상수가 아니다.
-    /// </summary>
-    public float munitionsPerBlastDamage = 0.02f;
 
     // 격파한 적함의 설계 판 1장당 연구점수.
     public float researchPerPlate = 0.5f;
@@ -113,7 +107,119 @@ public sealed class Campaign : TickBehaviour
     /// </summary>
     private readonly Queue<SpawnDef> _toSpawn = new();
 
+    /// <summary>
+    /// 들판의 아직 안 뜬 자리. 큐가 아니라 목록이다 - 순서가 아니라 **거리**로 꺼낸다.
+    /// 덩어리 15~25개 × 10척을 도착 때 다 세우면 200척이 잠든 채 물리에 얹힌다. 플레이어에서
+    /// <see cref="spawnDistance"/> 안에 든 자리만 세운다. 신호·보급·정비 자리 목록은 SpawnDef에서
+    /// 읽으므로 안 뜬 자리도 브래킷은 가리킨다 - 신호는 "저기 뭐가 있다"지 "배가 서 있다"가 아니다.
+    /// </summary>
+    private readonly List<SpawnDef> _farSpawns = new();
+
+    /// <summary>들판에서 자리를 세우는 거리(m). 항해 줌 폭 2.5 km와 센서 1.2 km보다 넉넉히 - 태어나는 것이 보이면 안 된다.</summary>
+    public float spawnDistance = 5000f;
+
     private int _spawnWait;
+
+    /// <summary>
+    /// 떠돌이 타이머(틱). 들판의 작은 엔카운터는 공간이 아니라 시간이다 - 15~25초마다 1척이
+    /// 플레이어 진행 방향 센서 밖에서 태어난다. 속도와 무관하게 박자가 지켜지고, 가만히
+    /// 있어도 순찰이 찾아온다. 적 접촉 중에는 안 보낸다(겹치면 전투가 안 끝난다).
+    /// </summary>
+    public int wandererMinTicks = 900;
+    public int wandererMaxTicks = 1500;
+    public float wandererDistance = 1800f;   // 항해 줌 폭 2.5 km의 반 밖. 태어나는 것이 보이면 안 된다
+    private int _wandererWait;
+
+    /// <summary>
+    /// 추격 하나. 들판 진입 뒤 이만큼 지나면 출구 반대쪽 멀리서 한 척이 태어나 플레이어의 **마지막 큰 방출
+    /// 위치**로 온다. 완성형 추격 AI가 아니다 - 이동 중 신경 쓸 대상 하나다. 부스터를 켜면 위치가 갱신되고,
+    /// 운석 뒤·저추력이면 갱신이 안 된다. 센서 안에 들면 보통 AI로 넘어간다.
+    /// </summary>
+    public int hunterDelayTicks = 5400;      // 90초
+    public float hunterDistance = 8000f;
+    public float hunterLoud = 1.4f;          // 이 방출량 이상일 때만 위치를 잡힌다. 전추력 1.0, 부스터 1.6~2.0
+    public int hunterListenTicks = 60;       // 1초마다 듣는다
+    private bool _hunterSent;
+
+    /// <summary>
+    /// 이번 들판에서 방출량이 <see cref="hunterLoud"/>를 넘은 틱. 출구에서 <see cref="RunState.Heat"/>로 접힌다.
+    ///
+    /// **구역을 넘는 결과가 이것뿐이다.** 예전에는 출구만 넘으면 추격이 증발해서 도망이 언제나 정답이었고,
+    /// 언제나 정답인 것은 결정이 아니다. 열기가 남으면 조용히 나가는 것에 처음으로 장기 보상이 붙는다.
+    /// </summary>
+    private int _loudTicks;
+
+    /// <summary>열기 한 칸이 다음 들판의 추격을 앞당기는 틱. 5칸이면 75초가 당겨진다.</summary>
+    public int hunterHeatTicks = 900;
+
+    /// <summary>열기 한 칸에 필요한 시끄러운 초.</summary>
+    public int heatSecondsPerLevel = 20;
+
+    /// <summary>점프 한 번이 내는 소음(초). 시끄러운 사건이라 열기에 바로 얹는다.</summary>
+    public int jumpNoiseSeconds = 15;
+
+    /// <summary>마지막 발사 뒤 이만큼은 시끄럽다(틱). 3초 - 연사 사이 빈틈에 소음이 꺼졌다 켜졌다 하지 않을 길이.</summary>
+    public int fireNoiseTicks = 180;
+
+    /// <summary>
+    /// 지금 플레이어가 시끄러운가. **추격의 귀와 열기가 같은 술어를 써야 한다** - 갈라지면
+    /// "안 들켰는데 열기가 오른다"가 되고, 그 어긋남은 화면에 증상이 안 나온다.
+    ///
+    /// 둘이다: 부스터·전추력(<see cref="Ship.Emission"/>)과 **사격**. 사격을 안 세면 부스터를 안 쓰는
+    /// 플레이에서 열기 축이 통째로 없는 것과 같아진다 - 기본 방출 0.6에 추력 최대 0.4라 천장이 1.0이고
+    /// 문턱이 1.4이기 때문이다. 싸우면 들킨다는 것이 이 게임에서 제일 당연한 규칙인데 빠져 있었다.
+    /// </summary>
+    private bool Loud(Ship player)
+        => player != null
+        && (player.Emission >= hunterLoud
+            || TickManager.currentTick - player.lastFireTick < fireNoiseTicks);
+
+    /// <summary>
+    /// 순찰. 덩어리 사이를 도는 배 - 지도 위에 움직이는 무리(M&B). 자리 셋을 돌고, 플레이어가 보이면 보통 AI.
+    /// 진입 10초 뒤 둘. 추격과 같은 몸(Rover)이라 조종 코드가 하나다.
+    /// </summary>
+    public int patrolCount = 2;
+    public int patrolDelayTicks = 600;
+    public float patrolReach = 600f;         // 이 안에 들면 다음 자리로
+    private bool _patrolSent;
+
+    /// <summary>움직이는 적 하나. 추격이면 route[0]이 마지막으로 들은 플레이어 위치, 순찰이면 route가 도는 자리들.</summary>
+    public sealed class Rover
+    {
+        public Ship ship;
+        public ShipAi ai;
+        public readonly List<Vector2> route = new();
+        public int leg;
+        public bool hunter;
+        public string tag;   // 지도 라벨: 추격 / 순찰
+    }
+
+    /// <summary>지금 들판을 움직이는 적 전부. 트래커가 방위 신호로 찍는다.</summary>
+    public readonly List<Rover> Rovers = new();
+
+    /// <summary>
+    /// 단거리 점프. Visited·Identified인 고정 앵커(보급·잔해·출구)로만 - "아무 데나 12 km"면 들판이 죽는다.
+    /// 탱크에서 Δv를 태우고, 앵커 앞 standoff에 내리고, 시끄러운 사건이라 추격이 그 자리를 듣는다.
+    /// </summary>
+    public float jumpDeltaV = 1500f;
+    public float jumpStandoff = 1500f;
+    public float jumpBlack = 0.35f;
+    private bool _jumping;
+
+    /// <summary>출구에서 워프 Δv를 못 태운 동료. 구역이 끝날 때 상실로 센다 - 연료 없는 배는 못 따라온다.</summary>
+    private readonly HashSet<Ship> _stranded = new();
+
+    /// <summary>이 속도 아래여야 보급·정비가 된다. 부스터로 스치면 지나친다 - 제동 타이밍이 이동의 손맛이다.</summary>
+    public float dockSpeed = 80f;
+
+    /// <summary>정비 자리 반경 안인데 너무 빠르다. 프롬프트가 "감속"을 띄운다.</summary>
+    public bool RefitSpotTooFast { get; private set; }
+
+    /// <summary>
+    /// 들판 소환의 건조 초. 격납고가 배를 뽑는 길 그대로 - 판을 하나씩 심어 한 프레임 스파이크를
+    /// 프레임 수백 개로 편다. 5 km는 전속으로 10초라 이 안에 끝나야 한다. 메인 섹터·동료는 0(즉시).
+    /// </summary>
+    public float farBuildSeconds = 3f;
 
     /// <summary>플레이어 뒤로 따라 들어올 동료. 대본과 무관하게 <see cref="wingmanStaggerTicks"/>마다 하나.</summary>
     private readonly Queue<SpawnDef> _wingQueue = new();
@@ -127,7 +233,7 @@ public sealed class Campaign : TickBehaviour
     private bool _departed;
 
     /// <summary>들판의 잠든 배가 깨는 거리(m)와 출구 반경(m). 둘 다 감이다 - 1단계 측정이 정한다.</summary>
-    public float wakeDistance = 1500f;
+    public float wakeDistance = 400f;   // 식별(500 m) 안쪽. 보고 돌아설 수 있어야 접근이 결정이다
     public float gateRadius = 300f;
 
     /// <summary>들판의 정비 잔해 자리. 이 반경 안에서 R이 정비다.</summary>
@@ -150,6 +256,12 @@ public sealed class Campaign : TickBehaviour
     private readonly List<SpawnDef> _supplySpots = new();
     private readonly List<Vector2> _visitedWrecks = new();
 
+    /// <summary>
+    /// 항로 자료를 건질 수 있는 비전투 자리. 별도 저장값을 만들지 않는다 - ContactView의
+    /// Visited 원장이 이미 "실제로 갔다"를 저장하므로, 그 사실을 정보 보상에도 그대로 쓴다.
+    /// </summary>
+    private readonly List<Vector2> _intelSpots = new();
+
     /// <summary>다녀간 잔해에서 건지는 비율. 뜯는 것이 아니라 훑는 것이라 판 수 그대로는 아니다.</summary>
     public float wreckSalvage = 0.25f;
 
@@ -157,10 +269,73 @@ public sealed class Campaign : TickBehaviour
     /// 들판의 신호. 자리마다 하나 - 운석은 빼고, 같은 자리의 배들은 하나로 접는다.
     /// HUD가 방위로만 그린다. 정체는 가서 본다.
     /// </summary>
-    public readonly List<Vector2> Signals = new();
+    public readonly List<Signal> Signals = new();
+
+    /// <summary>들판의 자리 하나. 같은 자리의 배들은 SiteFold 안에서 하나로 접힌다 - 첫 배(겉 템플릿)가 크기를 정한다.</summary>
+    public readonly struct Signal
+    {
+        public readonly Vector2 at;
+        public readonly float size;
+        public readonly int gate;   // 출구면 몇 번째 출구인가. 자리면 -1
+
+        /// <summary>
+        /// 여기서 더 얻을 것도 맞을 것도 없다. <see cref="SweepSignals"/>가 켠다 - 켜지면 지도에 흐리게만 남는다.
+        /// **지우지 않고 표시만 바꾸는 것이 요점이다** - 지우면 "안 가본 곳"과 "정리한 곳"이 다시 같아져서,
+        /// 들판을 치운 만큼 조용해지는 감각이 사라진다. 지나온 길이 지도에 남아야 경로가 기록이 된다.
+        /// </summary>
+        public readonly bool dead;
+
+        /// <summary>
+        /// 이 자리에 **추력이 있는 것**이 있나. Hulk는 못 움직이므로 이 값이 곧 "위험이 스스로 다가올 수 있나"다.
+        /// 좌표만 잡힌 단계(Resolved)에서 줄 수 있는 유일하게 정직한 위험 단서 - 정체(보급/적/잔해)는 여전히 500 m다.
+        /// 절반만 보여주는 것이라 가 보고 싶은 이유가 남는다.
+        /// </summary>
+        public readonly bool crewed;
+
+        public Signal(Vector2 at, float size, int gate = -1, bool dead = false, bool crewed = false)
+        {
+            this.at = at;
+            this.size = size;
+            this.gate = gate;
+            this.dead = dead;
+            this.crewed = crewed;
+        }
+    }
 
     /// <summary>들판의 출구. Open이 아니면 null.</summary>
-    public Vector2? Gate => Current != null && Current.Open ? new Vector2(Current.gateX, Current.gateY) : null;
+    public int GateCount => Current != null ? Current.GateCount : 0;
+    public Vector2 GateAt(int k) => Current.GateAt(k);
+
+    /// <summary>닿은 출구 = 갈래. 들판에서 정해지고 항로 화면은 확인만 한다. -1이면 아직 안 닿았다.</summary>
+    public int ChosenLane { get; private set; } = -1;
+
+    /// <summary>출구 k 너머의 이름. 갈림길이 있으면 그 갈래 소구역, 장의 마지막이면 다음 장(둘 다 같은 곳).</summary>
+    public string GateLabel(int k) => _gateLabels != null && k >= 0 && k < _gateLabels.Length ? _gateLabels[k] ?? "" : "";
+
+    /// <summary>잔해·보급 자리에서 항로 자료를 하나라도 회수했는가.</summary>
+    public bool RouteIntelUnlocked
+    {
+        get
+        {
+            foreach (Vector2 at in _intelSpots)
+                if (ContactView.StateAt(at) >= ContactView.Reveal.Visited)
+                    return true;
+
+            return false;
+        }
+    }
+
+    /// <summary>현재 들판에 항로 자료를 얻을 자리가 있는가. 지도 안내 문구가 읽는다.</summary>
+    public bool RouteIntelAvailable => _intelSpots.Count > 0;
+
+    /// <summary>출구 k 너머를 회수 자료가 요약한 한 줄.</summary>
+    public string GateIntel(int k) => _gateIntel != null && k >= 0 && k < _gateIntel.Length ? _gateIntel[k] ?? "" : "";
+
+    private string[] _gateLabels;
+    private string[] _gateIntel;
+
+    /// <summary>출구 신호의 크기. 기항지와 같다 - 들판에서 제일 큰 것.</summary>
+    public const float GateSignalSize = 15000f;
 
     private long _enterTick;
 
@@ -217,7 +392,7 @@ public sealed class Campaign : TickBehaviour
         _def = CampaignDef.Load();
         RunState.ValidateOrClear();
         _sector = Mathf.Clamp(RunState.Sector, 0, _def?.sectors.Count ?? 0);
-        _leg = Mathf.Clamp(RunState.Leg - 1, -1, SubSectorGen.LegsPerChapter - 1);
+        _leg = Mathf.Clamp(RunState.Leg - 1, -1, OpenSectorGen.LegsPerChapter - 1);
 
         // 소구역 한가운데서 껐다 켠 경우. 마지막으로 고른 레인이 곧 지금 서 있는 노드다.
         if (_leg >= 0)
@@ -225,7 +400,7 @@ public sealed class Campaign : TickBehaviour
             List<int> lanes = RunState.Lanes;
 
             _pending = lanes.Count > 0
-                ? SubSectorGen.Make(_sector, _leg, lanes[lanes.Count - 1])
+                ? OpenSectorGen.Make(_sector, _leg, lanes[lanes.Count - 1])
                 : null;
 
             // 생성이 실패하면(템플릿 파일이 없다) 소구역을 건너뛰고 장으로 돌아간다.
@@ -239,12 +414,12 @@ public sealed class Campaign : TickBehaviour
         if (pendingLeg >= 0 && _def != null && _sector < _def.sectors.Count - 1)
         {
             _forkLeg = pendingLeg;
-            _fork = new SectorDef[SubSectorGen.Lanes];
+            _fork = new SectorDef[OpenSectorGen.Lanes];
             int made = 0;
 
             for (int i = 0; i < _fork.Length; i++)
             {
-                _fork[i] = SubSectorGen.Make(_sector, pendingLeg, i);
+                _fork[i] = OpenSectorGen.Make(_sector, pendingLeg, i);
 
                 if (_fork[i] != null)
                     made++;
@@ -337,7 +512,7 @@ public sealed class Campaign : TickBehaviour
         BackgroundView.Jump(Ballistics.Hash(RunState.Seed, _sector, _leg + 1), Current != null ? Current.kind : "");
 
         // 60 km 들판에서 기본 드리프트(1 m당 0.006도)는 한 바퀴다. 하늘이 도는 것으로 안 읽히고 어지럽다.
-        BackgroundView.DriftScale = Current != null && Current.Open ? 0.1f : 1f;
+        BackgroundView.DriftScale = Current != null && Current.Field ? 0.1f : 1f;
     }
 
     public override void OnTick()
@@ -350,6 +525,13 @@ public sealed class Campaign : TickBehaviour
                 WatchRefitSpot();
                 // 소환이 전투 판정보다 먼저. 이번 틱에 뜬 배가 같은 틱의 목표 판정에 들어간다.
                 DrainSpawnQueue();
+                SpawnWanderer();
+                SpawnHunter();
+                SpawnPatrols();
+                SteerRovers();
+                SweepSignals();
+                ListenSelf();
+                FieldLog.Sample(this, PlayerShip());
                 // 임시 적함을 실제 전투의 첫 적으로 세면, endCut 직후 승리할 수 있다.
                 if (!_scriptHoldsSpawns)
                     _battle?.Tick();
@@ -431,7 +613,7 @@ public sealed class Campaign : TickBehaviour
             _wingWait = Mathf.Max(1, wingmanStaggerTicks);
         }
 
-        if (_toSpawn.Count == 0)
+        if (_toSpawn.Count == 0 && _farSpawns.Count == 0)
             return;
 
         // 슬라이드가 끝나고 대본이 시작될 때까지. OpenScript가 푼다.
@@ -459,6 +641,13 @@ public sealed class Campaign : TickBehaviour
         // 들판은 한 번에 넷. 하나씩이면 50척에 12초라, 부스터로 달리는 플레이어가 아직 안 태어난 자리에 닿는다.
         int burst = Current != null && Current.Open ? 4 : 1;
 
+        if (_farSpawns.Count > 0)
+        {
+            SpawnNear(burst);
+            _spawnWait = Mathf.Max(1, entryStaggerTicks);
+            return;
+        }
+
         do
         {
         {
@@ -470,6 +659,295 @@ public sealed class Campaign : TickBehaviour
         while ((entryStaggerTicks <= 0 || --burst > 0) && _toSpawn.Count > 0);
 
         _spawnWait = Mathf.Max(1, entryStaggerTicks);
+    }
+
+    /// <summary>플레이어 <see cref="spawnDistance"/> 안에 든 자리를 최대 burst개 세운다. 뒤에서부터 훑어 제거가 O(1)이다.</summary>
+    private void SpawnNear(int burst)
+    {
+        Ship player = PlayerShip();
+
+        if (player == null)
+            return;
+
+        Vector2 eye = player.transform.position;
+        float reach = spawnDistance * spawnDistance;
+
+        for (int i = _farSpawns.Count - 1; i >= 0 && burst > 0; i--)
+        {
+            SpawnDef spawn = _farSpawns[i];
+
+            if ((new Vector2(spawn.x, spawn.y) - eye).sqrMagnitude > reach)
+                continue;
+
+            _farSpawns.RemoveAt(i);
+            Spawn(spawn, dormant: !spawn.hulk, buildSeconds: farBuildSeconds);
+            burst--;
+        }
+    }
+
+    /// <summary>
+    /// 떠돌이 1척. 시간으로 낸다 - 주기가 차면 플레이어 진행 방향 <see cref="wandererDistance"/> 앞,
+    /// 좌우 ±400 m에 세운다. 시드는 런 시드 + 틱이라 같은 런은 같은 자리에 같은 배다.
+    /// </summary>
+    private void SpawnWanderer()
+    {
+        if (Current == null || !Current.Open || _departed || _holdForScript)
+            return;
+
+        if (--_wandererWait > 0)
+            return;
+
+        var rng = new DeterministicRng(Ballistics.Hash(RunState.Seed, TickManager.currentTick, 0x57));
+        _wandererWait = (int)rng.Range(wandererMinTicks, wandererMaxTicks);
+
+        Ship player = PlayerShip();
+
+        if (player == null || ContactView.HasHostileContact(player))
+            return;
+
+        string ship = OpenSectorGen.PickWandererShip(_sector, ref rng);
+
+        if (string.IsNullOrEmpty(ship))
+            return;
+
+        Vector2 heading = player.velocity.sqrMagnitude > 25f ? player.velocity.normalized : player.NoseDirection;
+        Vector2 side = new(-heading.y, heading.x);
+        Vector2 at = (Vector2)player.transform.position + heading * wandererDistance + side * rng.Range(-400f, 400f);
+
+        Spawn(new SpawnDef
+        {
+            ship = ship,
+            team = "Enemy",
+            x = at.x,
+            y = at.y,
+            facing = heading.x > 0f ? -1f : 1f,   // 플레이어를 마주본다
+        }, dormant: false, buildSeconds: farBuildSeconds);
+    }
+
+    private void SpawnHunter()
+    {
+        // 지난 들판에서 시끄러웠으면 이번엔 더 일찍 온다. 하한은 10초 - 도착하자마자 붙으면 항해가 아니라 처형이다.
+        int delay = Mathf.Max(600, hunterDelayTicks - RunState.Heat * hunterHeatTicks);
+
+        if (_hunterSent || Current == null || !Current.Open || _departed || _holdForScript
+            || TickManager.currentTick - _enterTick < delay)
+            return;
+
+        _hunterSent = true;
+        Ship player = PlayerShip();
+
+        if (player == null)
+            return;
+
+        var rng = new DeterministicRng(Ballistics.Hash(RunState.Seed, TickManager.currentTick, 0x48));
+        string ship = OpenSectorGen.PickWandererShip(_sector, ref rng);
+
+        if (string.IsNullOrEmpty(ship))
+            return;
+
+        // 출구 반대쪽 = 뒤. 곧장 출구로 달리면 뒤에서 오고, 돌아가면 옆에서 온다.
+        Vector2 pos = player.transform.position;
+        Vector2 back = -player.NoseDirection;
+
+        if (GateCount > 0)
+        {
+            Vector2 centre = Vector2.zero;
+            for (int k = 0; k < GateCount; k++) centre += GateAt(k);
+            back = (pos - centre / GateCount).normalized;
+        }
+        Vector2 at = pos + back * hunterDistance;
+
+        Rover r = AddRover(ship, at, back.x > 0f ? -1f : 1f, hunter: true, "추격");
+
+        if (r != null)
+            r.route.Add(pos);   // 보일 때까지는 마지막 관측 위치로 간다
+
+        Debug.Log($"[Campaign] 추격 {ship} ({at.x:0},{at.y:0}).");
+    }
+
+    /// <summary>순찰 둘. 자리 셋씩 돌게 한다 - 출구는 안 돈다(출구 앞을 순찰이 지키면 갈래가 아니라 관문이다).</summary>
+    private void SpawnPatrols()
+    {
+        if (_patrolSent || Current == null || !Current.Open || _departed || _holdForScript
+            || TickManager.currentTick - _enterTick < patrolDelayTicks)
+            return;
+
+        _patrolSent = true;
+
+        var sites = new List<Vector2>();
+
+        foreach (Signal s in Signals)
+            if (s.gate < 0) sites.Add(s.at);
+
+        if (sites.Count < 2)
+            return;
+
+        var rng = new DeterministicRng(Ballistics.Hash(RunState.Seed, _sector * 16 + _leg + 1, 0x50));
+
+        for (int n = 0; n < patrolCount; n++)
+        {
+            string ship = OpenSectorGen.PickWandererShip(_sector, ref rng);
+
+            if (string.IsNullOrEmpty(ship))
+                continue;
+
+            // 시작 자리 하나, 거기서 가까운 둘. 멀리 있는 자리끼리 이으면 들판을 가로지르는 직선이 된다.
+            Vector2 start = sites[(int)rng.Range(0, sites.Count - 0.001f)];
+            var route = new List<Vector2> { start };
+            sites.Sort((a, b) => (a - start).sqrMagnitude.CompareTo((b - start).sqrMagnitude));
+
+            for (int i = 1; i < sites.Count && route.Count < 3; i++)
+                route.Add(sites[i]);
+
+            Vector2 at = start + new Vector2(rng.Range(-300f, 300f), rng.Range(-300f, 300f));
+            Rover r = AddRover(ship, at, 1f, hunter: false, "순찰");
+
+            if (r == null)
+                continue;
+
+            r.route.AddRange(route);
+            r.leg = 1;
+            Debug.Log($"[Campaign] 순찰 {ship} - 자리 {route.Count}개.");
+        }
+    }
+
+    private Rover AddRover(string ship, Vector2 at, float facing, bool hunter, string tag)
+    {
+        Ship spawned = Spawn(new SpawnDef
+        {
+            ship = ship,
+            team = "Enemy",
+            x = at.x,
+            y = at.y,
+            facing = facing,
+        }, dormant: false, buildSeconds: farBuildSeconds);
+
+        if (spawned == null)
+            return null;
+
+        var r = new Rover { ship = spawned, ai = spawned.GetComponent<ShipAi>(), hunter = hunter, tag = tag };
+
+        if (r.ai != null)
+            r.ai._detatchBrain = true;
+
+        Rovers.Add(r);
+        return r;
+    }
+
+    /// <summary>
+    /// 로버의 귀와 발. 보이면 보통 AI. 안 보이면 - 추격은 플레이어가 시끄러울 때의 위치로, 순찰은 다음 자리로.
+    /// </summary>
+    private void SteerRovers()
+    {
+        Ship player = PlayerShip();
+
+        for (int i = Rovers.Count - 1; i >= 0; i--)
+        {
+            Rover r = Rovers[i];
+
+            if (r.ship == null || r.ai == null)
+            {
+                Rovers.RemoveAt(i);
+                continue;
+            }
+
+            bool sees = r.ship.NearestHostile() != null;
+            r.ai._detatchBrain = !sees;
+
+            if (sees || r.route.Count == 0)
+                continue;
+
+            Vector2 here = r.ship.transform.position;
+
+            if (r.hunter)
+            {
+                if (TickManager.currentTick % hunterListenTicks == 0 && Loud(player)
+                    && !ContactView.RockBetween(player.transform.position, here))
+                    r.route[0] = player.transform.position;
+
+                r.ai._targetPos = (Vector3)r.route[0];
+                continue;
+            }
+
+            if ((r.route[r.leg] - here).sqrMagnitude <= patrolReach * patrolReach)
+                r.leg = (r.leg + 1) % r.route.Count;
+
+            r.ai._targetPos = (Vector3)r.route[r.leg];
+        }
+    }
+
+    /// <summary>점프해도 되나. 이유는 지도가 그대로 보여준다.</summary>
+    public bool CanJump(out string why)
+    {
+        Ship player = PlayerShip();
+        why = "";
+
+        if (player == null || Current == null || !Current.Open || _departed || _jumping)
+            why = "지금은 안 된다";
+        else if (ContactView.HasHostileContact(player))
+            why = "적 접촉 중";
+        else if (player.shipTanks.Count > 0 && player.AvailableDeltaV() < jumpDeltaV)
+            why = $"Δv 부족 {player.AvailableDeltaV():0}/{jumpDeltaV:0}";
+
+        return why.Length == 0;
+    }
+
+    /// <summary>앵커로 점프. 검정 - 옮김 - 걷힘. 동료도 같은 만큼 옮긴다. 추격은 착지점을 듣는다.</summary>
+    public void JumpTo(Vector2 anchor)
+    {
+        if (!CanJump(out _))
+            return;
+
+        StartCoroutine(Jump(anchor));
+    }
+
+    private System.Collections.IEnumerator Jump(Vector2 anchor)
+    {
+        Ship player = PlayerShip();
+
+        if (player == null || !player.Burn(jumpDeltaV))
+            yield break;
+
+        _jumping = true;
+        TickManager.Paused = true;
+        LogisticsScreen screen = LogisticsScreen.Instance;
+        screen?.Fade(1f, jumpBlack);
+        yield return new WaitForSecondsRealtime(jumpBlack + 0.05f);
+
+        Vector2 from = player.transform.position;
+        Vector2 dir = (anchor - from).normalized;
+        Vector2 land = anchor - dir * jumpStandoff;
+        Vector2 delta = land - from;
+
+        // 나와 동료. 리지드바디도 같이 - transform만 옮기면 다음 Simulate가 도로 끌어온다.
+        for (int i = 0; i < Ship.All.Count; i++)
+        {
+            Ship s = Ship.All[i];
+
+            if (s == null || (s != player && (s.team != Ship.Team.Ally || s.dormant)))
+                continue;
+
+            Vector2 to = (Vector2)s.transform.position + delta;
+            s.transform.position = to;
+
+            if (s.Rig != null)
+            {
+                s.Rig.position = to;
+                s.Rig.linearVelocity *= 0.3f;   // 거품에서 나오면 느리다. 정지 거리를 다시 잰다
+            }
+        }
+
+        _loudTicks += jumpNoiseSeconds * 60;
+
+        // 점프는 시끄럽다. 추격이 착지점을 안다.
+        foreach (Rover r in Rovers)
+            if (r.hunter && r.route.Count > 0) r.route[0] = land;
+
+        Debug.Log($"[Campaign] 점프 {delta.magnitude / 1000f:0.0} km → 앵커 앞 {jumpStandoff:0} m. Δv -{jumpDeltaV:0}.");
+
+        TickManager.Paused = false;
+        screen?.Fade(0f, jumpBlack * 1.5f);
+        _jumping = false;
     }
 
     /// <summary>때가 된 잠든 적을 깨운다. 뇌를 붙이고 방아쇠를 푼다 - 그게 잠의 전부였다.</summary>
@@ -491,10 +969,30 @@ public sealed class Campaign : TickBehaviour
                 }
 
                 Ship player = PlayerShip();
-                bool near = player != null
-                    && ((Vector2)player.transform.position - (Vector2)ship.transform.position).sqrMagnitude
-                        <= wakeDistance * wakeDistance;
-                bool hurt = ship.TryGetComponent(out HullStructure hull) && hull.AliveCount < alive;
+                bool near = false;
+
+                if (player != null)
+                {
+                    Vector2 to = (Vector2)ship.transform.position - (Vector2)player.transform.position;
+                    // 돌아서는 배는 안 깨운다 - 순항 속도면 400 m를 2초에 지나서, 멀어지는 중까지 깨우면 "보고 돌아가기"가 없다.
+                    // 시끄러우면 멀리서 깬다(방출량), 운석 뒤면 안 깬다 - 내가 못 보는 자리는 나를 못 본다.
+                    float reach = wakeDistance * player.Emission;
+                    near = to.sqrMagnitude <= reach * reach
+                        && Vector2.Dot(player.velocity, to.normalized) > -20f
+                        && !ContactView.RockBetween(player.transform.position, ship.transform.position);
+                }
+
+                // 건조 중에 태어난 배는 alive가 0으로 적혔다(판 장부가 아직 없다). 완성되면
+                // 그때의 판 수를 기준으로 다시 적는다 - 안 그러면 "맞았다"를 영영 못 본다.
+                HullStructure hull = ship.GetComponent<HullStructure>();
+
+                if (alive == 0 && hull != null && hull.AliveCount > 0)
+                {
+                    alive = hull.AliveCount;
+                    _dormant[i] = (ship, ai, delay, alive);
+                }
+
+                bool hurt = hull != null && alive > 0 && hull.AliveCount < alive;
 
                 if (!near && !hurt)
                     continue;
@@ -555,6 +1053,7 @@ public sealed class Campaign : TickBehaviour
         Stage(sector, player);
 
         _toSpawn.Clear();
+        _farSpawns.Clear();
         _wingQueue.Clear();
         _dormant.Clear();
         _targets.Clear();
@@ -562,6 +1061,7 @@ public sealed class Campaign : TickBehaviour
         _wreckSpots.Clear();
         _supplySpots.Clear();
         _visitedWrecks.Clear();
+        _intelSpots.Clear();
         Signals.Clear();
         RefitSpotNear = false;
 
@@ -572,15 +1072,73 @@ public sealed class Campaign : TickBehaviour
             if (spawn.hulk && spawn.refit)
                 _refitSpots.Add(at);
 
-            if (spawn.hulk && !spawn.refit && spawn.ship != SubSectorGen.Rock)
+            if (spawn.hulk && !spawn.refit && !spawn.scenery)
                 _wreckSpots.Add(at);
 
-            if (spawn.hulk && (spawn.materials > 0 || spawn.propellant > 0))
-                _supplySpots.Add(spawn);
+            if (spawn.hulk && (spawn.materials > 0 || spawn.propellant > 0 || spawn.munitions > 0))
+            {
+                // **사본을 든다.** 아래 보급이 남은 양을 빼는데, 원본은 SectorDef가 들고 있는 공유 객체다 -
+                // 거기서 빼면 같은 구역을 다시 준비할 때 이미 비어 있고(운석이 두 배로 쌓이던 것과 같은 함정),
+                // Identify가 읽는 "보급" 판정도 같이 사라진다. 자리 좌표와 실을 것 셋만 있으면 된다.
+                _supplySpots.Add(new SpawnDef
+                {
+                    x = spawn.x,
+                    y = spawn.y,
+                    materials = spawn.materials,
+                    propellant = spawn.propellant,
+                    munitions = spawn.munitions,
+                });
+            }
 
-            if (sector.Open && spawn.ship != SubSectorGen.Rock && !Near(Signals, at, SiteFold))
-                Signals.Add(at);
+            // 잔해·보급·기항지는 항법 기록을 남긴다. 같은 자리의 잔해 여러 개는 신호 하나로 접는다.
+            if (sector.Open && spawn.hulk && !spawn.scenery && !Near(_intelSpots, at, SiteFold))
+                _intelSpots.Add(at);
+
+            if (sector.Open && !spawn.scenery && !NearSignal(at))
+                Signals.Add(new Signal(at, spawn.signalSize > 0f ? spawn.signalSize : 500f));
         }
+
+        // 출구도 신호다. 처음부터 좌표가 아니라 방위 + 진한 부채꼴이고, 15 km에서 좌표, 센서 안에서 "출구 · 어디".
+        _gateLabels = new string[sector.GateCount];
+        _gateIntel = new string[sector.GateCount];
+        var beyond = new SectorDef[sector.GateCount];
+
+        for (int k = 0; k < sector.GateCount; k++)
+        {
+            Signals.Add(new Signal(sector.GateAt(k), GateSignalSize, k));
+            beyond[k] = PeekBeyond(k);
+            _gateLabels[k] = beyond[k]?.name ?? "";
+        }
+
+        for (int k = 0; k < sector.GateCount; k++)
+            _gateIntel[k] = DescribeRoute(beyond[k], sector.GateCount == 2 ? beyond[1 - k] : null);
+
+        // **활성 여부는 자리 전체를 접은 뒤에 나온다.** 신호는 첫 배가 만들지만(NearSignal) 겉과 속이
+        // 다를 수 있다 - trap은 표류 잔해 속에 습격조가 숨어 있다. 첫 배만 보면 그 자리가 "표류"로 읽힌다.
+        for (int i = 0; i < Signals.Count; i++)
+        {
+            Signal s = Signals[i];
+
+            if (s.gate >= 0)
+                continue;
+
+            foreach (SpawnDef spawn in sector.spawns)
+            {
+                if (spawn.hulk || spawn.scenery
+                    || (new Vector2(spawn.x, spawn.y) - s.at).sqrMagnitude > SiteFold * SiteFold)
+                    continue;
+
+                Signals[i] = new Signal(s.at, s.size, s.gate, s.dead, crewed: true);
+                break;
+            }
+        }
+
+        _loudTicks = 0;
+
+        // 판정 지표. 재기만 하고 아무것도 안 바꾼다 - 들판이 아닐 때는 아예 안 켠다.
+        // 도착점이 원점인 것은 규칙이다(CLAUDE.md "워프 도착점은 언제나 원점, 뱃머리 +X") - 우회 비율의 분모가 여기서 나온다.
+        if (sector.Open)
+            FieldLog.Begin(sector.name, Vector2.zero);
 
         bool preSpawn = string.IsNullOrEmpty(sector.script);
 
@@ -590,8 +1148,24 @@ public sealed class Campaign : TickBehaviour
                 _wingQueue.Enqueue(spawn);
             else if (preSpawn && !sector.Open)
                 Spawn(spawn, dormant: !spawn.hulk);   // 시설은 원래 거기 있던 것이라 잘 것이 없다
+            else if (sector.Open)
+                _farSpawns.Add(spawn);   // 들판은 거리로 꺼낸다
             else
-                _toSpawn.Enqueue(spawn);   // 들판은 50척이 넘는다. 한 프레임에 다 지으면 도착 첫 프레임이 멎는다
+                _toSpawn.Enqueue(spawn);
+        }
+
+        _wandererWait = wandererMinTicks;
+        Rovers.Clear();
+        _hunterSent = false;
+        _patrolSent = false;
+        _stranded.Clear();
+
+        // 메인도 들판이다(100 km). 운석은 def에 넣지 않고 여기서 뽑는다 - def는 공유 객체라
+        // 같은 구역을 두 번 준비하면 운석이 두 배로 쌓인다. 시드가 같으니 결과는 같다.
+        if (sector.Field && !sector.Open)
+        {
+            foreach (SpawnDef rock in OpenSectorGen.Rocks(sector, _sector))
+                _toSpawn.Enqueue(rock);
         }
 
         _spawnWait = 1;   // 풀리면 다음 틱에 첫 척
@@ -600,6 +1174,7 @@ public sealed class Campaign : TickBehaviour
         _battle = new Battle();
         Visited.Add(sector);
         _departed = false;
+        ChosenLane = -1;
 
         // 들판: 출구에 닿는 것이 승리. 아래 두 분기보다 먼저다 - Wreck·Depot만 뽑힌 들판이
         // "싸울 것 없음"으로 떨어지면 동료가 들어오는 순간 끝난다. peaceful은 전승 대사를
@@ -746,6 +1321,7 @@ public sealed class Campaign : TickBehaviour
         _spawned.Clear();
         _targets.Clear();
         _toSpawn.Clear();
+        _farSpawns.Clear();
         _wingQueue.Clear();
         _dormant.Clear();
     }
@@ -876,6 +1452,7 @@ public sealed class Campaign : TickBehaviour
         if (!battle.Won)
         {
             _toSpawn.Clear();
+        _farSpawns.Clear();
             _battle = null;
             _phase = Phase.Done;
 
@@ -955,17 +1532,42 @@ public sealed class Campaign : TickBehaviour
         if (player == null)
             return;
 
-        Vector2 gate = new(sector.gateX, sector.gateY);
+        Vector2 at = player.transform.position;
+        int reached = -1;
 
-        if (((Vector2)player.transform.position - gate).sqrMagnitude > gateRadius * gateRadius)
+        for (int k = 0; k < sector.GateCount; k++)
+        {
+            if ((at - sector.GateAt(k)).sqrMagnitude <= gateRadius * gateRadius)
+                reached = k;
+        }
+
+        if (reached < 0)
             return;
 
         // 워프는 탱크에서 나간다. 모자라면 출구에 서 있어도 안 나간다 - Depot·잔해가 필요해지는 자리.
         if (!player.Burn(Ballistics.WarpDeltaV))
             return;
 
+        // 동료도 같은 값을 낸다. 못 내면 남는다 - 연료 없는 배를 공짜로 데려가면 탱크가 플레이어 배에만 있는 셈이다.
+        foreach (Ship mate in Wingmates())
+        {
+            if (!mate.Burn(Ballistics.WarpDeltaV))
+            {
+                _stranded.Add(mate);
+                Debug.Log($"[Campaign] 동료 '{mate.name}' Δv 부족 - 낙오.");
+            }
+        }
+
+        // 열기는 **반으로 줄이고 이번 몫을 더한다.** 순수 누적이면 한 번 시끄러운 판이 남은 런을 영영 망치고,
+        // 매번 새로 쓰면 조용히 다닌 보람이 그 구역에서 끝난다. 반감이 "만회할 수 있다"를 만든다.
+        // 열기를 갱신하기 **전에** 적는다 - 이번 판 내내 걸려 있던 값이 이번 판의 행동과 짝이다.
+        FieldLog.End(this, player, reached);
+        RunState.Heat = RunState.Heat / 2 + _loudTicks / Mathf.Max(1, 60 * heatSecondsPerLevel);
+        Debug.Log($"[Campaign] 열기 {RunState.Heat} (시끄러운 시간 {_loudTicks / 60f:0}초).");
+
+        ChosenLane = reached;   // 닿은 출구가 갈래다. 항로 화면은 이걸 확인만 한다
         _departed = true;
-        Debug.Log($"[Campaign] 출구 도착. '{sector.name}' 출항.");
+        Debug.Log($"[Campaign] 출구 {reached} 도착. '{sector.name}' 출항 - {GateLabel(reached)} 쪽.");
     }
 
     // 다음 자리로 한 칸.
@@ -1052,8 +1654,12 @@ public sealed class Campaign : TickBehaviour
             return;
 
         Vector2 at = player.transform.position;
+        bool slow = player.velocity.magnitude <= dockSpeed;
 
-        RefitSpotNear = Near(_refitSpots, at, refitRadius);
+        // 도착 자세. 반경 안이라도 빠르면 지나친다 - 부스터 접근은 빠르지만 못 대고, 관성 접근은 느리지만 댄다.
+        bool refitNear = Near(_refitSpots, at, refitRadius);
+        RefitSpotNear = refitNear && slow;
+        RefitSpotTooFast = refitNear && !slow;
 
         // 다녀간 잔해. 한 번 적히면 안 지운다 - 노획은 출항 때 한 번 센다.
         foreach (Vector2 spot in _wreckSpots)
@@ -1070,13 +1676,30 @@ public sealed class Campaign : TickBehaviour
         {
             SpawnDef spot = _supplySpots[i];
 
-            if ((new Vector2(spot.x, spot.y) - at).sqrMagnitude > refitRadius * refitRadius)
+            if (!slow || (new Vector2(spot.x, spot.y) - at).sqrMagnitude > refitRadius * refitRadius)
                 continue;
 
-            RunState.Materials += spot.materials;
-            RunState.Propellant += spot.propellant;
-            Debug.Log($"[Campaign] 보급 MTRL +{spot.materials} PROP +{spot.propellant} ({spot.x:0},{spot.y:0}).");
-            _supplySpots.RemoveAt(i);
+            // **들어가는 만큼만 싣고 나머지는 자리에 남는다.** 통째로 지우면 창고 상한이 그냥 벌점이 된다 -
+            // 가득 찬 채로 지나간 보급이 영영 사라지니까. 남겨두면 비우고 다시 오는 것이 경로가 된다.
+            int mtrl = Take(RunState.Materials, spot.materials, RunState.MaxMaterials);
+            int prop = Take(RunState.Propellant, spot.propellant, RunState.MaxPropellant);
+            int mun = Take(RunState.Munitions, spot.munitions, RunState.MaxMunitions);
+
+            if (mtrl == 0 && prop == 0 && mun == 0)
+                continue;   // 셋 다 가득. 자리는 그대로 두고 비운 뒤 다시 온다
+
+            RunState.Materials += mtrl;
+            RunState.Propellant += prop;
+            RunState.Munitions += mun;
+
+            spot.materials -= mtrl;
+            spot.propellant -= prop;
+            spot.munitions -= mun;
+
+            Debug.Log($"[Campaign] 보급 MTRL +{mtrl} PROP +{prop} MUN +{mun} ({spot.x:0},{spot.y:0}). 남은 것 {spot.materials}/{spot.propellant}/{spot.munitions}.");
+
+            if (spot.materials <= 0 && spot.propellant <= 0 && spot.munitions <= 0)
+                _supplySpots.RemoveAt(i);
         }
 
         if (RefitSpotNear && Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)
@@ -1085,6 +1708,221 @@ public sealed class Campaign : TickBehaviour
 
     /// <summary>같은 자리의 배들이 신호 하나로 접히는 거리. 자리 산포(±90 m)보다 크고 자리 간격(1.2 km)보다 작다.</summary>
     private const float SiteFold = 400f;
+
+    /// <summary>창고에 실제로 들어가는 양. 상한을 넘는 몫은 자리에 남는다.</summary>
+    private static int Take(int have, int offer, int cap) => Mathf.Clamp(cap - have, 0, Mathf.Max(0, offer));
+
+    /// <summary>신호 소멸 검사 주기(틱). 자리 수십 개 x Ship.All이라 매 틱 돌 이유가 없다 - 자리가 죽는 것은 초 단위 사건이다.</summary>
+    public int signalSweepTicks = 30;
+
+    /// <summary>
+    /// 다 치운 자리의 신호를 끈다.
+    ///
+    /// **예전에는 신호가 영영 안 죽었다** - <see cref="Signals"/>는 Prepare에서 한 번 만들고 아무도 안 고쳤다.
+    /// 자리를 통째로 부숴도 지도에서 같은 밝기로 계속 빛나서, "여기는 끝났다"가 화면에 없고 같은 곳을 또 갔다.
+    /// 들판을 치운 만큼 조용해지는 것이 곧 내 행동이 공간에 남는 것이고, 그게 없으면 경로가 기록이 안 된다.
+    ///
+    /// **아직 안 세운 자리를 죽었다고 하면 안 된다.** 들판은 거리로 꺼내므로(<see cref="_farSpawns"/>)
+    /// 멀리 있는 자리는 배가 하나도 없다 - 그것만 보면 도착하기도 전에 들판 전체가 꺼진다.
+    /// 그래서 "이 자리 몫이 아직 소환 대기에 남아 있나"를 먼저 본다.
+    /// </summary>
+    private void SweepSignals()
+    {
+        if (Current == null || !Current.Open || TickManager.currentTick % Mathf.Max(1, signalSweepTicks) != 0)
+            return;
+
+        for (int i = 0; i < Signals.Count; i++)
+        {
+            Signal s = Signals[i];
+
+            // 출구는 안 죽는다. 나가는 문은 치운다고 사라지지 않는다.
+            if (s.dead || s.gate >= 0)
+                continue;
+
+            if (PendingNear(s.at) || LiveHostileNear(s.at) || StillWorthIt(s.at))
+                continue;
+
+            Signals[i] = new Signal(s.at, s.size, s.gate, dead: true, crewed: s.crewed);
+            Debug.Log($"[Campaign] 신호 소멸 ({s.at.x:0},{s.at.y:0}).");
+        }
+    }
+
+    /// <summary>내가 얼마나 시끄러웠나를 센다. 추격의 귀(<see cref="SteerRovers"/>)와 같은 문턱을 쓴다 - 둘이 갈라지면 "안 들켰는데 열기가 오른다"가 된다.</summary>
+    private void ListenSelf()
+    {
+        if (_departed)
+            return;
+
+        if (Loud(PlayerShip()))
+            _loudTicks++;
+    }
+
+    /// <summary>이 자리 몫이 아직 소환 대기에 있나. 있으면 아직 안 가본 자리다.</summary>
+    private bool PendingNear(Vector2 at)
+    {
+        foreach (SpawnDef spawn in _farSpawns)
+        {
+            if ((new Vector2(spawn.x, spawn.y) - at).sqrMagnitude <= SiteFold * SiteFold)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>살아 있는 적이 이 자리에 있나. **잠든 배도 센다** - 자고 있을 뿐 거기 있고, 깨면 쏜다.</summary>
+    private bool LiveHostileNear(Vector2 at)
+    {
+        for (int i = 0; i < Ship.All.Count; i++)
+        {
+            Ship s = Ship.All[i];
+
+            if (s == null || s.team != Ship.Team.Enemy || !s.IsCombatEffective)
+                continue;
+
+            if (((Vector2)s.transform.position - at).sqrMagnitude <= SiteFold * SiteFold)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>아직 받을 것이 남았나. 정비는 계속 쓸모 있고, 보급·잔해는 한 번 받으면 목록에서 빠진다.</summary>
+    private bool StillWorthIt(Vector2 at)
+    {
+        if (Near(_refitSpots, at, SiteFold))
+            return true;
+
+        foreach (SpawnDef spot in _supplySpots)
+        {
+            if ((new Vector2(spot.x, spot.y) - at).sqrMagnitude <= SiteFold * SiteFold)
+                return true;
+        }
+
+        foreach (Vector2 wreck in _wreckSpots)
+        {
+            if ((wreck - at).sqrMagnitude <= SiteFold * SiteFold && !Near(_visitedWrecks, wreck, 1f))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>출구 k 너머가 무엇인가. Advance와 같은 셈 - 다음 소구역이 있으면 그 갈래, 없으면 다음 장.</summary>
+    private SectorDef PeekBeyond(int k)
+    {
+        int next = _leg + 1;
+
+        if (next < OpenSectorGen.LegsPerChapter && _def != null && _sector < _def.sectors.Count - 1)
+            return OpenSectorGen.Make(_sector, next, k);
+
+        return _def != null && _sector + 1 < _def.sectors.Count ? _def.sectors[_sector + 1] : null;
+    }
+
+    /// <summary>
+    /// 항법 기록의 부분 정보. 정확한 함급·좌표를 까지 않고, 두 갈래의 상대적인 성격만 준다.
+    /// 플레이어가 "안전/보급/엄폐 중 무엇을 택할지" 결정할 만큼만 말한다.
+    /// </summary>
+    public static string DescribeRoute(SectorDef route, SectorDef other = null)
+    {
+        if (route == null)
+            return "자료 없음";
+
+        RouteScan here = ScanRoute(route);
+
+        if (other == null || ReferenceEquals(route, other))
+            return $"적 {Level(here.hostiles)} · 보급 {Level(here.supplies)} · 엄폐 {CoverLevel(here.rocks)}";
+
+        RouteScan there = ScanRoute(other);
+        return $"적 {Relative(here.hostiles, there.hostiles)} · 보급 {Relative(here.supplies, there.supplies)} · 엄폐 {Relative(here.rocks, there.rocks)}";
+    }
+
+    private readonly struct RouteScan
+    {
+        public readonly int hostiles, supplies, rocks;
+
+        public RouteScan(int hostiles, int supplies, int rocks)
+        {
+            this.hostiles = hostiles;
+            this.supplies = supplies;
+            this.rocks = rocks;
+        }
+    }
+
+    private static RouteScan ScanRoute(SectorDef sector)
+    {
+        var hostileSites = new List<Vector2>();
+        var supplySites = new List<Vector2>();
+        int rocks = 0;
+
+        foreach (SpawnDef spawn in sector.spawns)
+        {
+            if (spawn.scenery)
+            {
+                rocks++;
+                continue;
+            }
+
+            var at = new Vector2(spawn.x, spawn.y);
+
+            if (!spawn.hulk && spawn.Side == Ship.Team.Enemy && !Near(hostileSites, at, SiteFold))
+                hostileSites.Add(at);
+
+            bool supply = spawn.refit || spawn.materials > 0 || spawn.propellant > 0 || spawn.munitions > 0;
+            if (supply && !Near(supplySites, at, SiteFold))
+                supplySites.Add(at);
+        }
+
+        return new RouteScan(hostileSites.Count, supplySites.Count, rocks);
+    }
+
+    private static string Relative(int value, int other)
+    {
+        int margin = Mathf.Max(1, Mathf.RoundToInt(Mathf.Max(value, other) * 0.15f));
+        if (value + margin <= other) return "적음";
+        if (value >= other + margin) return "많음";
+        return "비슷";
+    }
+
+    private static string Level(int value) => value switch
+    {
+        0 => "없음",
+        <= 3 => "적음",
+        <= 10 => "보통",
+        _ => "많음",
+    };
+
+    private static string CoverLevel(int value) => value switch
+    {
+        0 => "없음",
+        <= 30 => "적음",
+        <= 100 => "보통",
+        _ => "많음",
+    };
+
+    /// <summary>이 좌표의 신호. 지도·트래커가 활성 여부와 소멸을 읽는다.</summary>
+    public bool SignalAt(Vector2 at, out Signal found)
+    {
+        foreach (Signal s in Signals)
+        {
+            if (s.at == at)
+            {
+                found = s;
+                return true;
+            }
+        }
+
+        found = default;
+        return false;
+    }
+
+    private bool NearSignal(Vector2 at)
+    {
+        foreach (Signal s in Signals)
+            if ((s.at - at).sqrMagnitude <= SiteFold * SiteFold)
+                return true;
+
+        return false;
+    }
 
     private static bool Near(List<Vector2> spots, Vector2 at, float radius)
     {
@@ -1104,7 +1942,7 @@ public sealed class Campaign : TickBehaviour
     public void Depart(int lane)
     {
         if (_fork != null)
-            TakeLane(lane);
+            TakeLane(ChosenLane >= 0 ? ChosenLane : lane);
     }
 
     public Ship Player => PlayerShip();
@@ -1135,21 +1973,21 @@ public sealed class Campaign : TickBehaviour
         int next = _leg + 1;
 
         // 이 장의 소구역을 다 지났거나 마지막 장이다.
-        if (next >= SubSectorGen.LegsPerChapter
+        if (next >= OpenSectorGen.LegsPerChapter
             || _def == null || _sector >= _def.sectors.Count - 1)
         {
             ToChapter(_refitHere);
             return;
         }
 
-        _fork = new SectorDef[SubSectorGen.Lanes];
+        _fork = new SectorDef[OpenSectorGen.Lanes];
         _forkLeg = next;
 
         int made = 0;
 
         for (int i = 0; i < _fork.Length; i++)
         {
-            _fork[i] = SubSectorGen.Make(_sector, next, i);
+            _fork[i] = OpenSectorGen.Make(_sector, next, i);
 
             if (_fork[i] != null)
                 made++;
@@ -1315,8 +2153,9 @@ public sealed class Campaign : TickBehaviour
 
             foreach (CriticalModule module in wreck.GetComponentsInChildren<CriticalModule>())
             {
-                if (!module.providesPower && !module.Neutralized)
-                    munitions += module.blastDamage * munitionsPerBlastDamage;
+                // 1 MUN = 1발. 남은 발수를 그대로 건진다 - 부수면 못 건진다는 원칙은 Neutralized가 지킨다.
+                if (module.maxRounds > 0 && !module.Neutralized)
+                    munitions += module.Rounds;
             }
         }
 
@@ -1343,6 +2182,7 @@ public sealed class Campaign : TickBehaviour
             Ship ship = _wingmen[i];
 
             bool lost = ship == null
+                || _stranded.Contains(ship)
                 || (field ? !ship.CrewAlive || !ship.HasPower : !ship.IsCombatEffective);
 
             if (lost)
@@ -1382,7 +2222,7 @@ public sealed class Campaign : TickBehaviour
     /// 뒤에서 미끄러져 들어온다. 동료는 JSON 좌표가 아니라 플레이어 옆 편대 자리다 -
     /// 스테이징이 구역마다 다른 곳에 플레이어를 놓으므로 절대 좌표는 맞을 수가 없다.
     /// </summary>
-    private Ship Spawn(SpawnDef spawn, bool dormant)
+    private Ship Spawn(SpawnDef spawn, bool dormant, float buildSeconds = 0f)
     {
         if (string.IsNullOrEmpty(spawn.ship))
             return null;
@@ -1429,6 +2269,7 @@ public sealed class Campaign : TickBehaviour
         {
             var hulk = go.AddComponent<Hulk>();
             hulk.structureDefName = spawn.ship;
+            hulk.buildSeconds = buildSeconds;
 
             // 켜기가 곧 Awake다 - 실패하면 Thing.Activate가 지우고, 여기서는 목록에도
             // 안 담는다. 예전에는 Add가 켜는 줄 아래라 실패한 오브젝트가 청소 대상에도
@@ -1444,6 +2285,7 @@ public sealed class Campaign : TickBehaviour
         var ship = go.AddComponent<Ship>();
         ship.shipDefName = spawn.ship;
         ship.team = spawn.Side;
+        ship.buildSeconds = buildSeconds;
 
         // 조종하는 것이 붙어야 배가 움직인다.
         var ai = go.AddComponent<ShipAi>();

@@ -9,7 +9,7 @@
   "leakRate": 2,
   "doorRate": 1,
   "crews": 3,
-  "FightDistance": 60,
+  "FightDistance": 120,
   "DetectionDistance": 2000,
   "breakawaySpeed": 2,
   "isMouseAim": true,

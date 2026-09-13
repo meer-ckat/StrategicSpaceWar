@@ -42,6 +42,9 @@ public static class RunState
         /// </summary>
         public int seed;
 
+        /// <summary>이 런을 만든 생성기 버전. 0은 버전이 없던 옛 저장이다.</summary>
+        public int genVersion;
+
         /// <summary>
         /// 이번 장 안에서 몇 번째 소구역인가. <see cref="sector"/>는 **장 번호 그대로**다 -
         /// 프롤로그 게이트(ScriptManager)와 sector-entered-{번호} 대본이 그 의미에
@@ -61,6 +64,9 @@ public static class RunState
         // 옛 저장이 기본값 0으로 정확히 그 상태로 열린다(Leg와 같은 규칙). 이게 없으면 항로
         // 화면에서 끈 저장이 깬 구역을 다시 싸우게 하고 노획을 두 번 준다.
         public int pendingLeg;
+
+        /// <summary>지난 들판에서 얼마나 시끄러웠나. 다음 들판의 추격이 그만큼 일찍 온다 - 은폐의 유일한 장기 보상이다.</summary>
+        public int heat;
 
         // 정비 노드에 서 있고 아직 출항 안 했다. 재개하면 갈림길보다 정비 화면이 먼저다 -
         // 자재는 도착 즉시 더해졌는데 수리할 자리가 없으면 그 자재가 그냥 벌점이 된다.
@@ -105,6 +111,12 @@ public static class RunState
         /// 어긋나면 <see cref="Wingmen"/>이 짧은 쪽에 맞춰 자른다.
         /// </summary>
         public List<Vector2> wingmenSlots = new();
+
+        /// <summary>
+        /// 이 노드에서 알아낸 신호. (x, y, 단계) - 단계는 ContactView.Reveal 정수. 노드가 바뀌면 지운다.
+        /// 없으면 재개할 때 15 km에서 잡아 둔 기항지 좌표가 증발한다 - 출구가 흐려진 뒤로는 출구 위치까지 잊는다.
+        /// </summary>
+        public List<Vector3> reveals = new();
     }
 
     /// <summary>합류한 아군 한 척. 이름과 편대 자리.</summary>
@@ -147,11 +159,26 @@ public static class RunState
         bool ship = File.Exists(FilePath);
         bool progress = File.Exists(ProgressPath);
 
-        if (ship == progress)
+        if (ship != progress)
+        {
+            Debug.LogWarning($"[RunState] 런 파일이 반쪽이다 (배 {ship}, 진행도 {progress}). 지우고 처음부터 간다.");
+            Clear();
+            return;
+        }
+
+        if (!progress)
             return;
 
-        Debug.LogWarning($"[RunState] 런 파일이 반쪽이다 (배 {ship}, 진행도 {progress}). 지우고 처음부터 간다.");
-        Clear();
+        // 생성기가 바뀌었으면 시드가 같아도 다른 우주다. 이어가면 저장한 좌표와 새 맵이
+        // 어긋난 채로 조용히 굴러간다 - 버리는 쪽이 낫다. OpenSectorGen.Version 참고.
+        int saved = Read().genVersion;
+
+        if (saved != OpenSectorGen.Version)
+        {
+            Debug.LogWarning(
+                $"[RunState] 저장된 런이 옛 생성기(v{saved})다. 지금은 v{OpenSectorGen.Version} - 지우고 처음부터 간다.");
+            Clear();
+        }
     }
 
     /// <summary>
@@ -195,6 +222,10 @@ public static class RunState
             int fresh = System.DateTime.Now.Ticks.GetHashCode();
 
             p.seed = fresh != 0 ? fresh : 1;
+
+            // 시드와 같은 자리에서 찍는다 - 둘 다 "이 런의 맵이 무엇인가"이고, 갈라 두면
+            // 버전만 없는 저장이 생겨 검사가 통과한다.
+            p.genVersion = OpenSectorGen.Version;
             Write(p);
 
             return p.seed;
@@ -218,6 +249,21 @@ public static class RunState
 
     public static int PendingLeg => Read().pendingLeg - 1;
 
+    /// <summary>추적 열기 0~<see cref="MaxHeat"/>. 구역을 넘어 남는 유일한 전술 상태다.</summary>
+    public const int MaxHeat = 5;
+
+    public static int Heat
+    {
+        get => Mathf.Clamp(Read().heat, 0, MaxHeat);
+
+        set
+        {
+            Progress p = Read();
+            p.heat = Mathf.Clamp(value, 0, MaxHeat);
+            Write(p);
+        }
+    }
+
     // 진행도 파일이 있는가. Seed getter는 없으면 파일을 만들므로, 읽기만 하려는 쪽은 이걸 먼저 본다.
     public static bool HasProgress => File.Exists(ProgressPath);
     public static bool PendingRefit => Read().pendingRefit;
@@ -240,6 +286,30 @@ public static class RunState
         p.lanes.Add(lane);
         p.pendingLeg = 0;
         p.pendingRefit = false;
+        p.reveals = new List<Vector3>();   // 새 노드 = 새 원장
+        Write(p);
+    }
+
+    /// <summary>이 노드에서 알아낸 신호 전부. ContactView가 구역에 들어설 때 한 번 읽는다.</summary>
+    public static List<Vector3> Reveals => Read().reveals ?? new List<Vector3>();
+
+    /// <summary>신호 하나의 단계가 올랐다. 같은 자리는 갈아끼운다. 단계는 올라가기만 하니 호출도 드물다.</summary>
+    public static void RememberReveal(Vector2 at, int state)
+    {
+        Progress p = Read();
+        p.reveals ??= new List<Vector3>();
+
+        for (int i = 0; i < p.reveals.Count; i++)
+        {
+            if ((Vector2)p.reveals[i] == at)
+            {
+                p.reveals[i] = new Vector3(at.x, at.y, state);
+                Write(p);
+                return;
+            }
+        }
+
+        p.reveals.Add(new Vector3(at.x, at.y, state));
         Write(p);
     }
 
@@ -251,6 +321,7 @@ public static class RunState
         p.leg = 0;
         p.pendingLeg = 0;
         p.pendingRefit = refit;
+        p.reveals = new List<Vector3>();
         Write(p);
     }
 
@@ -265,6 +336,18 @@ public static class RunState
     }
 
     /// <summary>수리·개조에 쓰는 물자. 판 한 장어치가 1이다.</summary>
+    /// <summary>
+    /// 창고 상한. **이 숫자가 보급 자리를 선택으로 만든다** - 상한이 없으면 보이는 보급은 전부 가는 것이
+    /// 언제나 정답이라 고를 것이 없었다. 탄약이 가득이고 추진제가 빈 배는 탄약고를 지나치고 급유선으로 간다.
+    ///
+    /// 세 값 다 **한 판 돌려보고 정할 추정치다.** 지금 근거는 자리가 주는 양뿐이다 - 보급 부표가
+    /// MTRL 16 / PROP 1,000,000 / MUN 200, 기항지가 MTRL 30 / MUN 400. 상한이 그 몇 배여야
+    /// "몇 군데 돌면 찬다"가 된다. 연구는 화물이 아니라 정보라 상한이 없다.
+    /// </summary>
+    public const int MaxMaterials = 300;
+    public const int MaxPropellant = 3000000;
+    public const int MaxMunitions = 1200;
+
     public static int Materials
     {
         get => Read().materials;
@@ -272,7 +355,7 @@ public static class RunState
         set
         {
             Progress p = Read();
-            p.materials = Mathf.Max(0, value);
+            p.materials = Mathf.Clamp(value, 0, MaxMaterials);
             Write(p);
         }
     }
@@ -304,7 +387,7 @@ public static class RunState
         set
         {
             Progress p = Read();
-            p.propellant = Mathf.Max(0, value);
+            p.propellant = Mathf.Clamp(value, 0, MaxPropellant);
             Write(p);
         }
     }
@@ -317,7 +400,7 @@ public static class RunState
         set
         {
             Progress p = Read();
-            p.munitions = Mathf.Max(0, value);
+            p.munitions = Mathf.Clamp(value, 0, MaxMunitions);
             Write(p);
         }
     }

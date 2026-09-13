@@ -65,10 +65,14 @@ public class Gun : Thing, IDamageable
 
         /// <summary>부서졌다.</summary>
         Destroyed,
+        NoAmmo,
     }
 
     /// <summary>지난 틱에 안 쏜 이유. HUD 전용.</summary>
     public HoldReason Hold { get; private set; }
+
+    /// <summary>Fire가 실제로 쏠 수 있는가. 탄을 꺼내기 전에 묻는다 - 발사대는 표적이 없으면 Fire에서 빠져나가므로.</summary>
+    protected virtual bool ReadyToFire() => true;
 
     [Header("무장")]
 
@@ -177,6 +181,13 @@ public class Gun : Thing, IDamageable
 
     private float _health;
     private float _pending;         // 발사 대기량. 1이면 한 발
+
+    /// <summary>지난 틱의 부호 있는 조준 오차와 그 틱 번호. 틱이 끊기면(표적을 잃었다가 다시 잡음) 변화율을 0으로 본다.</summary>
+    private float _lastError;
+    private long _errorTick = -2;
+
+    /// <summary>사격 게이트가 내다보는 비행시간 상한(초). 발사대(muzzleSpeed 2)처럼 느린 것이 게이트를 영영 닫지 않게.</summary>
+    private const float MaxFireLead = 1.5f;
 
     /// <summary>이 포탑이 올라앉은 함선. 파생 포탑이 표적을 고를 때 쓴다.</summary>
     protected Ship owner;
@@ -326,7 +337,7 @@ public class Gun : Thing, IDamageable
     private Ship NearestLightHostile()
     {
         Ship best = null;
-        float bestSqr = owner.DetectionDistance * owner.DetectionDistance;
+        float bestSqr = float.PositiveInfinity;
         Vector2 here = _turret.position;
 
         for (int i = 0; i < Ship.All.Count; i++)
@@ -347,8 +358,9 @@ public class Gun : Thing, IDamageable
                 continue;
 
             float sqr = ((Vector2)other.transform.position - here).sqrMagnitude;
+            float reach = owner.DetectionDistance * other.Emission;
 
-            if (sqr >= bestSqr)
+            if (sqr >= reach * reach || sqr >= bestSqr)
                 continue;
 
             bestSqr = sqr;
@@ -466,7 +478,21 @@ public class Gun : Thing, IDamageable
             return;
         }
 
-        float error = Slew(target, dt, out bool inArc);
+        float error = Slew(target, dt, out bool inArc, out float signed);
+
+        // **PD 사격 게이트의 D항.** P(= error > fireArc)만 보면 조준선을 스쳐 지나가는 틱에도 쏜다 -
+        // m4는 slewRate 60도/초에 fireArc 1.0도라 그 창을 틱당 정확히 한 번 지난다.
+        //
+        // 잘 물고 있는 포탑은 표적이 횡단해도 오차가 0 근처에서 **가만히** 있는다(리드가 등속을 이미 푼다).
+        // 오차가 빠르게 변하는 것은 둘 중 하나다: 포탑이 아직 따라잡는 중이거나, 표적이 리드로 못 푸는
+        // 기동을 하는 중. 둘 다 지금 쏘면 빗나간다. 비행시간을 곱해서 거리로 자동으로 엄해진다 -
+        // 2 km 밖의 fly를 1도 오차로 쏘는 것은 35 m를 빗나가는 것이다.
+        float rate = _errorTick == TickManager.currentTick - 1 ? (signed - _lastError) / dt : 0f;
+        _lastError = signed;
+        _errorTick = TickManager.currentTick;
+
+        float flight = Mathf.Min(
+            Vector2.Distance(target, _turret.position) / Mathf.Max(1f, muzzleSpeed), MaxFireLead);
 
         // 장전은 WantsToFire보다 **위**에 있어야 한다. 방아쇠를 당기는 동안에만 차오르게
         // 하면, 아래 LineIsClear 주석이 약속하는 "막혀서 안 쏜 발은 _pending을 소모하지
@@ -495,7 +521,7 @@ public class Gun : Thing, IDamageable
         //
         // 세 줄로 편 것은 단락 평가 순서를 그대로 두면서 이유를 갈라 적기 위해서다 -
         // 조건 하나였을 때 셋이 전부 "포탑이 안 쏜다" 하나로 보였다.
-        if (!AimNotRequired && error > fireArc)
+        if (!AimNotRequired && (error > fireArc || Mathf.Abs(rate) * flight > fireArc))
         {
             Hold = HoldReason.Slewing;
             return;
@@ -513,7 +539,26 @@ public class Gun : Thing, IDamageable
             return;
         }
 
+        // 탄약은 맨 마지막이다 - 앞의 이유들이 다 통과한 발만 한 발을 쓴다. 막힌 발처럼
+        // _pending을 안 쓰므로 탄이 들어오는 순간 나간다.
+        if (!ReadyToFire())
+        {
+            Hold = HoldReason.NoTarget;
+            return;
+        }
+
+        if (owner != null && !owner.TakeRound())
+        {
+            Hold = HoldReason.NoAmmo;
+            return;
+        }
+
         Hold = HoldReason.None;
+
+        // 포성은 방출이다. Emission에 안 더하는 이유는 그쪽이 탐지 **거리**의 배수라 사거리가 늘어나서다 -
+        // 여기 틱스탬프는 "지금 시끄럽다"만 말하고 Campaign의 추격·열기가 그것을 읽는다.
+        if (owner != null)
+            owner.lastFireTick = TickManager.currentTick;
 
         _pending -= 1f;
         Fire();
@@ -656,9 +701,13 @@ public class Gun : Thing, IDamageable
     /// 사각 밖이면 한계각까지만 돌고 inArc가 false다 - 오차는 한계각 기준이라 포탑은
     /// 거기 도달해 선다.
     /// </summary>
-    private float Slew(Vector2 target, float dt, out bool inArc)
+    private float Slew(Vector2 target, float dt, out bool inArc) => Slew(target, dt, out inArc, out _);
+
+    /// <param name="signed">부호 있는 조준 오차(도). 부호가 있어야 변화율을 잴 수 있다 - 절댓값은 조준선을 지날 때 꺾여서 미분이 폭발한다.</param>
+    private float Slew(Vector2 target, float dt, out bool inArc, out float signed)
     {
         inArc = true;
+        signed = 180f;
         Vector2 toTarget = target - (Vector2)_turret.position;
 
         if (toTarget.sqrMagnitude < 1e-6f)
@@ -705,7 +754,8 @@ public class Gun : Thing, IDamageable
 
         _turret.rotation = Quaternion.Euler(0f, 0f, next);
 
-        return Mathf.Abs(Mathf.DeltaAngle(next, want));
+        signed = Mathf.DeltaAngle(next, want);
+        return Mathf.Abs(signed);
     }
 
     protected virtual void Fire()

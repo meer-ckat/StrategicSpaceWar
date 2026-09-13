@@ -13,7 +13,7 @@
 |---|---|---|
 | 알쿠비에레 거품·앞뒤 도플러·안쪽 평평 | `WarpFx.Bubble` (WarpFx.cs:54), `_WarpBubble` 유니폼 | 월드 좌표를 매 프레임 뷰포트로 변환. 배 한 척 전용(static 하나) |
 | 배경 캡처·굴절 | `WarpFxFeature` 풀스크린 blit | Shader Graph Scene Color가 아니라 카메라 컬러 통째. 보고서 §12.3의 걱정은 해당 없음 |
-| 섹터 정의·연결 | `SectorDef`·`SpawnDef`(CampaignDef.cs), `SubSectorGen.Make(chapter, leg, lane)` | 위치가 시드. 저장은 시드 + lanes만 |
+| 섹터 정의·연결 | `SectorDef`·`SpawnDef`(CampaignDef.cs), `OpenSectorGen.Make(chapter, leg, lane)` | 위치가 시드. 저장은 시드 + lanes만 |
 | 섹터 상태·재개 | `RunState.Progress` (sector, leg, lanes, pendingLeg, pendingRefit, 자원 4종, wingmen) | 구역 중간 저장 없음 — 승리 시점에만 배 파일 저장 |
 | 전이 연출 | `WarpTransition` (충전 4.2 s → 4300 m/s 스트릭 → 암전 5 s → 도착) | 틱 완전 정지, 도착점 = 원점 +X |
 | 화면 밖 접촉 | `ContactView` (SensorRange 1200, IdentifyRange 500, 가장자리 브래킷) | `Tracked`에 첫 관측 판 수만 캐시. 마지막 관측 위치는 없음 |
@@ -45,7 +45,7 @@ MAIN k (손대본, 지금 그대로)
 - **소구역 노드 하나가 오픈섹터 하나다.** `LegsPerChapter 2`, `Lanes 2`, `Make(chapter, leg, lane)`, `RunState.lanes` 전부 그대로. 갈림길이 메뉴에서 들판으로 옮겨진 것뿐이다.
 - **섹터 경계는 전부 워프.** [선택] `Prepare`가 HullStructure 전부를 걷고 좌표가 도착점 기준인 구조를 그대로 쓴다. 안쪽만 연속 항해.
 - **재방문 없음, 전진만.** [선택] 보고서 §13의 "재방문 상태 유지"는 자리 상태를 RunState에 넣어야 생긴다. 보고서 §14.2 자신이 "필요한지 먼저 확인"이라 했다. 1단계에서 "돌아가고 싶었다"가 나오면 그때.
-- **메인은 안 바꾼다.** 보고서 §5.3 "메인이 더 큰 공간"은 이번 범위 밖. 오픈섹터가 먼저 재미있어야 메인을 키울 이유가 생긴다.
+- **메인도 들판이다 (2026-09-11 오너 결정).** `SectorDef.field` 100 km, 오픈은 60×60. 메인의 적·승리는 대본 그대로고 생성기는 운석 밭(`OpenSectorGen.Rocks`)만 깐다 - 멀리 둔 적은 §11-1의 SeekZone 문제를 그대로 밟는다.
 
 ## 4. 데이터
 
@@ -62,9 +62,9 @@ GateDef  { int lane; float x, y; }
 SpawnDef { ... int site = -1; }   // 어느 자리 소속인가. -1이면 지금과 같다
 ```
 
-- `SubSectorGen.Make`가 지금은 템플릿 하나를 `ContactX 700`에 찍는다. 바꾸는 것: 템플릿 K개(K = 3~5, tier 규칙 그대로, Depot은 최대 1개)를 뽑아 들판 안에 간격 ≥ 8 km로 놓고, 각 템플릿의 배를 그 자리 중심 ± 60/90 m에 찍는다(지금 산포 그대로). 출구 둘은 +X 끝 y = ±6 km.
+- `OpenSectorGen.Make`가 지금은 템플릿 하나를 `ContactX 700`에 찍는다. 바꾸는 것: 템플릿 K개(K = 3~5, tier 규칙 그대로, Depot은 최대 1개)를 뽑아 들판 안에 간격 ≥ 8 km로 놓고, 각 템플릿의 배를 그 자리 중심 ± 60/90 m에 찍는다(지금 산포 그대로). 출구 둘은 +X 끝 y = ±6 km.
 - **시드가 위치를 정한다**는 규칙 유지. 자리 좌표도 `rng`에서 나오니 저장할 것이 안 는다.
-- `subsectors.json`은 안 바뀐다. 템플릿은 그대로 "자리 하나의 조합 규칙"이다.
+- `opensectors.json`은 안 바뀐다. 템플릿은 그대로 "자리 하나의 조합 규칙"이다.
 - 배경: `BackgroundView.Jump(seed, kind)`는 kind 하나를 받는다. 오픈섹터는 `""`(맨 하늘) [선택]. 자리마다 배경을 바꾸는 것은 한 하늘에 못 넣는다.
 
 ## 5. 규칙 변경 — 자리마다 한 줄
@@ -140,7 +140,7 @@ SpawnDef { ... int site = -1; }   // 어느 자리 소속인가. -1이면 지금
 
 §11의 P1 여섯이 원안의 "자리만 흩고 날아본다"를 죽였다. 최소 동반 변경 없이는 도착 직후 전장 조류가 플레이어를 튕긴다. 1단계 첫 커밋은 아래 일곱 줄이 한 덩어리다.
 
-1. `SubSectorGen.Make`: 템플릿 K개(3~5, Depot ≤ 1)를 8 km 간격에 흩는다. `sector.refit = false`, `materials = 0`(자리별 값은 근접 사건으로 옮긴다). `SectorDef.gate` 하나(`Vector2`). **출구는 하나** — 갈림길은 항로 화면에 그대로 둔다(2단계가 "출구 선택이 공간이 되는가"를 재기로 했으니 lane-gate는 그 뒤).
+1. `OpenSectorGen.Make`: 템플릿 K개(3~5, Depot ≤ 1)를 8 km 간격에 흩는다. `sector.refit = false`, `materials = 0`(자리별 값은 근접 사건으로 옮긴다). `SectorDef.gate` 하나(`Vector2`). **출구는 하나** — 갈림길은 항로 화면에 그대로 둔다(2단계가 "출구 선택이 공간이 되는가"를 재기로 했으니 lane-gate는 그 뒤).
 2. `Campaign.Prepare`: sites 노드면 `_battle.objective = () => _departed`를 **체인 앞에** 무조건 대입하고 `SeekZone`을 안 탄다(경계 없음 — 60 km에서 "밖"은 아직 문제가 아니다).
 3. `WakeDormant`: 시간 대신 "플레이어가 **그 배**에서 1500 m 안 **또는** 그 배 `AliveCount`가 줄었다". 자리 소속 필드 없이 같은 자리 배는 ±90 m라 같이 깬다. 둘째 조건이 없으면 잠든 자리를 사거리 밖에서 공짜로 죽인다.
 4. `Hangar.OnTick`: `owner.dormant`면 return. 없으면 carrier 자리가 잠들지 않는다.
@@ -166,7 +166,7 @@ Codex(ChatGPT)는 파일 읽는 도중 사용량 한도(103k 토큰, 답변 0줄
 | 6 | P1 | 거리 기상만이면 잠든 자리를 사거리 밖에서 공짜로 쏜다(탄은 물리라 맞고, 수동 주포는 커서로 쏜다, 탄 수명 30 s) | Ship.cs:1490, Projectile.cs:26 | §10-3 |
 | 7 | P2 | Wreck·Depot만 뽑힌 들판은 `!HasHostile → peaceful` 분기로 떨어져 동료 진입 즉시 끝난다 | Campaign.cs:515 | §10-2 "체인 앞" |
 | 8 | P2 | 출항 뒤 `Interlude` 최대 90틱 + 대본 대기 동안 틱이 돈다 | Campaign.cs:313, 832 | §10-6 |
-| 9 | P2 | 템플릿 `refit:true`가 노드에 남으면 출항 뒤 정비 화면이 한 번 더 | SubSectorGen.cs:162, Campaign.cs:805 | §10-1 |
+| 9 | P2 | 템플릿 `refit:true`가 노드에 남으면 출항 뒤 정비 화면이 한 번 더 | OpenSectorGen.cs:162, Campaign.cs:805 | §10-1 |
 | 10 | P2 | `battle-won` 대사가 안 싸운 출항에도 | DramaManager.cs:362 | §10-7 |
 | 11 | P2 | 동료(newship, 탱크 11장)가 60 km를 편대로 따라오다 연료로 죽으면 `BuryWingmen`이 영구 상실로 적는다 | ShipAi.cs:130, Campaign.cs:1113 | **미결.** 측정 뒤. 동료 연료를 안 깎거나 점프에 태운다 |
 | 12 | P2 | 배경 드리프트 360° | BackgroundView.cs:21 | §10 마지막 줄 |

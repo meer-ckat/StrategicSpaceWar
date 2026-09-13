@@ -3,6 +3,8 @@
   "sectors": [
     {
       "name": "감시소 17",
+      "field": 100000,
+
       "script": "sector-01",
       "spawns": [
         { "ship": "newship", "team": "Ally", "x": -600, "y": -35, "facing": 1, "isWingman": true, "autoFormation": true },
@@ -15,6 +17,8 @@
     },
     {
       "name": "감시소 19",
+      "field": 100000,
+
       "script": "sector-02",
       "spawns": [
         { "ship": "destroyer", "team": "Ally", "x": 50, "y": -35, "facing": 1, "isWingman": true },
@@ -27,6 +31,8 @@
     },
     {
       "name": "감시소 22",
+      "field": 100000,
+
       "script": "sector-03",
       "spawns": [
         { "ship": "frigate", "team": "Ally", "x": 50, "y": -45, "facing": 1, "isWingman": true },
@@ -41,6 +47,8 @@
     },
     {
       "name": "왕정군 초계선",
+      "field": 100000,
+
       "script": "sector-04",
       "spawns": [
         { "ship": "destroyer", "team": "Ally", "x": 70, "y": -35, "facing": 1, "isWingman": true },
@@ -55,6 +63,8 @@
     },
     {
       "name": "호위대",
+      "field": 100000,
+
       "script": "sector-05",
       "spawns": [
         { "ship": "lance", "team": "Ally", "x": 50, "y": -40, "facing": 1, "isWingman": true },
@@ -70,6 +80,8 @@
     },
     {
       "name": "봉쇄선",
+      "field": 100000,
+
       "script": "sector-06",
       "spawns": [
         { "ship": "destroyer", "team": "Ally", "x": 90, "y": -40, "facing": 1, "isWingman": true },
@@ -86,6 +98,8 @@
     },
     {
       "name": "기함 전대",
+      "field": 100000,
+
       "script": "sector-07",
       "spawns": [
         { "ship": "cruiser", "team": "Ally", "x": 80, "y": -45, "facing": 1, "isWingman": true },
@@ -104,6 +118,8 @@
     {
       "name": "초복사 시설",
       "kind": "Facility",
+      "field": 100000,
+
       "script": "sector-08",
       "spawns": [
         { "ship": "lance", "team": "Ally", "x": 110, "y": -57, "facing": 1, "isWingman": true },

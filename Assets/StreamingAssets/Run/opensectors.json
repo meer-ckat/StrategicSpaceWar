@@ -1,5 +1,5 @@
 {
-  "defName": "subsectors",
+  "defName": "opensectors",
   "templates": [
     {
       "id": "picket",
@@ -15,7 +15,8 @@
       ],
       "materials": 0,
       "refit": false,
-      "weight": 12
+      "weight": 12,
+      "signalSize": 500
     },
     {
       "id": "patrol",
@@ -32,7 +33,8 @@
       ],
       "materials": 0,
       "refit": false,
-      "weight": 12
+      "weight": 12,
+      "signalSize": 900
     },
     {
       "id": "screen",
@@ -49,7 +51,8 @@
       ],
       "materials": 0,
       "refit": false,
-      "weight": 12
+      "weight": 12,
+      "signalSize": 1500
     },
     {
       "id": "elite-lance",
@@ -64,7 +67,8 @@
       ],
       "materials": 0,
       "refit": false,
-      "weight": 10
+      "weight": 10,
+      "signalSize": 2000
     },
     {
       "id": "elite-wing",
@@ -80,7 +84,8 @@
       ],
       "materials": 0,
       "refit": false,
-      "weight": 10
+      "weight": 10,
+      "signalSize": 2000
     },
     {
       "id": "driftfield",
@@ -95,7 +100,8 @@
       ],
       "refit": true,
       "materials": 6,
-      "weight": 4
+      "weight": 4,
+      "signalSize": 3000
     },
     {
       "id": "trap",
@@ -111,7 +117,25 @@
       "hidden": "raider",
       "refit": false,
       "materials": 0,
-      "weight": 4
+      "weight": 4,
+      "signalSize": 3000
+    },
+    {
+      "id": "wreckfield",
+      "kind": "Wreck",
+      "tier": 0,
+      "label": "교전 흔적",
+      "minShips": 3,
+      "maxShips": 4,
+      "pool": [
+        "derelict"
+      ],
+      "refit": false,
+      "materials": 4,
+      "propellant": 3000,
+      "munitions": 60,
+      "signalSize": 5000,
+      "weight": 3
     },
     {
       "id": "depot",
@@ -125,8 +149,10 @@
       ],
       "materials": 16,
       "propellant": 1000000,
+      "munitions": 200,
       "refit": true,
-      "weight": 3
+      "weight": 3,
+      "signalSize": 8000
     },
     {
       "id": "port",
@@ -139,8 +165,10 @@
         "derelict"
       ],
       "materials": 30,
+      "munitions": 400,
       "refit": true,
-      "weight": 1
+      "weight": 1,
+      "signalSize": 15000
     },
     {
       "id": "raider",
@@ -156,7 +184,8 @@
       ],
       "materials": 0,
       "refit": false,
-      "weight": 8
+      "weight": 8,
+      "signalSize": 900
     },
     {
       "id": "convoy",
@@ -172,7 +201,8 @@
       ],
       "materials": 0,
       "refit": false,
-      "weight": 8
+      "weight": 8,
+      "signalSize": 3000
     },
     {
       "id": "elite-guns",
@@ -188,7 +218,8 @@
       ],
       "materials": 0,
       "refit": false,
-      "weight": 8
+      "weight": 8,
+      "signalSize": 2000
     }
   ]
 }

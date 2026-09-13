@@ -17,6 +17,7 @@
   },
   "maxHealth": 60,
   "blastDamage": 3200,
+  "maxRounds": 320,
   "providesPower": false,
   "tint": {
     "r": 0.95,

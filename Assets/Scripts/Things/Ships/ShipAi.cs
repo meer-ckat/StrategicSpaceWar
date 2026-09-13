@@ -122,7 +122,8 @@ public sealed class ShipAi : TickBehaviour
         if(_detatchBrain == false)
         {
             var tgt = _ship.NearestHostile();
-            _targetPos = tgt != null? tgt.transform.position : null;
+            _targetPos = tgt != null ? (Vector3?)GunLead(tgt) : null;
+            _targetVelocity = tgt != null ? tgt.velocity : Vector2.zero;
 
             // 표적이 없으면 조종간을 놓는다. 마지막 입력이 남아 있으면 적을 잃은 함선이
             // 우주 저편으로 계속 가속한다.
@@ -130,10 +131,16 @@ public sealed class ShipAi : TickBehaviour
         else if (_formation != null)
         {
             _targetPos = FormationSlot();
+            _targetVelocity = Vector2.zero;   // 편대 자리는 안 움직이는 점으로 본다. 안 지우면 지난 표적 속도가 남는다
         }
         else if (_chase != null)
         {
             _targetPos = LeadPoint();
+            _targetVelocity = _chaseBody != null ? _chaseBody.linearVelocity : Vector2.zero;
+        }
+        else
+        {
+            _targetVelocity = Vector2.zero;
         }
 
         if (_targetPos == null)
@@ -185,6 +192,76 @@ public sealed class ShipAi : TickBehaviour
 
     /// <summary>리드 상한(초). 아직 느린 창이 표적 한참 앞의 허공을 겨누는 것을 막는다.</summary>
     private const float MaxLeadSeconds = 4f;
+
+    /// <summary>지금 쫓는 것의 속도. feed-forward가 읽는다 - 표적이 없으면 0이라 예전 식으로 떨어진다.</summary>
+    private Vector2 _targetVelocity;
+
+    /// <summary>
+    /// 시선(방위)이 도는 속도(도/초). 상대속도의 횡성분을 거리로 나눈 것이다. 프레임 간 각도를 빼서
+    /// 구하지 않는 이유는 목표점이 리드 점이라 매 틱 흔들리고, 그 미분이 그대로 노이즈가 되어서다.
+    /// </summary>
+    private float BearingRate(Vector2 toTarget)
+    {
+        float sqr = toTarget.sqrMagnitude;
+
+        if (sqr < 1f)
+            return 0f;
+
+        Vector2 relative = _targetVelocity - _ship.velocity;
+
+        // 2D 외적이 곧 횡성분 x 거리다. 거리 제곱으로 나누면 rad/s.
+        return (toTarget.x * relative.y - toTarget.y * relative.x) / sqr * Mathf.Rad2Deg;
+    }
+
+    /// <summary>
+    /// 포가 맞힐 자리. **기수를 표적의 지금 위치가 아니라 리드 점에 둔다** - fly처럼 포가 기수를 따라가는
+    /// 배는 현재 위치를 겨누면 포탑이 매 틱 뒤늦게 쫓아가고, Gun의 PD 사격 게이트가 그 흔들림을 보고
+    /// 방아쇠를 안 당긴다. 결과가 "조준을 못 한다"였다.
+    ///
+    /// **Gun.TryGetTarget·리드 마커와 같은 식이다.** 셋이 다른 답을 내면 기수·포신·화면 표시가 서로
+    /// 다른 곳을 가리킨다 - 탄이 배 속도를 물려받으므로(Projectile.Launch) 상대 프레임으로 푼다.
+    ///
+    /// 포가 없거나(잔해로 떠남·전부 파괴) 탄보다 빠른 표적이면 리드를 포기하고 지금 자리를 겨눈다.
+    /// </summary>
+    private Vector2 GunLead(Ship target)
+    {
+        Vector2 at = target.transform.position;
+        float speed = GunSpeed();
+
+        if (speed <= 1f)
+            return at;
+
+        Vector2 d = at - (Vector2)transform.position;
+        Vector2 relative = target.velocity - _ship.velocity;
+
+        if (relative.sqrMagnitude >= speed * speed
+            || !Ballistics.InterceptTime(d, relative, speed, out float t))
+            return at;
+
+        return at + relative * Mathf.Min(t, MaxLeadSeconds);
+    }
+
+    /// <summary>
+    /// 리드에 쓸 대표 탄속. 살아 있는 포 중 제일 빠른 것이다 - 섞여 달린 배는 주포가 기수를 정하는 것이
+    /// 맞고, 느린 부포는 자기 traverse로 알아서 푼다. 포가 죽으면 값이 내려가므로 캐시하지 않는다
+    /// (fly는 두 문, destroyer도 열둘이라 이 루프가 NearestHostile 한 번보다 싸다).
+    /// </summary>
+    private float GunSpeed()
+    {
+        float best = 0f;
+
+        for (int i = 0; i < _ship.shipGuns.Count; i++)
+        {
+            Gun gun = _ship.shipGuns[i];
+
+            if (gun == null || gun.Neutralized || !Ship.StillAboard(gun, _ship))
+                continue;
+
+            best = Mathf.Max(best, gun.muzzleSpeed);
+        }
+
+        return best;
+    }
 
     /// <summary>
     /// 이보다 멀면 부스터를 켠다(m). <see cref="approachBand"/>(40)의 두 배 남짓이라
@@ -493,7 +570,12 @@ public sealed class ShipAi : TickBehaviour
         // **편대는 편대장과 같은 곳을 본다.** 자리에 도착하면 toTarget이 0이라 아래
         // 분기가 각도를 놓아버리는데, 그러면 편대기가 마지막 각도로 얼어붙어 배마다
         // 제멋대로 돌아간 채 따라다닌다. 편대 비행은 나란히 나는 것이 그림이다.
-        if (_formation != null)
+        //
+        // **뇌를 뗀 동안만이다**(2026-09-13). 예전에는 _formation만 보고 갈라서, 편대 자리를 든 채
+        // 교전으로 넘어가는 배(격납고 Aggressive 전투기)가 표적으로 날아가면서 **기수는 모함 침로를
+        // 유지했다.** 포가 170도 traverse라 쏘기는 해서 증상이 "조준이 좀 이상하다"뿐이었다.
+        // 캠페인 동료는 편대 중 항상 _detatchBrain이 켜져 있으므로 이 조건이 예전 동작을 그대로 둔다.
+        if (_detatchBrain && _formation != null)
         {
             float lead = Mathf.DeltaAngle(_ship.hullAngle, _formation.eulerAngles.z)
                 - _ship.angleRate * turnLead;
@@ -508,8 +590,21 @@ public sealed class ShipAi : TickBehaviour
         float want = Mathf.Atan2(toTarget.y, toTarget.x) * Mathf.Rad2Deg;
         float error = Mathf.DeltaAngle(_ship.hullAngle, want);
 
-        // 지금 각속도로 turnLead초 동안 더 돌 각도를 미리 상쇄한다.
-        float predicted = error - _ship.angleRate * turnLead;
+        // **표적의 방위 회전율을 미리 더한다(feed-forward).**
+        //
+        // 이게 없으면 이 식의 평형이 "오차 = 각속도 x turnLead"다 - 즉 **정상상태 선회율이 오차를
+        // turnLead로 나눈 값에 묶인다.** 함체가 240도/초를 낼 수 있어도(fly) 제어기가 그걸 안 쓴다.
+        // 60 m에서 횡속 80 m/s면 방위가 초당 76도 도는데, 그 속도를 내려면 오차가 152도여야 하니
+        // 수렴하는 평형이 아예 없다 - 기수가 영영 표적 뒤를 따라간다. 위치 오차만 보는 제어기가
+        // 움직이는 표적에 남기는 원리적 지연이고, I항으로 메우면 표적을 놓친 구간에서 windup이 쌓인다.
+        //
+        // 표적의 방위 회전율만큼 나도 같이 돌면 오차 0에서 명령 0이 되어 그 지연이 사라진다.
+        // 상한은 함체 종단 각속도다 - 스쳐 지나가는 표적(거리가 0으로 가면)에서 무한이 되는 것을 막는다.
+        float losRate = Mathf.Clamp(
+            BearingRate(toTarget), -_ship.TerminalAngleRate, _ship.TerminalAngleRate);
+
+        // 지금 각속도로 turnLead초 동안 더 돌 각도를 미리 상쇄한다. losRate가 0이면 예전 식 그대로다.
+        float predicted = error - (_ship.angleRate - losRate) * turnLead;
 
         return Mathf.Clamp(predicted / Mathf.Max(1e-3f, turnBand), -1f, 1f);
     }

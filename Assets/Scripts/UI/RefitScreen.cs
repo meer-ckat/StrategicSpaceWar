@@ -14,7 +14,7 @@ public sealed class RefitScreen : MonoBehaviour
     /// <summary>패널이 덮는 화면 오른쪽 비율. Campaign이 카메라 오프셋에 같은 값을 쓴다.</summary>
     public const float PanelFraction = 0.4f;
 
-    const int WindowLayer = 880;   // LogisticsScreen과 같다. 둘이 동시에 열리는 일이 없다
+    const int WindowLayer = UiLayer.Screen;   // LogisticsScreen과 같다. 둘이 동시에 열리는 일이 없다
     const float Margin = 24f, Padding = 16f, Gap = 8f, RowH = 22f, ButtonH = 40f;
     const float OpenFade = 0.22f;
     const float BarkSeconds = 4f;
@@ -27,8 +27,8 @@ public sealed class RefitScreen : MonoBehaviour
     GUIGroup window, panel, comms;
     GUILabel plateValue, materialValue, commsSpeaker, commsText;
     GUIButton[] repairButtons;
-    GUIButton depart, refuel;
-    GUILabel propellantValue;
+    GUIButton depart, refuel, rearm;
+    GUILabel propellantValue, munitionsValue;
     GUIStyle rowLabel, rowValue;
     GUIBoxLabel black;
     GUIStyle damagedBox, repairedBox;
@@ -72,16 +72,16 @@ public sealed class RefitScreen : MonoBehaviour
     {
         Campaign c = Campaign.current;
 
-        GUIStyle eyebrow = GUIStyleMaker.Label(LogisticsScreen.Dim, 12).Font(12, FontStyle.Bold);
-        GUIStyle heading = GUIStyleMaker.Label(LogisticsScreen.White, 20).Font(20, FontStyle.Bold);
-        GUIStyle body = GUIStyleMaker.Label(LogisticsScreen.White, 15).Wrap().RichText();
-        GUIStyle button = GUIStyleMaker.Button(LogisticsScreen.White, LogisticsScreen.Obsidian, LogisticsScreen.Orange, null, 16);
-        GUIStyle panelStyle = GUIStyleMaker.Box(LogisticsScreen.Panel);
-        GUIStyle card = GUIStyleMaker.Box(LogisticsScreen.Surface);
-        rowLabel = GUIStyleMaker.Label(LogisticsScreen.Dim, 15);
-        rowValue = GUIStyleMaker.Label(LogisticsScreen.White, 15, TextAnchor.MiddleRight).RichText();
-        damagedBox ??= GUIStyleMaker.Box(LogisticsScreen.Red);
-        repairedBox ??= GUIStyleMaker.Box(LogisticsScreen.Green);
+        GUIStyle eyebrow = GUIStyleMaker.Label(Palette.Steel, 12).Font(12, FontStyle.Bold);
+        GUIStyle heading = GUIStyleMaker.Label(Palette.Hull, 20).Font(20, FontStyle.Bold);
+        GUIStyle body = GUIStyleMaker.Label(Palette.Hull, 15).Wrap().RichText();
+        GUIStyle button = GUIStyleMaker.Button(Palette.Hull, Palette.Void, Palette.Radiance, null, 16);
+        GUIStyle panelStyle = GUIStyleMaker.Box(Palette.DeepSpace);
+        GUIStyle card = GUIStyleMaker.Box(Palette.Bulkhead);
+        rowLabel = GUIStyleMaker.Label(Palette.Steel, 15);
+        rowValue = GUIStyleMaker.Label(Palette.Hull, 15, TextAnchor.MiddleRight).RichText();
+        damagedBox ??= GUIStyleMaker.Box(Palette.Breach);
+        repairedBox ??= GUIStyleMaker.Box(Palette.Signal);
         repairedUntil.Clear();
 
         Rect screen = new Rect(0f, 0f, GUIManager.LogicalWidth, GUIManager.LogicalHeight);
@@ -113,6 +113,7 @@ public sealed class RefitScreen : MonoBehaviour
         plateValue = Row(inn, ref y, "손상 판");
         materialValue = Row(inn, ref y, "보유 자재");
         propellantValue = Row(inn, ref y, "보유 추진제");
+        munitionsValue = Row(inn, ref y, "보유 탄약");
         y += Gap;
 
         float bw = (inn.width - Gap * 2f) / 3f;
@@ -131,6 +132,9 @@ public sealed class RefitScreen : MonoBehaviour
         refuel = Widget.Button(panel, "급유", new Rect(inn.x, y, inn.width, ButtonH), Refuel, button);
         Hoverable(refuel);
         y += ButtonH + Gap;
+        rearm = Widget.Button(panel, "재보급", new Rect(inn.x, y, inn.width, ButtonH), Rearm, button);
+        Hoverable(rearm);
+        y += ButtonH + Gap;
         Widget.Label(panel, "R 수리 1   Shift+R 전량   Enter 출항", new Rect(inn.x, y, inn.width, 16f), eyebrow);
         y += 16f + Gap * 2f;
 
@@ -142,13 +146,13 @@ public sealed class RefitScreen : MonoBehaviour
         Widget.Label(panel, "잃은 모듈  (자재로 다시 산다)", new Rect(inn.x, y, inn.width, 16f), eyebrow);
         y += 20f;
         lostRect = new Rect(inn.x, y, inn.width, Mathf.Max(RowH, commsRect.y - Gap - y));
-        lostLabel = GUIStyleMaker.Label(LogisticsScreen.White, 14).RichText();
-        lostButton = GUIStyleMaker.Button(LogisticsScreen.White, LogisticsScreen.Surface, LogisticsScreen.Orange, null, 13);
+        lostLabel = GUIStyleMaker.Label(Palette.Hull, 14).RichText();
+        lostButton = GUIStyleMaker.Button(Palette.Hull, Palette.Bulkhead, Palette.Radiance, null, 13);
         BuildLost();
         comms = Widget.Window(window, "", commsRect, "Comms", card);
         Rect cmIn = LogisticsScreen.Inset(commsRect, 12f);
         Widget.Label(comms, "COMMUNICATION", new Rect(cmIn.x, cmIn.y, cmIn.width, 14f), eyebrow);
-        commsSpeaker = Widget.Label(comms, "", new Rect(cmIn.x, cmIn.y + 16f, cmIn.width, 16f), GUIStyleMaker.Label(LogisticsScreen.White, 12).Font(12, FontStyle.Bold));
+        commsSpeaker = Widget.Label(comms, "", new Rect(cmIn.x, cmIn.y + 16f, cmIn.width, 16f), GUIStyleMaker.Label(Palette.Hull, 12).Font(12, FontStyle.Bold));
         commsText = Widget.Label(comms, "", new Rect(cmIn.x, cmIn.y + 34f, cmIn.width, cmIn.height - 34f), body);
         comms.isVisible = false;
         comms.isInteractable = false;
@@ -208,7 +212,7 @@ public sealed class RefitScreen : MonoBehaviour
 
         if (lost.Count == 0)
         {
-            Widget.Label(lostGroup, LogisticsScreen.Tint("없음", LogisticsScreen.Dim), new Rect(lostRect.x, lostRect.y, lostRect.width, RowH), lostLabel);
+            Widget.Label(lostGroup, LogisticsScreen.Tint("없음", Palette.Steel), new Rect(lostRect.x, lostRect.y, lostRect.width, RowH), lostLabel);
             lostScrollMax = 0f;
             return;
         }
@@ -235,7 +239,7 @@ public sealed class RefitScreen : MonoBehaviour
         {
             Ship.LostModule m = first[def];
             bool can = RunState.Materials >= m.cost;
-            string text = def + "  " + LogisticsScreen.Tint("x" + count[def], LogisticsScreen.Dim);
+            string text = def + "  " + LogisticsScreen.Tint("x" + count[def], Palette.Steel);
             Widget.Label(lostGroup, text, new Rect(lostRect.x, y, lostRect.width - bw - Gap, RowH), lostLabel);
             GUIButton buy = Widget.Button(lostGroup, m.cost + " 자재", new Rect(lostRect.xMax - bw, y, bw, RowH), null, lostButton);
             Ship.LostModule pick = m;
@@ -281,7 +285,7 @@ public sealed class RefitScreen : MonoBehaviour
 
     void RenderStatus(int damaged, int materials)
     {
-        plateValue.Content.text = LogisticsScreen.Tint(damaged.ToString(), damaged > 0 ? LogisticsScreen.Red : LogisticsScreen.Green);
+        plateValue.Content.text = LogisticsScreen.Tint(damaged.ToString(), damaged > 0 ? Palette.Breach : Palette.Signal);
         materialValue.Content.text = $"<b>{materials}</b>";
     }
 
@@ -302,6 +306,11 @@ public sealed class RefitScreen : MonoBehaviour
         bool canFuel = p != null && RunState.Propellant > 0 && p.shipTanks.Count > 0;
         refuel.isEnabled = refuel.isInteractable = canFuel;
         refuel.Opacity = canFuel ? 1f : LogisticsScreen.DisabledOpacity;
+
+        munitionsValue.Content.text = $"<b>{RunState.Munitions}</b>";
+        bool canArm = p != null && RunState.Munitions > 0 && p.Rounds < p.MaxRounds;
+        rearm.isEnabled = rearm.isInteractable = canArm;
+        rearm.Opacity = canArm ? 1f : LogisticsScreen.DisabledOpacity;
 
         // 수리가 자재를 쓰면 살 수 있던 모듈이 못 사는 것이 된다. 값은 버튼 글자 앞 숫자다.
         if (lostGroup != null)
@@ -355,6 +364,11 @@ public sealed class RefitScreen : MonoBehaviour
             return;
 
         int poured = Mathf.RoundToInt(p.Refuel(RunState.Propellant));
+
+        // 동료도 같은 창고에서. 출구에서 워프 Δv를 못 내면 낙오하므로, 여기가 그걸 막는 유일한 자리다.
+        foreach (Ship mate in Campaign.current.Wingmates())
+            poured += Mathf.RoundToInt(mate.Refuel(RunState.Propellant - poured));
+
         if (poured <= 0)
             return;
 
@@ -362,6 +376,26 @@ public sealed class RefitScreen : MonoBehaviour
         RunState.Save(p);
         LogisticsScreen.Sfx(LogisticsScreen.SfxClick);
         LogisticsScreen.Punch(refuel);
+        RefreshStatus();
+    }
+
+    // 창고의 탄약(발)을 탄약고에 넣는다. 급유와 같은 모양.
+    void Rearm()
+    {
+        Ship p = Campaign.current.Player;
+
+        if (p == null || !rearm.isInteractable)
+            return;
+
+        int loaded = p.Rearm(RunState.Munitions);
+
+        if (loaded <= 0)
+            return;
+
+        RunState.Munitions -= loaded;
+        RunState.Save(p);
+        LogisticsScreen.Sfx(LogisticsScreen.SfxClick);
+        LogisticsScreen.Punch(rearm);
         RefreshStatus();
     }
 

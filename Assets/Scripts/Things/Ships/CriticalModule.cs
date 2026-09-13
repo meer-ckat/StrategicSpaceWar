@@ -45,6 +45,12 @@ public class CriticalModule : Thing, IDamageable
     /// <summary>낮을수록 크고 무거운 폭발로 들린다. 같은 클립으로 탄약고와 원자로를 가른다.</summary>
     public float blastPitch = 1f;
 
+    /// <summary>탄약고 용량(발). 0이면 탄약고가 아니다(원자로·격납고). 남은 발수가 곧 노획 MUN이다.</summary>
+    public int maxRounds;
+
+    public int Rounds { get; private set; }
+    public float Rounds01 => maxRounds > 0 ? (float)Rounds / maxRounds : 0f;
+
     private float _health;
     private bool _detonated;
 
@@ -59,6 +65,7 @@ public class CriticalModule : Thing, IDamageable
     {
         base.Awake();
         _health = maxHealth;
+        Rounds = maxRounds;
     }
 
     protected override bool NeedsTick => false;
@@ -66,6 +73,29 @@ public class CriticalModule : Thing, IDamageable
     public override void OnTick() { }
 
     /// <summary>로드 경로. 값을 그냥 놓는다 - TakeDamage의 부작용을 타지 않는다.</summary>
+    public bool TakeRound()
+    {
+        if (Neutralized || Rounds <= 0)
+            return false;
+
+        Rounds--;
+        return true;
+    }
+
+    /// <summary>빈 자리만큼 채우고 실제로 들어간 발수를 돌려준다.</summary>
+    public int Load(int offer)
+    {
+        if (Neutralized || maxRounds <= 0)
+            return 0;
+
+        int taken = UnityEngine.Mathf.Clamp(offer, 0, maxRounds - Rounds);
+        Rounds += taken;
+        return taken;
+    }
+
+    public void RestoreRounds01(float fraction)
+        => Rounds = UnityEngine.Mathf.RoundToInt(maxRounds * UnityEngine.Mathf.Clamp01(fraction));
+
     public void RestoreHealth01(float fraction)
         => _health = maxHealth * UnityEngine.Mathf.Clamp01(fraction);
 

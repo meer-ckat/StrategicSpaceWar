@@ -14,41 +14,43 @@ using UnityEngine.UI;
 /// </summary>
 public sealed class ShipStatusHud : MonoBehaviour
 {
-    private static readonly Color HudColor =
-        new(0.78f, 0.90f, 1.00f, 1f);
+    // Palette 이름으로만 고른다. 본문 = Hull, 보조 = 투명한 Hull, 경고 = Radiance, 손상 = Breach,
+    // 조준·리드 = Telemetry. 값을 바꿀 자리는 Palette 하나다.
+    private static readonly Color HudColor = Palette.Hull;
 
-    private static readonly Color DimColor =
-        new(0.78f, 0.90f, 1.00f, 0.45f);
+    private static readonly Color DimColor = Palette.Hull.WithAlpha(0.45f);
 
-    private static readonly Color WarnColor =
-        new(1.00f, 0.80f, 0.30f, 1f);
+    private static readonly Color WarnColor = Palette.Radiance;
 
-    private static readonly Color CriticalColor =
-        new(1.00f, 0.1f, 0.15f, 1f);
+    private static readonly Color CriticalColor = Palette.Breach;
 
-    private static readonly Color PanelBg =
-        new(0.02f, 0.03f, 0.05f, 0.72f);
+    private static readonly Color PanelBg = Palette.DeepSpace.WithAlpha(0.72f);
 
-    private static readonly Color GunAimColor =
-        new(0.78f, 0.90f, 1.00f, 0.15f);
+    private static readonly Color GunAimColor = Palette.Telemetry.WithAlpha(0.15f);
 
-    private static readonly Color LeadColor =
-        new(0.78f, 0.90f, 1.00f, 0.60f);
+    private static readonly Color LeadColor = Palette.Telemetry.WithAlpha(0.60f);
 
     /// <summary>
     /// 미사일 잠금. 계기의 파랑에서 유일하게 벗어나는 색이다 - 리드 마커와 같은 십자
     /// 모양이라 색으로 갈리지 않으면 둘이 섞인다.
     /// </summary>
-    private static readonly Color LockColor =
-        new(1.00f, 0.45f, 0.30f, 0.85f);
+    private static readonly Color LockColor = Palette.Heat.WithAlpha(0.85f);
 
     private const float Margin = 16f;
+
+    /// <summary>
+    /// 패널이 차지하는 위·아래 띠의 높이(여백 포함). 가장자리 브래킷(<see cref="ContactView"/>)이
+    /// 이 안으로 들어오지 않게 하는 값 - 신호 꺾쇠가 WPN·AIRFRAME 글자 밑에 깔리던 자리.
+    /// 아래 띠는 WPN 높이가 포 수를 따라 변해서 그릴 때 적는다.
+    /// </summary>
+    public static float TopBand => Mathf.Max(AirframeHeight, FlightHeight) + Margin;
+    public static float BottomBand { get; private set; } = AirframeHeight + Margin;
 
     private const float AirframeWidth = 300f;
     private const float AirframeHeight = 150f;
 
     private const float FlightWidth = 240f;
-    private const float FlightHeight = 122f;
+    private const float FlightHeight = 143f;   // EMIT 행 하나(2026-09-12)
 
     private const float WeaponWidth = 340f;
 
@@ -126,10 +128,15 @@ public sealed class ShipStatusHud : MonoBehaviour
         if (Event.current.type != EventType.Repaint)
             return;
 
+        // 계기판은 GUIManager(depth 0)보다 뒤다. OnGUI끼리는 GUI.depth가 낮은 쪽이 위에 그려진다 -
+        // 대사가 바닥 중앙으로 오면서(2026-09-12) AIRFRAME 패널과 겹치자 실행 순서에 따라 묻혔다.
+        GUI.depth = 1;
+
         // 함선 선택 화면 위로 계기판이 뚫고 나온다. 이 파일은 GUIManager 밖에서 GUI.*를
         // 직접 부르므로 ImGui Layer로는 못 가린다 - 다른 OnGUI 콜백이라 실행 순서가
         // 곧 그리기 순서다. 화면이 열려 있으면 그리지 않는 것이 유일한 문이다.
-        if (ShipSelectScreen.IsOpen || LogisticsScreen.IsOpen || RefitScreen.IsOpen || CutSceneManager.ControlsPlayer)
+        if (ShipSelectScreen.IsOpen || LogisticsScreen.IsOpen || RefitScreen.IsOpen
+            || MapScreen.IsOpen || CutSceneManager.ControlsPlayer)
             return;
 
         Ship ship = GameManager.Player();
@@ -263,7 +270,7 @@ public sealed class ShipStatusHud : MonoBehaviour
     private static void ApplySection(ref Rect rect, ref Color color)
     {
         if (_sectionDying)
-            color = new Color(Color.red.r, Color.red.g, Color.red.b, color.a);
+            color = Palette.Breach.WithAlpha(color.a);
 
         rect.position += _sectionShake;
     }
@@ -564,13 +571,13 @@ public sealed class ShipStatusHud : MonoBehaviour
         // 충각은 판정 셋과 다른 사건이다 - 뚫린 것도 튕긴 것도 아니고 갈리는 것이라
         // 주황으로 따로 둔다. 접촉하는 동안 계속 켜져 있으므로 채도를 낮게 잡는다.
         if (mark.ram)
-            return new Color(1.00f, 0.55f, 0.20f, 1f);
+            return Palette.Heat;
 
         return mark.outcome switch
         {
-            HitOutcome.Penetrated => new Color(1.00f, 0.98f, 0.92f, 1f),
+            HitOutcome.Penetrated => Palette.Hull,
             HitOutcome.Ricochet => WarnColor,
-            _ => new Color(0.35f, 0.85f, 1.00f, 1f),
+            _ => Palette.Telemetry,
         };
     }
 
@@ -712,6 +719,17 @@ public sealed class ShipStatusHud : MonoBehaviour
             $"{pressure * 100f:0}%",
             pressureColor
         );
+
+        // 자기 열원을 못 보면 방출량은 없는 규칙이다. 시끄러우면 경고색.
+        float emission = ship.Emission;
+
+        DrawValue(
+            panel,
+            ref y,
+            "EMIT",
+            $"×{emission:0.0}",
+            emission >= 1.4f ? WarnColor : HudColor
+        );
     }
 
 
@@ -802,6 +820,8 @@ public sealed class ShipStatusHud : MonoBehaviour
             WeaponWidth,
             height
         );
+
+        BottomBand = Mathf.Max(AirframeHeight, height) + Margin;
 
         int guns = 0;
 
@@ -984,6 +1004,7 @@ public sealed class ShipStatusHud : MonoBehaviour
         Gun.HoldReason.LineBlocked => "LINE BLOCKED",
         Gun.HoldReason.OutOfArc => "OUT OF ARC",
         Gun.HoldReason.NoGunner => "NO GUNNER",
+        Gun.HoldReason.NoAmmo => "NO AMMO",
 
         // Adrift/Destroyed는 BuildWeaponEntries가 이미 걸러서 여기 안 온다.
         _ => "",
@@ -1201,6 +1222,10 @@ public sealed class ShipStatusHud : MonoBehaviour
 
             // 잔해로 간 포탑은 null이 아니다 - 소속을 다시 확인해야 남의 조준선을 안 그린다.
             if (gun == null || !Ship.StillAboard(gun, ship))
+                continue;
+
+            // 못 쏘는 포에는 조준선이 없다 - 부서졌거나 포수가 없다(전력·승무원). 선이 있으면 쏠 수 있다는 약속이다.
+            if (gun.Neutralized || gun.Hold == Gun.HoldReason.NoGunner)
                 continue;
 
             Transform turret =

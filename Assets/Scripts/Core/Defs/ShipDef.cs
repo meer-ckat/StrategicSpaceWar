@@ -32,6 +32,9 @@ public class Placement
     /// <summary>탱크 잔량 비율. 체력과 별개다 - 멀쩡한 탱크가 비어 있을 수 있다. 탱크가 아니면 1.</summary>
     public float fuel = 1f;
 
+    /// <summary>탄약고 잔량 비율. 탄약고가 아니면 1.</summary>
+    public float rounds = 1f;
+
     /// <summary>
     /// 이 자리에서만 쓰는 콜라이더 크기. **0이면 def의 값을 쓴다.**
     ///
