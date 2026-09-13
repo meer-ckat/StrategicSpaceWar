@@ -140,6 +140,24 @@ public sealed class HullStructure : MonoBehaviour
     /// </summary>
     private Ship _xrayShip;
 
+    /// <summary>
+    /// X-ray 원장. **살아 있는 칸이 꺼지는 자리가 둘이라 둘 다 여기로 온다** - 부서져서
+    /// (<see cref="ReportPlateLost"/>)와 떨어져 나가서(<c>MakeDebris</c>: Shed 한 장, Breakaway 조각).
+    /// 처음엔 ReportPlateLost에만 걸었는데 Armor.Die가 Shed 성공이면 그 전에 return해서
+    /// 원장이 영영 비었다 - "마지막 0개 사건". 설계도 칸으로 적는다: 죽은 뒤 그리는 그림이 설계도 위다.
+    /// </summary>
+    private void NoteLost(Vector2Int liveCell)
+    {
+        if (_designMap == null)
+            return;
+
+        if (_xrayShip == null)
+            TryGetComponent(out _xrayShip);
+
+        if (_xrayShip != null)
+            DeathXray.PlateLost(_xrayShip, _designMap.ToCell(_map.ToLocal(liveCell.x, liveCell.y)));
+    }
+
     public void ReportPlateLost(Transform plate, float heat = 0f)
     {
         // 판이 하나 사라지면 그 판을 벽으로 세던 방의 파공 수가 바뀐다. 아래 어느
@@ -155,14 +173,6 @@ public sealed class HullStructure : MonoBehaviour
             return;
         }
 
-        // X-ray 원장. 살아 있는 격자(_map)가 아니라 설계도 칸으로 적는다 - 죽은 뒤 그리는 그림이
-        // 설계도 위라서다. 플레이어 배가 아니면 DeathXray가 버린다.
-        if (_xrayShip == null)
-            TryGetComponent(out _xrayShip);
-
-        if (_xrayShip != null && _xrayShip.DesignMap != null)
-            DeathXray.PlateLost(_xrayShip, _xrayShip.DesignMap.ToCell(plate.localPosition));
-
         Vector2Int cell = _map.ToCell(plate.localPosition);
 
         if (!_map.Inside(cell))
@@ -177,6 +187,7 @@ public sealed class HullStructure : MonoBehaviour
         {
             _alive[idx] = false;
             _aliveCount--;
+            NoteLost(cell);
         }
 
         if (ShipGrid.Solid(_map.cells[cell.x, cell.y]))
@@ -1401,6 +1412,7 @@ public sealed class HullStructure : MonoBehaviour
             {
                 _alive[aliveIdx] = false;
                 _aliveCount--;
+                NoteLost(cell);
             }
         }
 
