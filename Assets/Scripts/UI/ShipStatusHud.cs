@@ -304,13 +304,14 @@ public sealed class ShipStatusHud : MonoBehaviour
     private const float XrayCellMax = 14f;
     private const float XrayStepSeconds = 0.7f;    // 사건 하나 = 이 시간. 열 개면 7초
     private const float XrayFlashSeconds = 0.25f;  // 사건이 켜지는 순간 흰빛
+    private const float XrayGaugeThickness = 4f;   // LogisticsScreen.GaugeThickness와 같다
 
     /// <summary>
     /// 마지막 열 사건을 **순서대로 재생한다.** 시간으로 칠하면 유폭 한 방이 판 40장을 같은 순간에
     /// 죽여서 전부 빨강이 되고, 그 직전의 관통 한 발이 묻힌다 - 그 한 발이 원인인데.
     /// 재생 중인 사건은 흰빛에서 빨강으로, 지난 사건은 주황, 열 개 밖의 옛 상처는 회색.
     /// 시타델은 언제나 표시 - 탄약고 옆이 먼저 뚫린 그림이 "왜 유폭했나"의 답이다.
-    /// 다 돌면 그 자리에 멈춘다. 아무 키가 재시작이다.
+    /// 다 돌면 그 자리에 멈춘다. Space를 3초 누르면 재시작이다.
     /// </summary>
     private static void DrawXray()
     {
@@ -478,7 +479,20 @@ public sealed class ShipStatusHud : MonoBehaviour
         Legend(Palette.Heat, "충각 (갈린 자리)");
 
         GUI.color = DimColor;
-        GUI.Label(new Rect(textArea.x, textArea.yMax - RowHeight, textArea.width, RowHeight), "아무 키  -  다시", _leftStyle);
+        GUI.Label(new Rect(textArea.x, textArea.yMax - RowHeight, textArea.width, RowHeight), "Space 길게  -  다시", _leftStyle);
+
+        // 재시작 게이지. 도착 카드(LogisticsScreen.ShowCard)와 같은 그림 - 위는 왼쪽에서, 아래는 오른쪽에서.
+        // 누르는 동안만 보인다. 떼면 0으로 돌아가니 그림도 사라진다.
+        float hold = GameManager.RestartHold01;
+
+        if (hold > 0f)
+        {
+            float fill = w * hold;
+            GUI.color = Palette.Telemetry;
+            GUI.DrawTexture(new Rect(0f, 0f, fill, XrayGaugeThickness), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(w - fill, h - XrayGaugeThickness, fill, XrayGaugeThickness), Texture2D.whiteTexture);
+        }
+
         GUI.color = Color.white;
 
         GUI.matrix = saved;

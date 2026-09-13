@@ -188,17 +188,24 @@ public sealed class GameManager : MonoBehaviour
             return;
 
         // X-ray를 읽을 시간. 검정 화면 위에 죽은 판과 원인이 떠 있는데 몇 초 만에 씬이 넘어가면
-        // 없는 것과 같다. 아무 키로 넘기고, 상한은 두 배로 - 자리를 비웠으면 알아서 간다.
-        bool keyed = Keyboard.current != null && Keyboard.current.anyKey.wasPressedThisFrame;
+        // 없는 것과 같다. **Space를 3초 누르면** 간다 - 아무 키는 X-ray를 보다 실수로 넘긴다.
+        // 게이지는 도착 카드와 같은 연출(위·아래 막대). 떼면 처음부터. 상한은 자리를 비웠을 때.
+        bool held = Keyboard.current != null && Keyboard.current.spaceKey.isPressed;
+        _restartHold = held ? _restartHold + Time.unscaledDeltaTime : 0f;
 
-        if (!keyed && holdElapsed < XrayHoldMaxSeconds)
+        if (_restartHold < RestartHoldSeconds && holdElapsed < XrayHoldMaxSeconds)
             return;
 
         _restarting = true;
         Restart();
     }
 
-    private const float XrayHoldMaxSeconds = 60f;
+    private const float XrayHoldMaxSeconds = 120f;
+    private const float RestartHoldSeconds = 3f;
+    private static float _restartHold;
+
+    /// <summary>Space를 누른 비율 0~1. X-ray가 게이지로 그린다.</summary>
+    public static float RestartHold01 => Mathf.Clamp01(_restartHold / RestartHoldSeconds);
 
     private const float MaxDialogueWaitSeconds = 30f;
 
@@ -342,6 +349,7 @@ public sealed class GameManager : MonoBehaviour
         PlayerDown = false;
         _sawPlayer = false;
         _restarting = false;
+        _restartHold = 0f;
         DeathXray.Reset();
         _blackout = null;
         _blackoutMissing = false;
