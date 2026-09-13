@@ -85,6 +85,9 @@ public static class DeathXray
     private const float ShellMargin = 45f;
 
     private static long _frameTick = -1;
+
+    /// <summary>Physics2D.Simulate 직후. 배가 움직였으니 다음 기록은 행렬을 다시 읽는다.</summary>
+    public static void PhysicsStepped() => _frameTick = -1;
     private static Matrix4x4 _worldToLocal;
     private static Vector2 _shipPos;
     private static float _shipRadius;
@@ -116,10 +119,15 @@ public static class DeathXray
         g.x >= -margin && g.y >= -margin && g.x <= Design.width + margin && g.y <= Design.height + margin;
 
     /// <summary>선 하나. 배 근처가 아니면 버린다 - 5 km 밖 남의 싸움은 기록할 것이 아니다.</summary>
-    public static void AddTrail(Vector2 fromWorld, Vector2 toWorld, SpallTrails.Kind kind, int id = 0)
+    public static void AddTrail(Vector2 fromWorld, Vector2 toWorld, SpallTrails.Kind kind, int id = 0, int generation = 0)
     {
         if (!Frame())
             return;
+
+        // 실체 파편(generation > 0)도 Projectile이라 틱마다 Shell 구간을 낸다. 배가 도는 동안 여러 틱에
+        // 걸쳐 적히니 배 좌표에서는 나선이 된다 - 탄이 아니라 파편 비행으로 분류한다(회색 가는 선).
+        if (kind == SpallTrails.Kind.Shell && generation > 0)
+            kind = SpallTrails.Kind.Vent;
 
         // 거친 거름망은 월드 거리로. 행렬 곱 전에 대부분이 여기서 빠진다.
         float r = _shipRadius;

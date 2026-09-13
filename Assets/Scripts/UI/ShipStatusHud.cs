@@ -306,6 +306,7 @@ public sealed class ShipStatusHud : MonoBehaviour
     private const float XrayFlightSeconds = 1f;    // 지금 사건의 탄이 날아오는 시간
 
     private static readonly Dictionary<int, List<DeathXray.Trail>> _xrayChains = new();
+    private static readonly HashSet<int> _xrayHitIds = new();
 
     /// <summary>Liang-Barsky. 선분을 사각형 안으로 자른다. 하나도 안 남으면 false.</summary>
     private static bool ClipToRect(ref Vector2 a, ref Vector2 b, Rect r)
@@ -443,10 +444,18 @@ public sealed class ShipStatusHud : MonoBehaviour
             }
         }
 
+        // 맞힌 탄만 그린다. 45칸 안을 스쳐 간 빗나간 탄은 굵은 선으로 화면을 가로질러 "저게 왜"가 됐다.
+        _xrayHitIds.Clear();
+        foreach (DeathXray.Hit hit in DeathXray.Hits)
+            if (!hit.ram) _xrayHitIds.Add(hit.id);
+
         // 1) 지난 사건: 전부 정지 선.
         DeathXray.ForEachTrail(tr =>
         {
             if (tr.tick < earliest || tr.tick > pastTo)
+                return;
+
+            if (tr.kind == SpallTrails.Kind.Shell && !_xrayHitIds.Contains(tr.id))
                 return;
 
             Color lc = TrailColor(tr.kind, out float lw);
@@ -459,6 +468,9 @@ public sealed class ShipStatusHud : MonoBehaviour
         DeathXray.ForEachTrail(tr =>
         {
             if (tr.tick < nowFrom || tr.tick > nowTo || tr.tick <= pastTo)
+                return;
+
+            if (tr.kind == SpallTrails.Kind.Shell && !_xrayHitIds.Contains(tr.id))
                 return;
 
             if (tr.kind != SpallTrails.Kind.Shell)

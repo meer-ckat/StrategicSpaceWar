@@ -274,6 +274,10 @@ namespace Core
                     Physics2D.Simulate(TickDeltaTime);
                 }
 
+                // X-ray의 배 행렬도 같은 이유로 여기서 낡는다 - 충각(램 페이즈)이 먼저 잡은
+                // 행렬을 탄 궤적(탄 페이즈)이 쓰면 169 m/s에서 3칸이 밀렸다.
+                DeathXray.PhysicsStepped();
+
                 // 탄도 스냅샷은 여기서 낡는다. 안 알리면 램 페이즈에 뜬 판 위치를 탄 페이즈가
                 // 읽어서, 배가 이동한 만큼 전부 어긋난다.
                 TraceWorld.Invalidate();
