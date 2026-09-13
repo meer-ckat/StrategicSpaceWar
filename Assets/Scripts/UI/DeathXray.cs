@@ -66,6 +66,7 @@ public static class DeathXray
         public long tick;
         public Vector2 at;            // 격자 좌표
         public HitOutcome outcome;
+        public bool ram;              // 탄이 아니라 충각. outcome은 무시
     }
 
     /// <summary>링. 유폭은 파편이 수천이라 작으면 제일 큰 사건이 제일 안 남는다.</summary>
@@ -141,6 +142,24 @@ public static class DeathXray
             Hits.RemoveAt(0);
 
         Hits.Add(new Hit { tick = _frameTick, at = ToGrid(world), outcome = outcome });
+    }
+
+    /// <summary>충각으로 갈린 자리. 매 틱 접촉마다 오므로 같은 틱·같은 칸은 하나로 접는다.</summary>
+    public static void AddRam(Vector2 world)
+    {
+        if (!Frame())
+            return;
+
+        Vector2 g = ToGrid(world);
+
+        for (int i = Hits.Count - 1; i >= 0 && Hits[i].tick == _frameTick; i--)
+            if (Hits[i].ram && (Hits[i].at - g).sqrMagnitude < 0.25f)
+                return;
+
+        if (Hits.Count >= HitCapacity)
+            Hits.RemoveAt(0);
+
+        Hits.Add(new Hit { tick = _frameTick, at = g, ram = true });
     }
 
     /// <summary>오래된 것부터. 그리는 쪽이 틱으로 거른다.</summary>
@@ -239,7 +258,10 @@ public static class DeathXray
             long from = group.tick - GroupTicks;
             long to = (g + 1 < Groups.Count ? Groups[g + 1].tick : long.MaxValue) - 1;
 
-            bool det = false, split = false, pen = false, crew = false, role = false;
+            bool det = false, split = false, pen = false, crew = false, role = false, ram = false;
+
+            foreach (Hit hit in Hits)
+                if (hit.ram && hit.tick >= from && hit.tick <= to) { ram = true; break; }
 
             for (int i = 0; i < log.Count; i++)
             {
@@ -261,7 +283,8 @@ public static class DeathXray
             // 인과 순서로 잇는다. 관통이 탄약고를 때려 유폭이 나고 그것이 절단으로 - 한 순간에
             // 셋이 다 일어날 수 있고, "유폭"만 남기면 그 관통 한 발이 사라진다. 그 한 발이 원인이다.
             var tag = new System.Text.StringBuilder();
-            if (pen) tag.Append("관통");
+            if (ram) tag.Append("충각");
+            if (pen) tag.Append(tag.Length > 0 ? " → 관통" : "관통");
             if (det) tag.Append(tag.Length > 0 ? " → 유폭" : "유폭");
             if (split) tag.Append(tag.Length > 0 ? " → 절단" : "절단");
             if (crew) tag.Append(tag.Length > 0 ? " → 승무원" : "승무원");

@@ -409,7 +409,7 @@ public sealed class ShipStatusHud : MonoBehaviour
             if (hit.tick < earliest || hit.tick > cutoff)
                 continue;
 
-            Color hc = hit.outcome switch
+            Color hc = hit.ram ? Palette.Heat : hit.outcome switch
             {
                 HitOutcome.Penetrated => Palette.Breach,
                 HitOutcome.Ricochet => Palette.Radiance,
@@ -417,7 +417,7 @@ public sealed class ShipStatusHud : MonoBehaviour
             };
 
             Vector2 p = ToScreen(hit.at);
-            float d = Mathf.Max(5f, cell * 0.6f);
+            float d = hit.ram ? Mathf.Max(7f, cell * 0.9f) : Mathf.Max(5f, cell * 0.6f);   // 충각은 면이라 크게
             GUI.color = hc;
             GUI.DrawTexture(new Rect(p.x - d * 0.5f, p.y - d * 0.5f, d, d), Texture2D.whiteTexture);
         }
@@ -475,6 +475,7 @@ public sealed class ShipStatusHud : MonoBehaviour
         Legend(Palette.Breach.WithAlpha(0.8f), "파편 → 판");
         Legend(Palette.Radiance, "파편 → 모듈");
         Legend(Palette.Breach, "관통 · 도탄 노랑 · 저지 회색");
+        Legend(Palette.Heat, "충각 (갈린 자리)");
 
         GUI.color = DimColor;
         GUI.Label(new Rect(textArea.x, textArea.yMax - RowHeight, textArea.width, RowHeight), "아무 키  -  다시", _leftStyle);

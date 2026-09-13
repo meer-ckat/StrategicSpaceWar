@@ -69,6 +69,11 @@ public static class DamageLog
         Vector2Int cell = ship.DesignMap.ToCell(armor.transform.localPosition);
         float now = Time.time;
 
+        // 충각은 탄이 아니라 SpallTrails에 선이 없다. X-ray가 "왜 이 판이 죽었나"에 답하려면
+        // 갈린 자리라도 찍혀 있어야 한다 - 여기가 충각 피해의 단일 깔때기다.
+        if (ram && ship.IsPlayerControlled)
+            DeathXray.AddRam(armor.transform.position);
+
         for (int i = 0; i < Armors.Count; i++)
         {
             ArmorMark mark = Armors[i];
