@@ -113,18 +113,19 @@ public sealed class RefitScreen : MonoBehaviour
         Widget.Label(panel, where, new Rect(inn.x, y, inn.width, 28f), heading);
         y += 36f;
 
-        plateValue = Row(inn, ref y, "손상 판");
-        materialValue = Row(inn, ref y, "잔고");
-        propellantValue = Row(inn, ref y, "보유 추진제");
-        munitionsValue = Row(inn, ref y, "보유 탄약");
+        // 위쪽은 접는다. 모듈 목록이 이 화면의 본문인데(2026-09-13) 상태 4행·버튼 3단·키 안내가
+        // 그 위에서 350 px을 먹고 목록에 한두 줄만 남겼다. 상태는 두 칸씩 한 줄, 급유·재보급은 한 줄,
+        // 키 안내는 버튼 글자에 넣는다 - 124 px이 목록으로 간다.
+        Row2(inn, ref y, "손상 판", out plateValue, "잔고", out materialValue);
+        Row2(inn, ref y, "추진제", out propellantValue, "탄약", out munitionsValue);
         y += Gap;
 
         float bw = (inn.width - Gap * 2f) / 3f;
         repairButtons = new[]
         {
-            Widget.Button(panel, "수리 1", new Rect(inn.x, y, bw, ButtonH), null, button),
+            Widget.Button(panel, "수리 1  (R)", new Rect(inn.x, y, bw, ButtonH), null, button),
             Widget.Button(panel, "수리 10", new Rect(inn.x + bw + Gap, y, bw, ButtonH), null, button),
-            Widget.Button(panel, "전량", new Rect(inn.x + (bw + Gap) * 2f, y, bw, ButtonH), null, button),
+            Widget.Button(panel, "전량  (⇧R)", new Rect(inn.x + (bw + Gap) * 2f, y, bw, ButtonH), null, button),
         };
         repairButtons[0].callBack = () => Repair(1, repairButtons[0]);
         repairButtons[1].callBack = () => Repair(10, repairButtons[1]);
@@ -132,16 +133,15 @@ public sealed class RefitScreen : MonoBehaviour
         foreach (GUIButton b in repairButtons)
             Hoverable(b);
         y += ButtonH + Gap;
-        refuel = Widget.Button(panel, "급유", new Rect(inn.x, y, inn.width, ButtonH), Refuel, button);
-        Hoverable(refuel);
-        y += ButtonH + Gap;
-        rearm = Widget.Button(panel, "재보급", new Rect(inn.x, y, inn.width, ButtonH), Rearm, button);
-        Hoverable(rearm);
-        y += ButtonH + Gap;
-        Widget.Label(panel, "R 수리 1   Shift+R 전량   Enter 출항", new Rect(inn.x, y, inn.width, 16f), eyebrow);
-        y += 16f + Gap * 2f;
 
-        depart = Widget.Button(panel, "출항", new Rect(inn.x, inn.yMax - ButtonH, inn.width, ButtonH), Depart, button);
+        float hw = (inn.width - Gap) * 0.5f;
+        refuel = Widget.Button(panel, "급유", new Rect(inn.x, y, hw, ButtonH), Refuel, button);
+        Hoverable(refuel);
+        rearm = Widget.Button(panel, "재보급", new Rect(inn.x + hw + Gap, y, hw, ButtonH), Rearm, button);
+        Hoverable(rearm);
+        y += ButtonH + Gap * 2f;
+
+        depart = Widget.Button(panel, "출항  (Enter)", new Rect(inn.x, inn.yMax - ButtonH, inn.width, ButtonH), Depart, button);
         Hoverable(depart);
 
         // 모듈 목록은 수리 버튼부터 출항 버튼까지 **전부** 쓴다. 통신 카드가 100 px을 상시 잡고
@@ -335,6 +335,17 @@ public sealed class RefitScreen : MonoBehaviour
         RefreshStatus();
         BuildLost();
         Tween01(x => RenderStatus(p.DamagedPlateCount(), Mathf.RoundToInt(Mathf.Lerp(m0, RunState.Credits, x))));
+    }
+
+    /// <summary>한 줄에 두 칸. 각 칸은 라벨 반 · 값 반.</summary>
+    void Row2(Rect area, ref float y, string labelA, out GUILabel a, string labelB, out GUILabel b)
+    {
+        float half = area.width * 0.5f, q = half * 0.5f;
+        Widget.Label(panel, labelA, new Rect(area.x, y, q, RowH), rowLabel);
+        a = Widget.Label(panel, "", new Rect(area.x + q, y, q - Gap, RowH), rowValue);
+        Widget.Label(panel, labelB, new Rect(area.x + half, y, q, RowH), rowLabel);
+        b = Widget.Label(panel, "", new Rect(area.x + half + q, y, q, RowH), rowValue);
+        y += RowH;
     }
 
     GUILabel Row(Rect area, ref float y, string label)
