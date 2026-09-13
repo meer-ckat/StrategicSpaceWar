@@ -241,7 +241,11 @@ public class DialogueManager : MonoBehaviour
     private void Update()
     {
         float dt = Time.unscaledDeltaTime;
-        bool hidden = ShipSelectScreen.IsOpen || LogisticsScreen.IsOpen || RefitScreen.IsOpen;
+        // 격파 화면(X-ray)도 전체 화면이다. 배가 없는데 함내 통신이 계속 뜨면 죽음이 안 끝난
+        // 것으로 읽히고, X-ray의 선과 글자 위에 대사판이 겹쳐 앉는다. 숨기기만 하므로
+        // 데이터는 남는다 - 여기가 대사가 화면에 나가는 유일한 문이라 한 자리면 된다.
+        bool hidden = ShipSelectScreen.IsOpen || LogisticsScreen.IsOpen || RefitScreen.IsOpen
+                      || GameManager.PlayerDown;
 
         for (int i = Texts.Count - 1; i >= 0; i--)
         {
