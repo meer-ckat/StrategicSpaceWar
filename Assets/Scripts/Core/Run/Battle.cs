@@ -28,6 +28,13 @@ public sealed class Battle
     /// </summary>
     public Func<bool> objective;
 
+    /// <summary>
+    /// 위 술어를 사람 말로. 게임은 목표를 알고 있었는데 한 번도 말을 안 했다 - 30회 플레이의
+    /// "판단할 게 없었다"는 절반이 이것이다. 뭘 해야 하는지 모르면 판단이 없다.
+    /// 문자열이 아니라 함수인 이유는 남은 척수·출구 거리가 매 틱 바뀌어서다.
+    /// </summary>
+    public Func<string> objectiveText;
+
     /// <summary>싸울 것이 없는 노드(잔해밭·보급·기항). 이겨도 전승 대사는 안 나온다 - 아무도 안 싸웠다.</summary>
     public bool peaceful;
 

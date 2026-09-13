@@ -1217,20 +1217,27 @@ public sealed class Campaign : TickBehaviour
             _battle.boundless = true;
             _battle.peaceful = true;
             _battle.objective = () => _departed;
+            _battle.objectiveText = () => "출구로 간다  " + GateBrief(0) + "  ·  " + GateBrief(1);
         }
 
         // **def가 정한다. 이미 뜬 것을 세면 안 된다** - 대본 있는 장은 시차 소환이라 지금은
         // 하나도 안 떠 있고, `_targets.Count > 0`으로 보면 8구역이 소탕 목표로 떨어진다.
         // 그러면 거울을 안 부수고 호위만 잡아도 구역이 끝난다.
         else if (HasTarget(sector))
+        {
             _battle.objective = TargetsDown;
+            _battle.objectiveText = () => $"표적 격파  {TargetsAlive()}척 남음";
+        }
 
         // 싸울 것이 없는 노드는 함대가 다 들어온 것이 곧 완료다.
         else if (!HasHostile(sector))
         {
             _battle.peaceful = true;
             _battle.objective = () => _toSpawn.Count == 0 && _wingQueue.Count == 0;
+            _battle.objectiveText = () => "함대 집결 대기";
         }
+        else
+            _battle.objectiveText = () => $"적 소탕  {HostilesAlive()}척";
 
         Debug.Log(
             $"[Campaign] {_sector + 1}구역 '{sector.name}' - {sector.spawns.Count}척, " +
@@ -1298,6 +1305,15 @@ public sealed class Campaign : TickBehaviour
         // 소구역은 이 사건을 안 낸다 - sector-entered-N 대사가 한 장에 세 번 나온다.
         if (_pending == null)
             RunLog.SectorEntered(_sector + 1);
+
+        // 들판은 대본이 없어서 조용한데, 조용한 것과 아무 말도 안 하는 것은 다르다 - 출구가 둘이고
+        // 어느 쪽이든 닿으면 끝이라는 것을 한 번은 말해야 한다. 소환은 안 미룬다(아래 블록 안 탄다).
+        // 런에 한 번. 들판이 장마다 둘씩이라 매번 들으면 두 번째부터 벽지다.
+        if (sector.Open && !RunState.HasFlag("field-briefed"))
+        {
+            RunState.SetFlag("field-briefed");
+            ScriptManager.current?.Play("field-entered");
+        }
 
         // 대본이 도는 동안 소환을 미룬다. 적은 4초 뒤 도착하고 다섯 줄 대본은 20초다.
         if (!string.IsNullOrEmpty(sector.script) && ScriptManager.current != null
@@ -1459,6 +1475,59 @@ public sealed class Campaign : TickBehaviour
     /// 표적이 Hulk라 Ship.All에 없고 GameObject는 판이 다 죽어도 남으므로, 둘 다 판
     /// 장부(<see cref="HullStructure"/>)로 본다.
     /// </summary>
+    /// <summary>HUD 한 줄. "구역 2/8  ·  표적 격파  1척 남음". 전투가 없으면 빈 문자열.</summary>
+    public string ObjectiveLine()
+    {
+        if (_battle == null || _battle.objectiveText == null || _def == null)
+            return "";
+
+        return $"구역 {_sector + 1}/{_def.sectors.Count}  ·  " + _battle.objectiveText();
+    }
+
+    private int TargetsAlive()
+    {
+        int n = _toSpawn.Count;
+
+        foreach (HullStructure target in _targets)
+            if (target != null && target.AliveCount > 0 && !target.HasSplit)
+                n++;
+
+        return n;
+    }
+
+    private int HostilesAlive()
+    {
+        Ship player = PlayerShip();
+        int n = _toSpawn.Count;
+
+        for (int i = 0; i < Ship.All.Count; i++)
+        {
+            Ship s = Ship.All[i];
+
+            if (s != null && s != player && !s.dormant && s.IsCombatEffective && s.IsHostileTo(player))
+                n++;
+        }
+
+        return n;
+    }
+
+    /// <summary>출구 하나를 "A 좌 12° 8.3 km"로. 방위는 늘 안다(신호), 거리는 좌표가 잡힌 뒤.</summary>
+    private string GateBrief(int k)
+    {
+        Ship player = PlayerShip();
+
+        if (player == null || k >= GateCount)
+            return "";
+
+        Vector2 g = GateAt(k) - (Vector2)player.transform.position;
+        float rel = Mathf.DeltaAngle(player.transform.eulerAngles.z, Mathf.Atan2(g.y, g.x) * Mathf.Rad2Deg);
+        string bearing = Mathf.Abs(rel) < 0.5f ? "정면" : rel > 0f ? $"좌 {rel:0}°" : $"우 {-rel:0}°";
+        bool located = ContactView.StateAt(GateAt(k)) >= ContactView.Reveal.Resolved;
+        string dist = located ? $" {g.magnitude / 1000f:0.0} km" : "";
+
+        return (k == 0 ? "A " : "B ") + bearing + dist;
+    }
+
     private bool TargetsDown()
     {
         // 아직 안 뜬 것이 있으면 끝난 게 아니다. 소탕 목표는 Battle._sawHostile이 이

@@ -13,7 +13,7 @@
         "dart",
         "fly"
       ],
-      "materials": 0,
+      "credits": 0,
       "refit": false,
       "weight": 12,
       "signalSize": 500
@@ -31,7 +31,7 @@
         "ChongDam_Mk67",
         "frigate"
       ],
-      "materials": 0,
+      "credits": 0,
       "refit": false,
       "weight": 12,
       "signalSize": 900
@@ -49,7 +49,7 @@
         "cruiser",
         "lancher"
       ],
-      "materials": 0,
+      "credits": 0,
       "refit": false,
       "weight": 12,
       "signalSize": 1500
@@ -65,7 +65,7 @@
         "cruiser",
         "Pitbull_Leviathan"
       ],
-      "materials": 0,
+      "credits": 0,
       "refit": false,
       "weight": 10,
       "signalSize": 2000
@@ -82,7 +82,7 @@
         "frigate",
         "Dachshund_Leviathan"
       ],
-      "materials": 0,
+      "credits": 0,
       "refit": false,
       "weight": 10,
       "signalSize": 2000
@@ -99,7 +99,7 @@
         "asteroid"
       ],
       "refit": true,
-      "materials": 6,
+      "credits": 6,
       "weight": 4,
       "signalSize": 3000
     },
@@ -116,7 +116,7 @@
       ],
       "hidden": "raider",
       "refit": false,
-      "materials": 0,
+      "credits": 0,
       "weight": 4,
       "signalSize": 3000
     },
@@ -131,7 +131,7 @@
         "derelict"
       ],
       "refit": false,
-      "materials": 4,
+      "credits": 4,
       "propellant": 3000,
       "munitions": 60,
       "signalSize": 5000,
@@ -147,7 +147,7 @@
       "pool": [
         "derelict"
       ],
-      "materials": 16,
+      "credits": 16,
       "propellant": 1000000,
       "munitions": 200,
       "refit": true,
@@ -164,7 +164,7 @@
       "pool": [
         "derelict"
       ],
-      "materials": 30,
+      "credits": 30,
       "munitions": 400,
       "refit": true,
       "weight": 1,
@@ -182,7 +182,7 @@
         "fly",
         "dart"
       ],
-      "materials": 0,
+      "credits": 0,
       "refit": false,
       "weight": 8,
       "signalSize": 900
@@ -199,7 +199,7 @@
         "scout",
         "frigate"
       ],
-      "materials": 0,
+      "credits": 0,
       "refit": false,
       "weight": 8,
       "signalSize": 3000
@@ -216,7 +216,7 @@
         "Dachshund_Leviathan",
         "cruiser"
       ],
-      "materials": 0,
+      "credits": 0,
       "refit": false,
       "weight": 8,
       "signalSize": 2000

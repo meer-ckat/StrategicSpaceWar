@@ -94,6 +94,10 @@ public sealed class ShipStatusHud : MonoBehaviour
     private static GUIStyle _titleRightStyle;
     private static GUIStyle _leftStyle;
     private static GUIStyle _rightStyle;
+    private static GUIStyle _objectiveStyle;
+
+    private const float ObjectiveWidth = 560f;
+    private const float ObjectiveHeight = 22f;
 
 
     private struct WeaponHudEntry
@@ -175,6 +179,7 @@ public sealed class ShipStatusHud : MonoBehaviour
             GUI.matrix = Matrix4x4.Scale(new Vector3(uiScale, uiScale, 1f));
 
         // 소등 순서: 무장 -> 비행 -> 함체. 선체 그림이 마지막 숨이다.
+        if (BeginSection(ship, 0)) DrawObjective();
         if (BeginSection(ship, 0)) DrawHitGutter();
         if (BeginSection(ship, 0)) DrawContactPanel(ship);
         if (BeginSection(ship, 2)) DrawAirframePanel(ship);
@@ -273,6 +278,32 @@ public sealed class ShipStatusHud : MonoBehaviour
             color = Palette.Breach.WithAlpha(color.a);
 
         rect.position += _sectionShake;
+    }
+
+
+    // ------------------------------------------------------------
+    // OBJECTIVE
+    // ------------------------------------------------------------
+
+    /// <summary>
+    /// 지금 뭘 해야 하는가, 한 줄, 화면 위 가운데. 문장은 Campaign이 만든다 - 여기는 자리만.
+    /// 튜토리얼보다 이게 먼저다: 목표 한 줄이 없는 게임에 튜토리얼을 붙이면 튜토리얼이 목표 노릇을 한다.
+    /// </summary>
+    private static void DrawObjective()
+    {
+        string line = Campaign.current != null ? Campaign.current.ObjectiveLine() : "";
+
+        if (string.IsNullOrEmpty(line))
+            return;
+
+        var rect = new Rect(
+            (GUIManager.LogicalWidth - ObjectiveWidth) * 0.5f,
+            Margin,
+            ObjectiveWidth,
+            ObjectiveHeight);
+
+        DrawRect(rect, PanelBg);
+        DrawText(rect, line, Palette.Radiance, _objectiveStyle);
     }
 
 
@@ -1502,6 +1533,14 @@ public sealed class ShipStatusHud : MonoBehaviour
                 fontSize = 13,
                 alignment = TextAnchor.MiddleLeft,
                 clipping = TextClipping.Clip
+            };
+
+        _objectiveStyle =
+            new GUIStyle(_leftStyle)
+            {
+                fontSize = 14,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter
             };
 
         _rightStyle =

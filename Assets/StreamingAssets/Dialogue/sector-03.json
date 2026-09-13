@@ -1,11 +1,49 @@
 {
   "defName": "sector-03",
   "lines": [
-    { "message": "<color=grey>감시초소 22.</color> 셋째입니다. 전부 같은 방식입니다.", "author": "통신", "duration": 4.5, "intensity": 0.8, "wait": 3 },
-    { "message": "17, 19, 22. 사이에 있는 초소 넷은 멀쩡합니다.", "author": "전술", "duration": 4.5, "intensity": 1.0 },
-    { "message": "고른 겁니다. 이 셋만.", "author": "전술", "duration": 3, "intensity": 1.1, "wait": 3 },
-    { "message": "이 셋이 뭘 보고 있었는지 관제에 물어라.", "author": "함장", "duration": 4, "intensity": 1.0 },
-    { "message": "<color=grey>회신 지연. 중계망이 불안정합니다.</color>", "author": "통신", "duration": 4, "intensity": 0.9 },
-    { "message": "<color=#8fd3ff>접촉.</color> 이번엔 우리 쪽으로 옵니다.", "author": "전술", "duration": 3.5, "intensity": 1.4 }
+    {
+      "message": "<color=grey>감시초소 22.</color> 셋째입니다. 전부 같은 방식입니다.",
+      "author": "통신",
+      "duration": 4.5,
+      "intensity": 0.8,
+      "wait": 3
+    },
+    {
+      "message": "17, 19, 22. 사이에 있는 초소 넷은 멀쩡합니다.",
+      "author": "전술",
+      "duration": 4.5,
+      "intensity": 1.0
+    },
+    {
+      "message": "고른 겁니다. 이 셋만.",
+      "author": "전술",
+      "duration": 3,
+      "intensity": 1.1,
+      "wait": 3
+    },
+    {
+      "message": "이 셋이 뭘 보고 있었는지 관제에 물어라.",
+      "author": "함장",
+      "duration": 4,
+      "intensity": 1.0
+    },
+    {
+      "message": "회신 오기 전까지는 <color=yellow>접근로 확보</color>가 목표다. 바뀌면 말한다.",
+      "author": "함장",
+      "duration": 4.5,
+      "intensity": 0.9
+    },
+    {
+      "message": "<color=grey>회신 지연. 중계망이 불안정합니다.</color>",
+      "author": "통신",
+      "duration": 4,
+      "intensity": 0.9
+    },
+    {
+      "message": "<color=#8fd3ff>접촉.</color> 이번엔 우리 쪽으로 옵니다.",
+      "author": "전술",
+      "duration": 3.5,
+      "intensity": 1.4
+    }
   ]
 }

@@ -1,0 +1,25 @@
+{
+  "defName": "field-entered",
+  "lines": [
+    {
+      "message": "들판 진입. 출구는 둘, <color=yellow>A 위쪽 · B 아래쪽.</color> 어느 쪽이든 닿으면 워프.",
+      "author": "조타",
+      "duration": 5,
+      "intensity": 0.8,
+      "wait": 3
+    },
+    {
+      "message": "신호 다수. 종류는 가까이 가야 압니다. 가는 길에 있는 것만 들르면 됩니다.",
+      "author": "전술",
+      "duration": 5,
+      "intensity": 0.8,
+      "wait": 3
+    },
+    {
+      "message": "챙길 게 있으면 챙기고, 없으면 바로 출구다. 화면 위 줄이 지금 할 일이다.",
+      "author": "함장",
+      "duration": 5,
+      "intensity": 0.9
+    }
+  ]
+}
