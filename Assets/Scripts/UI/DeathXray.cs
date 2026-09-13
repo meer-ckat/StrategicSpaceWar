@@ -22,6 +22,14 @@ public static class DeathXray
 
     public static ShipGrid.Map Design { get; private set; }
     public static readonly List<Vector2Int> Citadel = new();
+
+    /// <summary>
+    /// 판의 **콜라이더 발자국**(격자 좌표 폴리곤)과 그 판의 설계 칸. 격자는 1×1인데 탄은 콜라이더에
+    /// 맞는다 - 2×2 Lance Armor·경사판은 칸 밖으로 한 칸 넘게 나와 있어서, 칸만 그리면 탄이 허공에서
+    /// 멈추고 파편이 선체 밖에서 터지는 그림이 된다("오프셋"으로 보였던 것, 2026-09-13).
+    /// 페인터가 쓰는 ModulePlacement.PlatePolygon 그대로다.
+    /// </summary>
+    public static readonly List<(Vector2Int cell, Vector2[] poly)> Footprints = new();
     public static readonly List<Lost> LostPlates = new();
     public static long DownTick { get; private set; } = -1;
     public static string Cause { get; private set; } = "";
@@ -204,6 +212,7 @@ public static class DeathXray
         _watched = player;
         Design = player.DesignMap;
         Citadel.Clear();
+        BuildFootprints(player);
 
         foreach (CriticalModule m in player.shipCriticals)
         {
@@ -211,6 +220,38 @@ public static class DeathXray
                 continue;
 
             Citadel.Add(Design.ToCell(player.transform.InverseTransformPoint(m.transform.position)));
+        }
+    }
+
+    private static void BuildFootprints(Ship player)
+    {
+        Footprints.Clear();
+
+        ShipDef def = string.IsNullOrEmpty(player.shipDefName) ? null : ShipDef.Load(player.shipDefName);
+
+        if (def == null || def.placements == null)
+            return;
+
+        Vector2Int mins = def.Bbox().min;
+
+        foreach (Placement p in def.placements)
+        {
+            if (!ShipBuilder.StampsGrid(DefDatabase.Get(p.def), out _))
+                continue;
+
+            var cell = new Vector2Int(p.col - mins.x, p.row - mins.y);
+
+            if (!Design.Inside(cell) || !ShipGrid.Solid(Design.cells[cell.x, cell.y]))
+                continue;
+
+            // PlatePolygon은 배 좌표(x = col, y = -row)다. 격자 좌표는 y만 뒤집는다.
+            Vector2[] poly = ModulePlacement.PlatePolygon(cell, p.def, p.rot, p.size, p.offset, p.shape);
+            var grid = new Vector2[poly.Length];
+
+            for (int i = 0; i < poly.Length; i++)
+                grid[i] = new Vector2(poly[i].x, -poly[i].y);
+
+            Footprints.Add((cell, grid));
         }
     }
 
@@ -236,6 +277,7 @@ public static class DeathXray
         IReadOnlyList<RunLog.Entry> log = RunLog.Entries;
 
         BuildGroups(log);
+
 
         if (player != null)
         {
@@ -335,6 +377,7 @@ public static class DeathXray
         _watched = null;
         Design = null;
         Citadel.Clear();
+        Footprints.Clear();
         LostPlates.Clear();
         DownTick = -1;
         Cause = "";

@@ -185,6 +185,7 @@ public abstract partial class Projectile
             {
                 CameraSystem.Shake(Mathf.Min(MaxHitShake, r.armorDamage * HitShakeScale));
                 DeathXray.AddHit(_surfaces.hitPoint, r.outcome, ProjectileId);
+
             }
         }
 

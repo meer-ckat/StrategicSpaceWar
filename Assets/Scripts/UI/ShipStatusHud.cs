@@ -382,31 +382,43 @@ public sealed class ShipStatusHud : MonoBehaviour
 
         Color current = Color.Lerp(Color.white, Palette.Breach, Mathf.Clamp01(inStep / XrayFlashSeconds));
 
+        Color CellColor(Vector2Int c)
+        {
+            bool citadel = DeathXray.Citadel.Contains(c);
+
+            if (when.TryGetValue(c, out int g))
+            {
+                Color color;
+                if (g < 0) color = Palette.Steel;                           // 열 개 밖. 옛 상처
+                else if (g >= shown) color = Palette.Hull.WithAlpha(0.28f);  // 아직 안 온 사건. 멀쩡한 척
+                else if (g == shown - 1) color = current;                   // 지금 이 사건
+                else color = Palette.Heat;                                  // 지난 사건
+
+                return citadel && g >= 0 && g < shown ? Color.Lerp(color, Palette.Radiance, 0.6f) : color;
+            }
+
+            return citadel ? Palette.Heat.WithAlpha(0.9f) : Palette.Hull.WithAlpha(0.28f);
+        }
+
+        // 칸. 격자의 자리다 - 판이 어디 **앉아** 있나. 흐리게.
         for (int col = 0; col < design.width; col++)
         for (int row = 0; row < design.height; row++)
         {
             if (!ShipGrid.Solid(design.cells[col, row]))
                 continue;
 
-            var c = new Vector2Int(col, row);
-            bool citadel = DeathXray.Citadel.Contains(c);
-            Color color;
-
-            if (when.TryGetValue(c, out int g))
-            {
-                if (g < 0) color = Palette.Steel;                           // 열 개 밖. 옛 상처
-                else if (g >= shown) color = Palette.Hull.WithAlpha(0.28f);  // 아직 안 온 사건. 멀쩡한 척
-                else if (g == shown - 1) color = current;                   // 지금 이 사건
-                else color = Palette.Heat;                                  // 지난 사건
-
-                if (citadel && g >= 0 && g < shown)
-                    color = Color.Lerp(color, Palette.Radiance, 0.6f);
-            }
-            else
-                color = citadel ? Palette.Heat.WithAlpha(0.9f) : Palette.Hull.WithAlpha(0.28f);
-
-            GUI.color = color;
+            GUI.color = CellColor(new Vector2Int(col, row)).WithAlpha(0.35f);
             GUI.DrawTexture(new Rect(x0 + col * cell, y0 + row * cell, cell - gap, cell - gap), Texture2D.whiteTexture);
+        }
+
+        // 콜라이더 윤곽. 탄이 **실제로 맞는** 모양이다 - 2×2·경사판이 칸 밖으로 나온 만큼 여기서 보인다.
+        // 칸만 그리면 탄이 허공에서 멈추고 파편이 선체 밖에서 터지는 그림이 된다(2026-09-13).
+        foreach ((Vector2Int c, Vector2[] poly) in DeathXray.Footprints)
+        {
+            Color oc = CellColor(c);
+
+            for (int i = 0; i < poly.Length; i++)
+                DrawLine(ToScreen(poly[i]), ToScreen(poly[(i + 1) % poly.Length]), oc, 1f);
         }
 
         GUI.color = Color.white;
