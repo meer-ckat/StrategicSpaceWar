@@ -105,7 +105,7 @@ public sealed class ShipSelectScreen : MonoBehaviour
     private float _confirmedAt = -1f;   // unscaled. 0 이상이면 암전 중
 
     private const float FadeSeconds = 0.5f;
-    private const int ScreenLayer = 900;    // 다른 ImGui 위에. 암전은 그 위.
+    private const int ScreenLayer = UiLayer.ShipSelect;    // 다른 ImGui 위에. 암전은 그 위.
     private const float RowHeight = 44f;
 
     private static GUIStyle _title, _rowStyle, _rowSelected, _statLabel, _statValue, _dim, _black, _backdrop;

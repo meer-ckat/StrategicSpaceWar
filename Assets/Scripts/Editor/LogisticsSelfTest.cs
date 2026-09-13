@@ -81,7 +81,25 @@ public static class LogisticsSelfTest
         GUIManager.Unregister(g);
 
         // ---------------------------------------------------------
-        // 4) Comms - 파일이 있으면 조건 넷이 전부 줄을 가진다
+        // 4) 항로 자료 - 정확한 편성을 까지 않고 두 갈래의 상대적 성격을 말한다
+        // ---------------------------------------------------------
+        SectorDef risky = Sector(
+            Spawn("frigate", "Enemy"),
+            Spawn("scout", "Enemy"),
+            Spawn("asteroid", "Neutral", hulk: true));
+        risky.spawns[2].scenery = true;
+
+        SectorDef supplied = Sector(Spawn("derelict", "Neutral", hulk: true));
+        supplied.spawns[0].materials = 6;
+
+        string riskyIntel = Campaign.DescribeRoute(risky, supplied);
+        string suppliedIntel = Campaign.DescribeRoute(supplied, risky);
+        Check(riskyIntel.Contains("적 많음") && riskyIntel.Contains("보급 적음"), "위험 갈래를 상대 비교한다");
+        Check(suppliedIntel.Contains("적 적음") && suppliedIntel.Contains("보급 많음"), "보급 갈래를 상대 비교한다");
+        Check(Campaign.DescribeRoute(null) == "자료 없음", "다음 갈래가 없으면 자료 없음");
+
+        // ---------------------------------------------------------
+        // 5) Comms - 파일이 있으면 조건 넷이 전부 줄을 가진다
         // ---------------------------------------------------------
         LogisticsScreen.Comms comms = LogisticsScreen.Comms.Load();
         foreach (string when in new[] { "noservice", "refit", "hostile", "salvage", "clear" })

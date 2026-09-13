@@ -52,7 +52,9 @@ public sealed class ControlHints : MonoBehaviour
     /// <summary>화면 아래에서 띄우는 거리. AIRFRAME·함내 통신과 안 겹치는 자리.</summary>
     [SerializeField] private float bottomMargin = 40f;
 
-    [SerializeField] private int layer = 900;
+    // **900이었다 - ShipSelectScreen과 정확히 동률이라 순서가 정의되지 않았다.**
+    // 힌트는 전투 중에 뜨는 것이라 HUD 위, 맵 아래가 맞다.
+    [SerializeField] private int layer = UiLayer.Hint;
 
     [Header("글")]
     [SerializeField] private int capFontSize = 15;
@@ -205,8 +207,8 @@ public sealed class ControlHints : MonoBehaviour
         if (_steps == null || _at >= _steps.Length)
             return;
 
-        // 함선 선택 화면이 떠 있으면 조작할 배가 없다.
-        if (ShipSelectScreen.IsOpen || LogisticsScreen.IsOpen || RefitScreen.IsOpen)
+        // 함선 선택 화면이 떠 있으면 조작할 배가 없다. 맵은 자기 키를 제목줄에 적는다.
+        if (ShipSelectScreen.IsOpen || LogisticsScreen.IsOpen || RefitScreen.IsOpen || MapScreen.IsOpen)
             return;
 
         if (!MakeStyles())
@@ -241,7 +243,7 @@ public sealed class ControlHints : MonoBehaviour
 
         _panel = GUIStyleMaker.Box(panelColour);
         _cap = GUIStyleMaker.Box(capColour);
-        _capLabel = GUIStyleMaker.Label(new Color(0.85f, 0.93f, 1f), 10, TextAnchor.MiddleCenter);
+        _capLabel = GUIStyleMaker.Label(Palette.Hull, 10, TextAnchor.MiddleCenter);
         _line = GUIStyleMaker.Label(lineColour, lineFontSize, TextAnchor.MiddleLeft);
 
         return true;

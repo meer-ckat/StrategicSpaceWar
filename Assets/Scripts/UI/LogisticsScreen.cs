@@ -15,26 +15,16 @@ public sealed class LogisticsScreen : MonoBehaviour
 {
     public static bool IsOpen;
 
-    const int WindowLayer = 880;
+    const int WindowLayer = UiLayer.Screen;
     const float Margin = 24f;    // 화면 가장자리
     const float PanelGap = 12f;  // 패널 사이
     const float Padding = 16f;   // 패널 안쪽
     const float Gap = 8f;        // 패널 안 요소 사이
     const float RowH = 22f;      // 라벨/값 한 줄
 
-    // 팔레트. 역할별로 하나씩이고 값은 여기서만 고친다. 화면의 대부분은 Obsidian·Panel·White고, 색은 상태를 말할 때만 쓴다.
-    // RefitScreen이 같은 값을 쓴다 - 두 화면이 한 목소리여야 한다.
-    internal static readonly Color Obsidian = new(0.06f, 0.065f, 0.075f);   // 바닥
-    internal static readonly Color Panel = new(0.085f, 0.095f, 0.105f);      // 패널
-    internal static readonly Color Ink = new(0.12f, 0.13f, 0.145f);          // 지나온·현재 노드
-    internal static readonly Color Surface = new(0.17f, 0.185f, 0.205f);     // 고를 수 있는 노드, 통신 카드
-    internal static readonly Color White = new(0.96f, 0.97f, 1f);            // 글자
-    internal static readonly Color Dim = new(0.55f, 0.57f, 0.60f);           // 보조 글자
-    internal static readonly Color Blue = new(0.25f, 0.47f, 0.95f);          // 항로: 선택·연결선
-    internal static readonly Color BlueDim = new(0.18f, 0.24f, 0.36f);       // 고르지 않은 가지선
-    internal static readonly Color Green = new(0.30f, 0.80f, 0.45f);         // 가능·획득
-    internal static readonly Color Orange = new(1.00f, 0.55f, 0.15f);        // 주의·hover·표적 시설
-    internal static readonly Color Red = new(0.92f, 0.30f, 0.28f);           // 손상·불가·적
+    // 색은 Palette 하나다(2026-09-11). 예전에는 이 화면이 자기 11색을 들고 RefitScreen이
+    // 빌려 썼는데, 그래서 전투 화면(Palette)과 전체 화면이 서로 다른 색 언어를 말했다 -
+    // 같은 "위험"이 두 빨강이었다. 이름을 남기면 다음 화면이 또 빌려 가므로 아예 지웠다.
 
     // 항로도. 노드는 짧은 직사각형, 한 줄에 하나, x는 난수, y는 살짝 흔들림. 배지는 노드 바로 위 한 줄.
     public static readonly Vector2 NodeSize = new(130f, 32f);
@@ -61,6 +51,9 @@ public sealed class LogisticsScreen : MonoBehaviour
     internal const string SfxHover = "UI_Hover", SfxSelect = "UI_Select", SfxClick = "UI_Click", SfxDepart = "UI_Depart";
 
     static LogisticsScreen instance;
+
+    /// <summary>점프 연출이 검정 덮개를 빌린다. 창을 안 열고 Fade만 쓴다.</summary>
+    public static LogisticsScreen Instance => instance;
 
     GUIGroup window, nav, info, comms;
     GUILabel infoTitle, infoKind, plateValue, materialValue, commsSpeaker, commsText;
@@ -109,23 +102,23 @@ public sealed class LogisticsScreen : MonoBehaviour
         Campaign c = Campaign.current;
 
         // 글자 위계 셋: 눈썹 12 < 본문 15 < 제목 20
-        GUIStyle eyebrow = GUIStyleMaker.Label(Dim, 12).Font(12, FontStyle.Bold);
-        GUIStyle heading = GUIStyleMaker.Label(White, 20).Font(20, FontStyle.Bold);
+        GUIStyle eyebrow = GUIStyleMaker.Label(Palette.Steel, 12).Font(12, FontStyle.Bold);
+        GUIStyle heading = GUIStyleMaker.Label(Palette.Hull, 20).Font(20, FontStyle.Bold);
         heading.wordWrap = false;
-        GUIStyle body = GUIStyleMaker.Label(White, 15).Wrap().RichText();
-        GUIStyle badge = GUIStyleMaker.Label(Dim, 11, TextAnchor.MiddleCenter).Font(11, FontStyle.Bold).RichText();
-        GUIStyle button = GUIStyleMaker.Button(White, Obsidian, Orange, null, 16);
-        GUIStyle ground = GUIStyleMaker.Box(Obsidian);
-        GUIStyle panel = GUIStyleMaker.Box(Panel);
-        GUIStyle card = GUIStyleMaker.Box(Surface);
-        GUIStyle visitedNode = GUIStyleMaker.Button(Ink, Dim, Surface, null, 13);
-        GUIStyle hereNode = GUIStyleMaker.Button(Ink, White, Surface, null, 13);
-        rowLabel = GUIStyleMaker.Label(Dim, 15);
-        rowValue = GUIStyleMaker.Label(White, 15, TextAnchor.MiddleRight).RichText();
-        line = GUIStyleMaker.Box(Blue);
-        lineDim = GUIStyleMaker.Box(BlueDim);
-        candidate = GUIStyleMaker.Button(Surface, White, Blue, null, 13);
-        selected = GUIStyleMaker.Button(Blue, White, Blue, null, 13);
+        GUIStyle body = GUIStyleMaker.Label(Palette.Hull, 15).Wrap().RichText();
+        GUIStyle badge = GUIStyleMaker.Label(Palette.Steel, 11, TextAnchor.MiddleCenter).Font(11, FontStyle.Bold).RichText();
+        GUIStyle button = GUIStyleMaker.Button(Palette.Hull, Palette.Void, Palette.Radiance, null, 16);
+        GUIStyle ground = GUIStyleMaker.Box(Palette.Void);
+        GUIStyle panel = GUIStyleMaker.Box(Palette.DeepSpace);
+        GUIStyle card = GUIStyleMaker.Box(Palette.Bulkhead);
+        GUIStyle visitedNode = GUIStyleMaker.Button(Palette.DeepSpace, Palette.Steel, Palette.Bulkhead, null, 13);
+        GUIStyle hereNode = GUIStyleMaker.Button(Palette.DeepSpace, Palette.Hull, Palette.Bulkhead, null, 13);
+        rowLabel = GUIStyleMaker.Label(Palette.Steel, 15);
+        rowValue = GUIStyleMaker.Label(Palette.Hull, 15, TextAnchor.MiddleRight).RichText();
+        line = GUIStyleMaker.Box(Palette.Telemetry);
+        lineDim = GUIStyleMaker.Box(Palette.Bulkhead);
+        candidate = GUIStyleMaker.Button(Palette.Bulkhead, Palette.Hull, Palette.Telemetry, null, 13);
+        selected = GUIStyleMaker.Button(Palette.Telemetry, Palette.Hull, Palette.Telemetry, null, 13);
 
         Rect screen = new Rect(0f, 0f, GUIManager.LogicalWidth, GUIManager.LogicalHeight);
         Rect inner = Inset(screen, Margin);
@@ -193,7 +186,9 @@ public sealed class LogisticsScreen : MonoBehaviour
             if (lanes[k] == null)
                 continue;
             int chosen = k;
-            laneButtons[k] = Widget.Button(nav, lanes[k].name, new Rect(lanePos[k], NodeSize), () => Select(chosen, announce: true), candidate);
+            // 들판에서 출구에 닿아 갈래가 정해졌으면 다른 갈래는 안 눌린다 - 갈림길은 항로 화면이 아니라 들판이다(2.0).
+            laneButtons[k] = Widget.Button(nav, lanes[k].name, new Rect(lanePos[k], NodeSize),
+                () => { if (c.ChosenLane < 0 || chosen == c.ChosenLane) Select(chosen, announce: true); }, candidate);
             GUILabel tag = Widget.Label(nav, Badge(lanes[k]), new Rect(lanePos[k].x, lanePos[k].y - BadgeH - 2f, NodeSize.x, BadgeH), badge);
             Hoverable(laneButtons[k], nav);
             Magnet(laneButtons[k], nav, tag);
@@ -234,7 +229,7 @@ public sealed class LogisticsScreen : MonoBehaviour
         comms = Widget.Window(window, "", commsRect, "Comms", card);
         Rect cmIn = Inset(commsRect, 12f);
         Widget.Label(comms, "COMMUNICATION", new Rect(cmIn.x, cmIn.y, cmIn.width, 14f), eyebrow);
-        commsSpeaker = Widget.Label(comms, "", new Rect(cmIn.x, cmIn.y + 16f, cmIn.width, 16f), GUIStyleMaker.Label(White, 12).Font(12, FontStyle.Bold));
+        commsSpeaker = Widget.Label(comms, "", new Rect(cmIn.x, cmIn.y + 16f, cmIn.width, 16f), GUIStyleMaker.Label(Palette.Hull, 12).Font(12, FontStyle.Bold));
         commsText = Widget.Label(comms, "", new Rect(cmIn.x, cmIn.y + 34f, cmIn.width, cmIn.height - 34f), body);
         comms.isVisible = false;
         comms.isInteractable = false;
@@ -262,6 +257,9 @@ public sealed class LogisticsScreen : MonoBehaviour
         for (int k = 0; k < lanes.Length && lane < 0; k++)
             if (lanes[k] != null)
                 lane = k;
+
+        if (c.ChosenLane >= 0 && c.ChosenLane < lanes.Length && lanes[c.ChosenLane] != null)
+            lane = c.ChosenLane;
 
         if (lane >= 0)
             Select(lane, announce: false);
@@ -403,14 +401,14 @@ public sealed class LogisticsScreen : MonoBehaviour
         List<(string ship, int n)> ships = Ships(s);
         int facilities = Facilities(s);
         if (ships.Count == 0 && facilities == 0)
-            InfoRow(area, row++, "접촉", Tint("없음", Green));
+            InfoRow(area, row++, "접촉", Tint("없음", Palette.Signal));
         foreach ((string ship, int n) in ships)
-            InfoRow(area, row++, ship, Tint($"×{n}", Red));
+            InfoRow(area, row++, ship, Tint($"×{n}", Palette.Breach));
         if (facilities > 0)
-            InfoRow(area, row++, "표적 시설", Tint(facilities.ToString(), Orange));
-        InfoRow(area, row++, "정비", s.refit ? Tint("가능", Green) : Tint("불가", Dim));
+            InfoRow(area, row++, "표적 시설", Tint(facilities.ToString(), Palette.Radiance));
+        InfoRow(area, row++, "정비", s.refit ? Tint("가능", Palette.Signal) : Tint("불가", Palette.Steel));
         if (s.materials > 0)
-            InfoRow(area, row++, "회수 자재", Tint($"+{s.materials}", Green));
+            InfoRow(area, row++, "회수 자재", Tint($"+{s.materials}", Palette.Signal));
 
         if (announce)
             foreach (GUIItem item in infoRows)
@@ -463,13 +461,13 @@ public sealed class LogisticsScreen : MonoBehaviour
 
         var parts = new List<string>();
         if (hostile > 0)
-            parts.Add(Tint($"HOSTILE ×{hostile}", Red));
+            parts.Add(Tint($"HOSTILE ×{hostile}", Palette.Breach));
         if (facilities > 0)
-            parts.Add(Tint($"TARGET ×{facilities}", Orange));
+            parts.Add(Tint($"TARGET ×{facilities}", Palette.Radiance));
         if (s.refit)
-            parts.Add(Tint("REFIT", Green));
+            parts.Add(Tint("REFIT", Palette.Signal));
         if (s.materials > 0)
-            parts.Add(Tint($"+{s.materials}", Green));
+            parts.Add(Tint($"+{s.materials}", Palette.Signal));
         return parts.Count > 0 ? string.Join("  ", parts) : "CLEAR";
     }
 
@@ -478,7 +476,7 @@ public sealed class LogisticsScreen : MonoBehaviour
         Ship p = Campaign.current.Player;
         int damaged = p != null ? p.DamagedPlateCount() : 0;
 
-        plateValue.Content.text = Tint(damaged.ToString(), damaged > 0 ? Red : Green);
+        plateValue.Content.text = Tint(damaged.ToString(), damaged > 0 ? Palette.Breach : Palette.Signal);
         materialValue.Content.text = $"<b>{RunState.Materials}</b>";
     }
 
@@ -652,7 +650,7 @@ public sealed class LogisticsScreen : MonoBehaviour
     void Step(int dir)
     {
         int n = lanes.Length;
-        if (n == 0)
+        if (n == 0 || (Campaign.current != null && Campaign.current.ChosenLane >= 0))
             return;
         int k = lane;
         for (int i = 0; i < n; i++)
@@ -729,7 +727,7 @@ public sealed class LogisticsScreen : MonoBehaviour
     {
         if (caption == null)
         {
-            caption = Widget.SetLayer(Widget.Label("", new Rect(0f, 0f, 1f, 24f), GUIStyleMaker.Label(White, 14, TextAnchor.MiddleCenter).Font(14, FontStyle.Bold)), WindowLayer + 11);
+            caption = Widget.SetLayer(Widget.Label("", new Rect(0f, 0f, 1f, 24f), GUIStyleMaker.Label(Palette.Hull, 14, TextAnchor.MiddleCenter).Font(14, FontStyle.Bold)), WindowLayer + 11);
             caption.isInteractable = false;
         }
         Rect full = FullScreen();
@@ -739,7 +737,8 @@ public sealed class LogisticsScreen : MonoBehaviour
         caption.Content.text = show ? text : "";
     }
 
-    // 이동 카드. 눈썹·이름·종류·배지가 시차로 들어오고, 밑줄이 seconds 동안 0에서 폭까지 자란다.
+    // 도착 카드. 눈썹·이름·종류·배지가 시차로 들어오고, 화면 위·아래 끝의 게이지 두 개가 seconds 동안 서로 반대쪽 끝까지 찬다.
+    // 둘 다 차는 순간이 곧 진입이다(WarpTransition) - 게이지가 "언제 들어가나"의 답이라 따로 카운트다운을 안 적는다.
     public void ShowCard(SectorDef sector, string eyebrow, float seconds)
     {
         ClearCard();
@@ -750,10 +749,10 @@ public sealed class LogisticsScreen : MonoBehaviour
         string[] lines = CardLines(sector, eyebrow);
         GUIStyle[] styles =
         {
-            GUIStyleMaker.Label(Dim, 13, TextAnchor.MiddleCenter).Font(13, FontStyle.Bold),
-            GUIStyleMaker.Label(White, 34, TextAnchor.MiddleCenter).Font(34, FontStyle.Bold),
-            GUIStyleMaker.Label(Dim, 13, TextAnchor.MiddleCenter).Font(13, FontStyle.Bold),
-            GUIStyleMaker.Label(White, 13, TextAnchor.MiddleCenter).Font(13, FontStyle.Bold).RichText(),
+            GUIStyleMaker.Label(Palette.Steel, 13, TextAnchor.MiddleCenter).Font(13, FontStyle.Bold),
+            GUIStyleMaker.Label(Palette.Hull, 34, TextAnchor.MiddleCenter).Font(34, FontStyle.Bold),
+            GUIStyleMaker.Label(Palette.Steel, 13, TextAnchor.MiddleCenter).Font(13, FontStyle.Bold),
+            GUIStyleMaker.Label(Palette.Hull, 13, TextAnchor.MiddleCenter).Font(13, FontStyle.Bold).RichText(),
         };
         float[] heights = { 18f, 44f, 18f, 18f };
 
@@ -770,16 +769,21 @@ public sealed class LogisticsScreen : MonoBehaviour
             y += heights[i] + 4f;
         }
 
-        GUIBoxLabel rule = Widget.BoxLabel(card, "", new Rect(w * 0.5f, y + 8f, 0f, 2f), GUIStyleMaker.Box(Blue));
-        rule.isInteractable = false;
-        float ruleY = y + 8f, t = 0f;
-        rule.whenTick += (_, dt) =>
+        GUIBoxLabel top = Widget.BoxLabel(card, "", new Rect(0f, 0f, 0f, GaugeThickness), GUIStyleMaker.Box(Palette.Telemetry));
+        GUIBoxLabel bottom = Widget.BoxLabel(card, "", new Rect(w, h - GaugeThickness, 0f, GaugeThickness), GUIStyleMaker.Box(Palette.Telemetry));
+        top.isInteractable = false;
+        bottom.isInteractable = false;
+        float t = 0f;
+        top.whenTick += (_, dt) =>
         {
             t += dt;
-            float ruleW = w * 0.24f * Mathf.Clamp01(t / Mathf.Max(0.01f, seconds));
-            rule.SetRect(new Rect((w - ruleW) * 0.5f, ruleY, ruleW, 2f));
+            float fill = w * Mathf.Clamp01(t / Mathf.Max(0.01f, seconds));
+            top.SetRect(new Rect(0f, 0f, fill, GaugeThickness));                          // 왼쪽 끝에서 오른쪽으로
+            bottom.SetRect(new Rect(w - fill, h - GaugeThickness, fill, GaugeThickness));  // 오른쪽 끝에서 왼쪽으로
         };
     }
+
+    const float GaugeThickness = 4f;
 
     // Unregister는 트윈을 모른다. 워프마다 새로 지으므로 여기서 같이 죽여야 표에 죽은 아이템이 안 쌓인다.
     public void ClearCard()

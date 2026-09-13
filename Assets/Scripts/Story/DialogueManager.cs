@@ -1,393 +1,97 @@
-using System;
 using System.Collections.Generic;
 using System.Text;
 using IMGUI;
 using UnityEngine;
 
-/// <summary>
-/// 화면에 쌓이는 대사 한 줄. **순수 데이터다** - GameObject도 GUIItem도 없다.
-///
-/// 애니메이션 상태를 여기가 들고 최종값만 매 프레임 라벨에 대입하는 것이 중요하다.
-/// <see cref="GUITween"/>을 쓰면 핸들러가 GUIItem에 붙는데, 즉시 모드 위젯은 선언을
-/// 그만두는 순간 사라지므로 트윈이 완주하지 못하고 트윈 사전에만 남는다.
-/// </summary>
+/// <summary>화면에 떠 있는 대사 한 줄. 순수 데이터다 - GameObject도 GUIItem도 없다.</summary>
 public class Dialogue
 {
-    /// <summary>즉시 모드 위젯 id. 같은 대사가 두 번 나와도 겹치지 않게 일련번호를 쓴다.</summary>
-    public readonly string id;
-
-    /// <summary>
-    /// 위젯 조각마다의 id. **한 번 만들고 만다** - 즉시 모드는 매 프레임 같은 id로 다시
-    /// 선언하는 것이라, `id + "_plate"`를 선언부에 두면 대사 한 줄이 프레임마다 문자열
-    /// 여덟 개를 남긴다. 화면에 대사가 떠 있는 내내다.
-    /// </summary>
-    public readonly string idPlate;
-    public readonly string idAccent;
-    public readonly string idHeader;
-    public readonly string idMessage;
-    public readonly string idSystemPlate;
-    public readonly string idSystemAccent;
-    public readonly string idSystemHeader;
-    public readonly string idSystemMessage;
-
     public readonly string message;
     public readonly string author;
-
-    public float duration;
-    public float alpha;
-
-    /// <summary>지금 있는 자리와 가야 할 자리. 둘 다 화면 좌표(픽셀, 왼쪽 위 기준).</summary>
-    public Vector2 pos;
-    public Vector2 targetPos;
-    public Vector2 velocity;
-
-    public bool leaving;
-
-    // 연출 상태
-    public float age;
-    public float intensity;
-
-    /// <summary>presentation profile id. radio/control/crew/damage/system/enemy.</summary>
     public readonly string style;
+    public readonly float duration;
 
-    /// <summary>0 = 통신 두절 직전, 1 = 깨끗한 링크.</summary>
-    public readonly float signalQuality;
+    /// <summary>다 읽는 데 걸리는 시간. ScriptManager가 다음 줄을 언제 낼지 이걸로 정한다.</summary>
+    public readonly float typingDuration;
 
-    /// <summary>interrupt로 쫓겨나는 줄. 일반 퇴장보다 훨씬 빠르게 사라진다.</summary>
-    public bool interrupted;
-
-    /// <summary>문장부호 뒤 타이핑 호흡.</summary>
-    public float revealPause;
-
-    /// <summary>이 줄의 실제 타이핑 속도.</summary>
-    public float revealSpeed;
-
-    /// <summary>
-    /// 이 줄이 실제로 차지하는 높이. **0이면 아직 못 쟀다.** GUIStyle.CalcHeight는 GUI
-    /// 함수라 OnGUI 안에서만 부를 수 있어서, 재는 자리와 쓰는 자리가 한 프레임 갈린다.
-    /// </summary>
-    public float height;
-
-    /// <summary>
-    /// 글자가 실제로 차지하는 폭. 뒤에 까는 판이 이걸 쓴다 - 줄 폭(wordWrap 기준)을 그냥
-    /// 쓰면 "No I can't." 뒤에 900픽셀짜리 판이 깔린다. 그리기 rect는 여전히 줄 폭이다,
-    /// 그걸 줄이면 줄바꿈 위치가 바뀐다.
-    /// </summary>
-    public float width;
-
-    /// <summary>
-    /// 이 줄의 화자 머리글이 실제로 차지하는 높이. **0이면 아직 못 쟀다.**
-    ///
-    /// 고정 18px이었는데 13pt 볼드 한글의 실제 줄높이가 그보다 커서 **글자 위쪽이 잘렸다.**
-    /// 폰트를 바꾸거나 크기를 올리면 또 잘리므로 상수를 키우는 대신 잰다 - 본문 높이가
-    /// 이미 같은 이유로 재고 있다.
-    /// </summary>
-    public float headerH;
-
-    // 타이핑
-    public int visibleCharacters;
-    public int revealCharacters;
-    public float revealAccumulator;
-
-    /// <summary>
-    /// 글자가 다 찍히는 데 걸리는 시간. **다음 줄이 언제 오는지를 이것이 정한다** -
-    /// duration으로 기다리면 앞줄이 사라진 뒤에야 다음이 와서 통신이 절대 안 겹친다.
-    /// </summary>
-    public float typingDuration;
-
-    /// <summary>지금 그리고 있는 문자열과 그것이 몇 글자짜리였나. 안 바뀌었으면 안 만든다.</summary>
-    public string rendered = string.Empty;
-    public int renderedAt = -1;
-
-    /// <summary>태어난 실시각(Time.unscaledTime). GameManager.ClearBefore가 이걸로
-    /// "죽기 전 통신"과 "죽은 직후 새로 뜬 유언"을 가른다 - Tick과 Update의 실행
-    /// 순서에 기대지 않는다.</summary>
+    /// <summary>태어난 실시각(Time.unscaledTime). GameManager.ClearBefore가 "죽기 전 통신"과 "유언"을 이걸로 가른다.</summary>
     public readonly float spawnRealTime = Time.unscaledTime;
 
-    public Dialogue(
-        string id,
-        string message,
-        string author,
-        float duration,
-        Vector2 startPos,
-        int visibleCharacters,
-        float intensity,
-        string style = "radio",
-        float signalQuality = 1f,
-        float revealSpeed = 0f)
+    public float age;
+    public float alpha;
+    public bool leaving;
+
+    public Dialogue(string message, string author, string style, float duration, float typingDuration)
     {
-        this.id = id;
-        idPlate = id + "_plate";
-        idAccent = id + "_accent";
-        idHeader = id + "_header";
-        idMessage = id + "_msg";
-        idSystemPlate = id + "_system_plate";
-        idSystemAccent = id + "_system_accent";
-        idSystemHeader = id + "_system_header";
-        idSystemMessage = id + "_system_msg";
         this.message = message;
         this.author = author;
+        this.style = style;
         this.duration = duration;
-        this.visibleCharacters = visibleCharacters;
-        this.intensity = intensity;
-        this.style = string.IsNullOrWhiteSpace(style) ? "radio" : style;
-        this.signalQuality = Mathf.Clamp01(signalQuality);
-        this.revealSpeed = revealSpeed;
-
-        pos = startPos;
-        targetPos = startPos;
-        velocity = Vector2.zero;
-
-        alpha = 0f;
-        age = 0f;
-        leaving = false;
-        revealCharacters = 0;
-        revealAccumulator = 0f;
-        revealPause = 0f;
-        interrupted = false;
+        this.typingDuration = typingDuration;
     }
 }
 
 /// <summary>
-/// 화면에 대사 한 줄을 띄우고, 타이핑하고, 밀어 올리고, 지운다. **그것만 한다.**
+/// 하프라이프 2 자막(2026-09-12). **상자 하나, 글 한 덩어리.** 화면 위 가운데(에이스 컴뱃 자리) 반투명 판에
+/// 화자를 색으로 붙인 줄이 두 줄까지 쌓이고, 다 읽으면 사라진다. 그것이 전부다.
 ///
-/// 예전에는 이 클래스가 JSON도 읽고, 컷신 배도 조종하고, RunLog도 구독했다. 2586줄이었고
-/// "대사가 안 나온다"는 증상 하나에 용의자가 그 전부였다. 지금은 셋이다 -
-/// <see cref="ScriptManager"/>가 무엇을 언제, <see cref="DramaManager"/>가 왜와 무슨 일이,
-/// 여기가 어떻게 보이는가.
+/// 예전 1,450줄 - 레인 셋, 줄마다 판, 타이핑, 펀치, 흔들림, 지터, 난입 섬광, 배경 무늬 -
+/// 을 버렸다. 오너 판정: "대사 비중이 높은 게임 치곤 대사 UI가 개떡 같다." 읽히는 것이
+/// 연출보다 먼저고, 하프라이프는 연출 없이 20년을 읽혔다.
 ///
-/// **여기는 대본을 모른다.** 이 줄이 프롤로그의 것인지 유폭 보고인지 알 방법이 없고,
-/// 알 필요도 없다. 주어진 문자열과 style 하나로 그림이 정해진다.
+/// **여기는 대본을 모른다.** <see cref="ScriptManager"/>가 무엇을 언제, <see cref="DramaManager"/>가
+/// 왜, 여기가 어떻게 보이는가. 주어진 문자열과 style 하나로 그림이 정해진다.
 ///
-/// 인스펙터 값 65개가 여기 있는 것이 그 증거다 - 저 값들은 전부 "어떻게 보이는가"다.
+/// **크기는 세 배율을 곱한 값이다** - fontSize × 1.23(Malgun 글리프) × <see cref="GUIManager.UiScale"/>(씬 1.31).
+/// 14가 화면 22px이다. 인스펙터 값은 씬이 이기므로 바꾸면 SampleScene.unity도 같이.
 /// </summary>
+/// <remarks>
+/// **GUIManager보다 먼저 돈다**(DefaultExecutionOrder). ImGui 선언은 매 프레임 Rect·Opacity를 되돌리고(Reset),
+/// GUITween은 GUIManager.Update의 Tick에서 값을 쓴다. 선언 → 틱 순이어야 트윈이 이긴다.
+/// 반대면 트윈이 쓴 값을 다음 선언이 지워서 아무것도 안 움직인다.
+/// </remarks>
+[DefaultExecutionOrder(-100)]
 public class DialogueManager : MonoBehaviour
 {
-    // 그리기 순서. GUIManager는 Layer로 정렬하고, 동률이면 **등록 순서**로 그린다 -
-    // 즉시 모드 캐시에서 등록 순서는 "처음 선언된 프레임"이라 창을 늘려 패턴 행이 새로
-    // 생기면 그 행이 대사 위에 올라온다. 명시하면 그런 일이 없다.
-    private const int PatternLayer = -100;
+    public static DialogueManager current;
 
-    // **HUD(전부 Layer 0)보다 확실히 위에 둔다.** 예전에는 판 -2 / 본문 0이라 본문과
-    // AIRFRAME 패널이 동률이었고, GUIManager.BuildDrawRoots의 Sort는 불안정 정렬이라
-    // 동률끼리는 순서가 실행마다 달랐다 - 증상이 "함내 통신과 피탄 경고가 계기판에
-    // 가려진다"였다. 대사는 읽으라고 띄우는 것이라 계기판이 이기면 안 된다.
-    private const int PlateLayer = 98;
-    private const int AccentLayer = 99;
-    private const int MessageLayer = 100;
-    private const int AuthorLayer = 101;
+    [Header("조판")]
+    public int fontSize = 14;
+    public float lineWidth = 680f;
+    public int maxLines = 2;
+    public Vector2 platePadding = new(12f, 8f);
 
-    /// <summary>
-    /// 기능이 아니라 "느낌"을 결정하는 작은 프로필.
-    /// author 문자열로 분기하지 않고 JSON의 style이 명시적으로 고른다.
-    /// </summary>
-    private enum DialogueLane
-    {
-        External,
-        Internal,
-        System,
-    }
+    /// <summary>판의 위 끝. 화면 높이 대비. 에이스 컴뱃처럼 위 중앙이다(2026-09-12) - 아래는 배와 계기판(AIRFRAME·WPN)의 자리라 대사가 거기 있으면 늘 뭔가와 겹친다. 줄이 늘면 아래로 자란다.</summary>
+    public float topFraction = 0.01f;
 
-    private readonly struct Presentation
-    {
-        public readonly string tag;
-        public readonly Color plate;
-        public readonly Color accent;
-        public readonly Vector2 enterDirection;
-        public readonly float punch;
-        public readonly float shake;
-        public readonly float typeSpeed;
-        public readonly float punctuationPause;
-        public readonly float persistentJitter;
-        public readonly float accentScale;
+    /// <summary>판 불투명도. 하프라이프는 0.5, 여기는 별이 많아 더 덮는다. 접근성 옵션으로 1까지 올릴 자리.</summary>
+    public float plateAlpha = 0.78f;
 
-        public Presentation(
-            string tag,
-            Color plate,
-            Color accent,
-            Vector2 enterDirection,
-            float punch,
-            float shake,
-            float typeSpeed,
-            float punctuationPause,
-            float persistentJitter,
-            float accentScale = 1f)
-        {
-            this.tag = tag;
-            this.plate = plate;
-            this.accent = accent;
-            this.enterDirection = enterDirection;
-            this.punch = punch;
-            this.shake = shake;
-            this.typeSpeed = typeSpeed;
-            this.punctuationPause = punctuationPause;
-            this.persistentJitter = persistentJitter;
-            this.accentScale = accentScale;
-        }
-    }
-
-
-    /// <summary>
-    /// 앞줄 타이핑이 끝나고 다음 줄이 오기까지의 사이. **이 값이 duration보다 작아서
-    /// 통신이 겹친다** - 크게 잡으면 한 번에 한 줄씩 나오는 옛날 동작으로 돌아간다.
-    /// 대본의 <see cref="DialogueLine.wait"/>이 0이 아니면 그쪽이 이긴다.
-    /// </summary>
-    public float lineGap = 0.6f;
-
-    /// <summary>
-    /// 화면에 동시에 둘 수 있는 줄 수. 겹치기 시작하면 duration이 길고 사이가 짧은 대본
-    /// 하나로 줄이 화면 밖까지 쌓이므로, 넘치면 제일 오래된 줄부터 내보낸다.
-    /// </summary>
-    public int maxLines = 5;
-
-    [Header("Layout")]
-    /// <summary>EXTERNAL COMMS의 기준점. 기존 origin 직렬화 값을 그대로 살린다.</summary>
-    public Vector2 origin = new(140f, 96f);
-
-    /// <summary>하위호환용 최소 크기. 실제 폭은 lane별 width가 결정한다.</summary>
-    public Vector2 lineSize = new(680f, 30f);
-
-    /// <summary>같은 lane의 카드 사이 간격.</summary>
-    public float spacing = 10f;
-
-    [Header("AAA Layout v2")]
-    public float externalWidth = 680f;
-    public float internalWidth = 440f;   // 함내 잡담. 중요한 정보가 많이 안 들어가서 외부 통신보다 좁다
-    public float systemWidth = 620f;
-    /// <summary>
-    /// 함내 통신 레인이 화면 아래에서 띄우는 거리.
-    ///
-    /// **AIRFRAME 패널 위에 서야 한다.** 그 패널이 좌하단 Margin(16) + 높이(150) = 166까지
-    /// 덮으므로 96이면 대사가 도해 한가운데로 들어간다 - 겹치면 Layer가 순서를 정해야 하는데
-    /// GUIManager.BuildDrawRoots의 Sort가 불안정 정렬이라 동률끼리는 실행마다 달라진다.
-    /// 애초에 안 겹치게 두는 것이 그 문제를 없애는 길이다.
-    ///
-    /// 오른쪽으로 빼는 안은 버렸다. 손상 보고가 함체 도해 **바로 위**에 뜨는 것이 읽기
-    /// 좋다 - "함수 좌현 관통"이라고 말할 때 그 그림이 밑에 있다. 양끝으로 갈리면 시선이
-    /// 두 번 움직인다.
-    ///
-    /// ShipStatusHud의 상수를 여기서 직접 안 읽는 이유는 의존 방향이다 - 대사창이 HUD를
-    /// 알면 HUD 없는 씬에서 컴파일이 걸린다. 값이 어긋나면 증상이 "겹쳐 보임"이라 눈에 띈다.
-    /// </summary>
-    public float internalBottomMargin = 178f;
-
-    /// <summary>함내 잡담이 함선 중심에서 위로 뜨는 거리(논리 px). 배 그림을 안 가리는 선.</summary>
-    public float internalLift = 60f;
-    public float systemTopMargin = 48f;
-    public float headerHeight = 18f;
-    public float headerBodyGap = 4f;
-    public float headerLeadTime = 0.08f;
-    public int maxExternalLines = 3;
-    public int maxInternalLines = 3;
-    public int maxSystemLines = 1;
-
-    [Header("Movement")]
-    public float moveSmoothTime = 0.12f;
-    public float spawnOffset = 36f;
-    public float leaveOffset = 42f;
-
-    [Header("Fade")]
-    public float fadeInSpeed = 7f;
-    public float fadeOutSpeed = 4f;
-
-    [Header("Typing")]
+    [Header("박자")]
+    /// <summary>초당 읽는 글자 수. 타이핑 연출은 없고 다음 줄까지의 간격만 이걸로 잰다.</summary>
     public float typeSpeed = 42f;
     public float minimumHoldTime = 0.5f;
 
-    [Header("Impact")]
-    public float enterPunch = 8f;
-    public float enterPunchDuration = 0.25f;
-    public float shakeAmount = 2f;
-    public float stackKick = 5f;
+    /// <summary>대사 사이 간격(초). ScriptManager가 읽는다.</summary>
+    public float lineGap = 0.6f;
 
-    /// <summary>헤더가 등장할 때만 아주 작게 부풀었다 돌아온다.</summary>
-    public float authorPunchScale = 0.16f;
+    private const float FadeIn = 6f, FadeOut = 4f;
+    private const float EnterDrop = 14f, EnterTime = 0.18f;   // 새 줄이 오면 판이 위에서 살짝 내려앉는다
+    private const int PlateLayer = UiLayer.Dialogue, TextLayer = UiLayer.Dialogue + 1;
 
-    [Header("Screen Shake")]
-    public float screenShakeThreshold = 1.4f;
-    public float screenShakeStrength = 7f;
-    public float screenShakeDuration = 0.22f;
-
-    [Header("Plate")]
-    public bool drawPlate = true;
-    public Color plateColor = new(0.3f, 0.04f, 0.06f, 0.78f);
-    public Vector2 platePadding = new(12f, 8f);
-
-    [Header("Pattern Background")]
-    public bool drawPattern = true;
-    public float patternFadeSpeed = 5f;
-    public string patternText = "ATRIA NAVY";
-    public float patternSpeed = 60f;
-    public float patternRowHeight = 78f;
-    public float patternDiagonalOffset = 70f;
-    public float patternOpacity = 0.055f;
-    public float patternStartXPadding = 800f;
-    public int patternFontSize = 28;
-
-    [Header("Typography")]
-    public int fontSize = 22;
-
-    /// <summary>함내 레인 전용 글자 크기. 함선 위에 작게 뜨는 잡담이라 본문보다 작다.</summary>
-    public int internalFontSize = 15;
-    public int authorFontSize = 13;
-    public int systemFontSize = 20;
-
-    [Header("AAA Presentation")]
-    public float accentWidth = 4f;
-    public float interruptFlashHeight = 3f;
-    public float interruptFlashFade = 6f;
-    public float interruptKick = 90f;
-    public float degradedSignalThreshold = 0.78f;
-    public float severeSignalThreshold = 0.20f;
-    public float activeAlpha = 1f;
-    public float previousAlpha = 0.48f;
-    public float historyAlpha = 0.22f;
-
-    public List<Dialogue> Texts = new();
-
-    private int _nextId;
-    private bool _layoutDirty;
-
-    /// <summary>배경 패턴이 지금 얼마나 나와 있나. 0이면 선언 자체를 안 한다.</summary>
-    private float _patternAlpha;
-
-    private float _interruptFlash;
-    private float _interruptFlashY;
-    private Color _interruptFlashColor = Color.white;
-
-    private GUIStyle _messageStyle;
-    private GUIStyle _internalStyle;
-    private GUIStyle _authorStyle;
-    private GUIStyle _systemStyle;
-    private GUIStyle _patternStyle;
-
-    private string _patternLineCache;
-
-    private float _lastLine;
-
-    /// <summary>
-    /// 마지막으로 뭔가 말한 시각. <see cref="DramaManager"/>의 잡담이 "얼마나 조용했나"를
-    /// 이걸로 잰다 - 말이 끊긴 시간을 아는 것은 말을 띄우는 쪽이다.
-    /// </summary>
+    public readonly List<Dialogue> Texts = new();
     public float LastLineTime => _lastLine;
 
-    /// <summary>
-    /// 방금 뭔가 말한 것으로 친다. 잡담이 후보를 못 골랐을 때(전부 쿨다운)도 밀어야
-    /// 매 프레임 다시 시도하지 않는다.
-    /// </summary>
+    /// <summary>방금 뭔가 말한 것으로 친다. 잡담이 후보를 못 골랐을 때도 밀어야 매 프레임 다시 시도하지 않는다.</summary>
     public void MarkLine() => _lastLine = Time.unscaledTime;
 
-    // =========================================================
-    // 수명
-    // =========================================================
-
-    /// <summary>
-    /// 씬의 대사창. <see cref="Battle"/>·<see cref="Campaign"/>과 같은 규칙으로 둔다 -
-    /// 대사를 띄우고 싶은 쪽이 이 오브젝트를 찾아다니지 않아도 되게.
-    ///
-    /// null이 정상이다. 대사창이 없는 씬에서도 전투는 돌아야 한다.
-    /// </summary>
-    public static DialogueManager current;
+    private float _lastLine;
+    private float _blockHeight;
+    private string _measured;   // 이 문자열로 잰 높이다. 글이 바뀌면 다시 잰다
+    private GUIStyle _style, _plate;
+    private readonly StringBuilder _sb = new();
+    private GUIItem _plateItem, _textItem;   // 트윈을 죽일 때 필요하다 - 선언을 멈추면 ImGui가 걷지만 트윈 사전엔 남는다
+    private bool _enter;
 
     private void OnEnable() => current = this;
 
@@ -397,26 +101,62 @@ public class DialogueManager : MonoBehaviour
             current = null;
     }
 
-    /// <summary>
-    /// FNV-1a. <c>string.GetHashCode</c>는 실행마다 달라질 수 있어서 못 쓴다 - 그러면 같은
-    /// 세이브가 실행마다 다른 대사를 낸다.
-    ///
-    /// **여기 사는 이유는 쓰는 자리가 둘이기 때문이다** - 화면 흔들림의 시드(여기)와
-    /// 변형 고르기의 시드(<see cref="ScriptManager.Pick"/>). 두 벌로 두면 언젠가 한쪽만
-    /// 고치고, 그러면 같은 대본이 기계마다 다른 문장을 낸다.
-    /// </summary>
+    // =========================================================
+    // 밖에서 부르는 것
+    // =========================================================
+
+    /// <summary>signalQuality는 API 호환으로 받기만 한다 - 신호 열화 연출은 뺐다.</summary>
+    public Dialogue Spawn(
+        string message,
+        string author = "",
+        float duration = 4f,
+        float intensity = 1f,
+        string style = "radio",
+        float signalQuality = 1f,
+        bool interrupt = false)
+    {
+        float typing = VisibleCharacters(message) / Mathf.Max(1f, typeSpeed);
+        duration = Mathf.Max(duration, typing + minimumHoldTime);
+
+        // 난입은 앞줄을 즉시 내보낸다. 섬광도 흔들림도 없다 - 새 줄이 곧 사건이다.
+        if (interrupt)
+            foreach (Dialogue old in Texts)
+                old.leaving = true;
+
+        var line = new Dialogue(message, author, style, duration, typing);
+        Texts.Add(line);
+        _enter = true;
+        _lastLine = Time.unscaledTime;
+
+        int live = 0;
+        for (int i = Texts.Count - 1; i >= 0; i--)
+            if (!Texts[i].leaving && ++live > Mathf.Max(1, maxLines))
+                Texts[i].leaving = true;
+
+        return line;
+    }
+
+    public void Clear() => Texts.Clear();
+
+    /// <summary>realTime 이전에 태어난 줄만 지운다 - 죽기 전 통신은 지우고 그 순간 뜨는 유언은 살린다.</summary>
+    public void ClearBefore(float realTime) => Texts.RemoveAll(l => l.spawnRealTime < realTime);
+
+    public static bool IsKnownStyle(string style) => Tag(style) != null;
+
+    /// <summary>에디터 검증기가 리플렉션으로 읽는다 - 줄 수 추정용. 배치는 레인을 안 쓴다.</summary>
+    public static string PresentationLaneForStyle(string style) => Norm(style) switch
+    {
+        "crew" or "damage" => "internal",
+        "system" => "system",
+        _ => "external",
+    };
+
     public static int StableHash(string s)
     {
         unchecked
         {
             uint h = 2166136261u;
-
-            for (int i = 0; i < s.Length; i++)
-            {
-                h ^= s[i];
-                h *= 16777619u;
-            }
-
+            for (int i = 0; i < s.Length; i++) { h ^= s[i]; h *= 16777619u; }
             return (int)h;
         }
     }
@@ -429,1325 +169,164 @@ public class DialogueManager : MonoBehaviour
     {
         float dt = Time.unscaledDeltaTime;
 
-        // 대사는 격파 중에도 산다 - battle-lost 유언이 죽음 직후에 뜨는 대본이라,
-        // 여기를 GuiHidden(격파 포함)으로 걸면 유언이 뜨자마자 지워진다. 대신 사망
-        // 순간의 기존 대사(교전 중 통신)는 GameManager가 Clear()로 한 번에 지운다.
-        // 부팅 중(새 씬 로드 직후)에만 숨는다 - 다음 구역 잡담이 부팅 위로 끼어드는 것만 막는다.
-        if (GameManager.SceneSeconds < GameManager.GuiBootDelay)
-            return;
-
-        // 함선 선택 중에는 대사를 선언하지 않는다 - 즉시 모드라 선언을 멈추면 화면에서
-        // 사라지고, 데이터(Texts)는 남아서 닫히면 그대로 돌아온다. 세계가 통째로 멈춘
-        // 화면 위로 함내 통신이 계속 올라오면 "게임이 안 멈췄나"가 된다.
-        if (ShipSelectScreen.IsOpen || LogisticsScreen.IsOpen || RefitScreen.IsOpen)
-            return;
-
-        Advance(dt);
-
-        _interruptFlash = Mathf.MoveTowards(_interruptFlash, 0f, interruptFlashFade * dt);
-
-        ImGui.Begin();
-
-        if (_interruptFlash > 0.001f)
-            DrawInterruptCut();
-
-        // 긴장의 주인은 DramaManager다. 그리는 것만 여기서 한다 - 값을 이쪽으로 옮기면
-        // 사건이 올리고 시간이 내리는 그 흐름이 두 파일로 갈라진다.
-        DramaManager drama = DramaManager.current;
-
-        if (drama != null && drama.showTension)
-        {
-            GUILabel gauge = ImGui.Label(
-                "tension_debug",
-                new Rect(new Vector2(12f, 12f), new Vector2(260f, 22f)),
-                $"tension {drama.Tension:0.000}  (잡담 {drama.chitChatMaxTension:0.00} 이하)",
-                AuthorStyle());
-
-            gauge.Layer = AuthorLayer + 1;
-            gauge.Opacity = 1f;
-        }
-
-        // 전체 화면 패턴은 이제 "통신 중" 표시가 아니다. 중요한 난입 때만 잠깐 쓴다.
-        float patternTarget = drawPattern && HasCriticalTransmission() ? 1f : 0f;
-        _patternAlpha = Mathf.MoveTowards(_patternAlpha, patternTarget, patternFadeSpeed * dt);
-
-        if (_patternAlpha > 0.001f)
-            DrawCommunicationPattern(_patternAlpha);
-
-        for (int i = 0; i < Texts.Count; i++)
-        {
-            Dialogue line = Texts[i];
-            Presentation presentation = PresentationFor(line.style);
-            DialogueLane lane = LaneForStyle(line.style);
-
-            if (lane == DialogueLane.System)
-                DrawSystemLine(line, presentation, i);
-            else
-                DrawCommsLine(line, presentation, lane, i);
-        }
-    }
-
-    private void DrawInterruptCut()
-    {
-        GUIImage cut = ImGui.Image(
-            "story_interrupt_cut",
-            new Rect(
-                new Vector2(0f, Mathf.Clamp(_interruptFlashY, 0f, GUIManager.LogicalHeight - interruptFlashHeight)),
-                new Vector2(GUIManager.LogicalWidth, interruptFlashHeight)),
-            GUIStyleMaker.Solid(_interruptFlashColor)
-        );
-
-        cut.Layer = AccentLayer;
-        cut.Opacity = _interruptFlash;
-    }
-
-    private void DrawCommsLine(Dialogue line, Presentation presentation, DialogueLane lane, int index)
-    {
-        float enter01 = Mathf.Clamp01(line.age / Mathf.Max(enterPunchDuration, 0.0001f));
-        float punch01 = Mathf.Sin(enter01 * Mathf.PI);
-        float punch = punch01 * enterPunch * presentation.punch * line.intensity;
-        float signalDamage = 1f - line.signalQuality;
-        float seed = index * 31.74f + StableHash(line.id) * 0.0001f + 17f;
-
-        // 통신 열화는 frame/header에 보여주고 body는 고정한다. 읽을 정보 자체를 흔들지 않는다.
-        float persistent = signalDamage * presentation.persistentJitter;
-        Vector2 frameNoise = new(
-            (Mathf.PerlinNoise(seed, Time.unscaledTime * 24f) * 2f - 1f) * shakeAmount * persistent,
-            (Mathf.PerlinNoise(seed + 50f, Time.unscaledTime * 27f) * 2f - 1f) * shakeAmount * persistent);
-
-        Vector2 framePos = line.pos + frameNoise + new Vector2(punch, 0f);
-        Vector2 textPos = line.pos + new Vector2(punch * 0.18f, 0f);
-
-        float bodyHeight = BodyHeight(line);
-        float head = HeaderHeight(line);
-        float blockHeight = head + headerBodyGap + bodyHeight;
-        float blockWidth = Mathf.Min(WidthForLane(lane), Mathf.Max(line.width, 180f));
-        float depthAlpha = LaneDepthAlpha(line);
-        float frameFlicker = SignalFrameFlicker(line, seed);
-        float bodyLead = Mathf.SmoothStep(
-            0f,
-            1f,
-            Mathf.InverseLerp(headerLeadTime, headerLeadTime + 0.10f, line.age));
-
-        if (drawPlate)
-        {
-            GUIImage plate = ImGui.Image(
-                line.idPlate,
-                new Rect(
-                    framePos - platePadding,
-                    new Vector2(blockWidth + platePadding.x * 2f, blockHeight + platePadding.y * 2f)),
-                GUIStyleMaker.Solid(presentation.plate));
-
-            plate.Layer = PlateLayer;
-            plate.Opacity = line.alpha * depthAlpha * frameFlicker;
-
-            float barWidth = accentWidth * presentation.accentScale;
-            GUIImage accent = ImGui.Image(
-                line.idAccent,
-                new Rect(
-                    new Vector2(framePos.x - platePadding.x, framePos.y - platePadding.y),
-                    new Vector2(barWidth, blockHeight + platePadding.y * 2f)),
-                GUIStyleMaker.Solid(presentation.accent));
-
-            accent.Layer = AccentLayer;
-            accent.Opacity = line.alpha * depthAlpha;
-        }
-
-        // Header가 body보다 먼저 뜬다. 누가 말하는지 먼저 읽히는 것이 v2의 핵심이다.
-        GUILabel header = ImGui.Label(
-            line.idHeader,
-            new Rect(textPos, new Vector2(blockWidth, head)),
-            HeaderText(line, presentation),
-            AuthorStyle());
-
-        header.Layer = AuthorLayer;
-        header.Opacity = line.alpha * depthAlpha * frameFlicker;
-        header.RenderScale = Vector2.one * (1f + punch01 * authorPunchScale * line.intensity);
-
-        // **판과 같은 폭을 쓴다.** 예전에는 라벨만 레인 폭(560) 전체였고 판은 잰 글 폭이라,
-        // 둘이 다른 폭에서 줄바꿈을 계산했다 - 높이는 레인 폭으로 재고 그리기는 다른 폭으로
-        // 하면 잰 것보다 한 줄 더 나오는 문장에서 마지막 줄이 잘린다.
-        GUILabel message = ImGui.Label(
-            line.idMessage,
-            new Rect(
-                textPos + new Vector2(0f, head + headerBodyGap),
-                new Vector2(blockWidth, bodyHeight)),
-            BodyText(line, RenderedText(line)),
-            lane == DialogueLane.Internal ? InternalStyle() : MessageStyle());
-
-        message.Layer = MessageLayer;
-        message.Opacity = line.alpha * depthAlpha * bodyLead;
-    }
-
-    private void DrawSystemLine(Dialogue line, Presentation presentation, int index)
-    {
-        float enter01 = Mathf.Clamp01(line.age / Mathf.Max(enterPunchDuration, 0.0001f));
-        float punch01 = Mathf.Sin(enter01 * Mathf.PI);
-        float width = WidthForLane(DialogueLane.System);
-        float bodyHeight = BodyHeight(line);
-        float head = HeaderHeight(line);
-        float blockHeight = head + headerBodyGap + bodyHeight;
-        float seed = index * 41.12f + StableHash(line.id) * 0.0001f;
-        float frameFlicker = SignalFrameFlicker(line, seed);
-        Vector2 framePos = line.pos + new Vector2(0f, -punch01 * 5f * line.intensity);
-
-        GUIImage plate = ImGui.Image(
-            line.idSystemPlate,
-            new Rect(
-                framePos - platePadding,
-                new Vector2(width + platePadding.x * 2f, blockHeight + platePadding.y * 2f)),
-            GUIStyleMaker.Solid(presentation.plate));
-
-        plate.Layer = PlateLayer;
-        plate.Opacity = line.alpha * frameFlicker;
-
-        GUIImage top = ImGui.Image(
-            line.idSystemAccent,
-            new Rect(
-                new Vector2(framePos.x - platePadding.x, framePos.y - platePadding.y),
-                new Vector2(width + platePadding.x * 2f, 2f)),
-            GUIStyleMaker.Solid(presentation.accent));
-
-        top.Layer = AccentLayer;
-        top.Opacity = line.alpha;
-
-        GUILabel header = ImGui.Label(
-            line.idSystemHeader,
-            new Rect(framePos, new Vector2(width, head)),
-            "SYSTEM // PRIORITY STATUS",
-            AuthorStyle());
-
-        header.Layer = AuthorLayer;
-        header.Opacity = line.alpha;
-
-        GUILabel message = ImGui.Label(
-            line.idSystemMessage,
-            new Rect(
-                framePos + new Vector2(0f, head + headerBodyGap),
-                new Vector2(width, bodyHeight)),
-            RenderedText(line),
-            SystemStyle());
-
-        message.Layer = MessageLayer;
-        message.Opacity = line.alpha;
-    }
-
-
-    /// <summary>
-    /// **선언이 아니라 측정만 한다.** ImGui.Begin은 Update에서만 부른다 - OnGUI는 한
-    /// 프레임에 여러 번(Layout·Repaint·입력 이벤트마다) 불리기 때문이다. 그런데
-    /// GUIStyle.CalcHeight는 GUI 함수라 OnGUI 밖에서 부르면 던진다. 그래서 재는 일만
-    /// 여기서 하고, 쓰는 것은 다음 Update다 - 한 프레임 늦지만 등장 프레임에만이다.
-    /// </summary>
-    private void OnGUI()
-    {
-        if (Event.current.type != UnityEngine.EventType.Layout)
-            return;
-
-        GUIStyle message = MessageStyle();
-        GUIStyle system = SystemStyle();
-        GUIStyle internalBody = InternalStyle();
-        GUIStyle header = AuthorStyle();
-
-        if (message == null || system == null || header == null)
-            return;
-
-        for (int i = 0; i < Texts.Count; i++)
-        {
-            Dialogue line = Texts[i];
-
-            if (line.height > 0f)
-                continue;
-
-            DialogueLane lane = LaneForStyle(line.style);
-            float laneWidth = WidthForLane(lane);
-            GUIStyle bodyStyle = lane switch
-            {
-                DialogueLane.System => system,
-                DialogueLane.Internal => internalBody,
-                _ => message,
-            };
-            GUIContent content = new(line.message);
-
-            // **폭을 먼저 정하고 그 폭으로 높이를 잰다.** 순서가 뒤바뀌면 레인 폭으로 잰
-            // 높이를 더 좁은 폭으로 그리게 되고, 줄이 하나 더 생기는 문장에서 잘린다.
-            line.width = Mathf.Max(180f, Mathf.Min(laneWidth, bodyStyle.CalcSize(content).x));
-            line.height = Mathf.Max(lineSize.y, bodyStyle.CalcHeight(content, line.width));
-
-            // **머리글은 레인을 안 가리고 잰다.** System 레인도 머리글을 그리는데
-            // 예전에는 여기서 빠져 있어서 고정 18px로 남았고, 그래서 그 레인만 계속 잘렸다.
-            // 폭 반영은 여전히 System 제외 - 그 레인은 폭이 고정이다.
-            var headerContent = new GUIContent(HeaderText(line, PresentationFor(line.style)));
-
-            if (lane != DialogueLane.System)
-            {
-                line.width = Mathf.Max(
-                    line.width, Mathf.Min(laneWidth, header.CalcSize(headerContent).x));
-            }
-
-            line.headerH = Mathf.Max(
-                headerHeight,
-                header.CalcHeight(headerContent, Mathf.Max(line.width, laneWidth)));
-
-            _layoutDirty = true;
-        }
-
-        // 함내 레인은 배를 따라다닌다. layoutDirty(대사 증감)와 무관하게 매 프레임
-        // 기준점이 움직이므로 따로 돈다 - targetPos만 옮기고 스무딩은 그대로라, 배가
-        // 급기동하면 말풍선이 반 박자 늦게 따라오는 것이 오히려 자연스럽다.
-        if (CutSceneManager.ControlsPlayer)
-            RecalculatePos();
-        else
-            RecalculateInternal();
-
-        if (!_layoutDirty)
-            return;
-
-        _layoutDirty = false;
-        RecalculatePos();
-    }
-
-
-    // =========================================================
-    // 대사 생성 / 진행
-    // =========================================================
-
-    /// <summary>오디오 시스템이 radio key-on/off, chirp 등을 붙이는 seam.</summary>
-    public static event Action<string, string> PresentationCue;
-
-    public Dialogue Spawn(
-        string message,
-        string author = "",
-        float duration = 4f,
-        float intensity = 1f,
-        string style = "radio",
-        float signalQuality = 1f,
-        bool interrupt = false)
-    {
-        Presentation presentation = PresentationFor(style);
-        DialogueLane lane = LaneForStyle(style);
-
-        int visible = CountVisibleCharacters(message);
-        float revealSpeed = Mathf.Max(1f, typeSpeed * presentation.typeSpeed);
-        float typing = EstimateTypingDuration(message, revealSpeed, presentation.punctuationPause);
-        duration = Mathf.Max(duration, typing + minimumHoldTime);
-
-        if (interrupt)
-            InterruptLane(lane, presentation, intensity);
-        else
-            KickStack(lane);
-
-        Vector2 start = LaneAnchor(lane);
-        Dialogue line = new(
-            $"story{_nextId++}",
-            message,
-            author,
-            duration,
-            start,
-            visible,
-            intensity,
-            style,
-            signalQuality,
-            revealSpeed
-        );
-
-        line.typingDuration = typing;
-
-        _lastLine = Time.unscaledTime;
-
-        Texts.Add(line);
-        TrimToMaxLines();
-        RecalculatePos();
-
-        Vector2 direction = presentation.enterDirection.sqrMagnitude > 0.001f
-            ? presentation.enterDirection.normalized
-            : Vector2.left;
-
-        line.pos = line.targetPos + direction * spawnOffset;
-
-        if (intensity >= screenShakeThreshold)
-        {
-            GUIManager.Shake(
-                screenShakeStrength * intensity * presentation.shake,
-                screenShakeDuration);
-        }
-
-        PresentationCue?.Invoke(style, interrupt ? "interrupt" : "open");
-        return line;
-    }
-
-
-    private void KickStack(DialogueLane lane)
-    {
-        Vector2 kick = lane switch
-        {
-            DialogueLane.External => new Vector2(-stackKick * 0.2f, -stackKick),
-            DialogueLane.Internal => new Vector2(-stackKick * 0.2f, stackKick),
-            _ => new Vector2(0f, -stackKick * 0.5f),
-        };
-
-        for (int i = 0; i < Texts.Count; i++)
-        {
-            Dialogue line = Texts[i];
-            if (line.leaving || LaneForStyle(line.style) != lane)
-                continue;
-
-            line.pos += kick;
-        }
-    }
-
-
-    private void InterruptLane(DialogueLane lane, Presentation presentation, float intensity)
-    {
-        _interruptFlash = 1f;
-        _interruptFlashColor = presentation.accent;
-        _interruptFlashY = InterruptY(lane);
-
-        Vector2 exit = lane switch
-        {
-            DialogueLane.External => new Vector2(-interruptKick, -leaveOffset * 0.30f),
-            DialogueLane.Internal => new Vector2(-interruptKick, leaveOffset * 0.30f),
-            _ => new Vector2(0f, -interruptKick * 0.45f),
-        };
-
-        for (int i = 0; i < Texts.Count; i++)
-        {
-            Dialogue old = Texts[i];
-
-            if (old.leaving || LaneForStyle(old.style) != lane)
-                continue;
-
-            old.interrupted = true;
-            old.leaving = true;
-            old.targetPos += exit;
-            old.velocity += exit * 2.2f * Mathf.Max(0.7f, intensity);
-        }
-
-        GUIManager.Shake(
-            screenShakeStrength * Mathf.Max(1f, intensity) * presentation.shake,
-            screenShakeDuration * 1.15f);
-    }
-
-
-    private void Advance(float dt)
-    {
         for (int i = Texts.Count - 1; i >= 0; i--)
         {
             Dialogue line = Texts[i];
-
             line.age += dt;
 
-            line.pos = Vector2.SmoothDamp(
-                line.pos,
-                line.targetPos,
-                ref line.velocity,
-                moveSmoothTime,
-                Mathf.Infinity,
-                dt
-            );
+            if (line.age >= line.duration)
+                line.leaving = true;
 
-            if (!line.leaving)
-            {
-                line.alpha = Mathf.MoveTowards(line.alpha, 1f, fadeInSpeed * dt);
+            line.alpha = line.leaving
+                ? Mathf.MoveTowards(line.alpha, 0f, FadeOut * dt)
+                : Mathf.MoveTowards(line.alpha, 1f, FadeIn * dt);
 
-                AdvanceTypewriter(line, dt);
-
-                line.duration -= dt;
-
-                if (line.duration <= 0f)
-                    BeginLeave(line);
-
-                continue;
-            }
-
-            float leaveSpeed = line.interrupted ? fadeOutSpeed * 3.5f : fadeOutSpeed;
-            line.alpha = Mathf.MoveTowards(line.alpha, 0f, leaveSpeed * dt);
-
-            if (line.alpha > 0.01f)
-                continue;
-
-            Texts.RemoveAt(i);
-            RecalculatePos();
+            if (line.leaving && line.alpha <= 0f)
+                Texts.RemoveAt(i);
         }
-    }
 
-    private void AdvanceTypewriter(Dialogue line, float dt)
-    {
-        if (line.revealCharacters >= line.visibleCharacters)
-            return;
-
-        if (line.revealPause > 0f)
+        // 전체 화면(정비·항로·선택)에서는 안 그린다. 데이터는 남아서 닫히면 돌아온다.
+        if (Texts.Count == 0 || ShipSelectScreen.IsOpen || LogisticsScreen.IsOpen || RefitScreen.IsOpen)
         {
-            line.revealPause = Mathf.Max(0f, line.revealPause - dt);
+            KillTweens();
             return;
         }
 
-        Presentation presentation = PresentationFor(line.style);
-        line.revealAccumulator += Mathf.Max(1f, line.revealSpeed) * dt;
+        Styles();
+        ImGui.Begin();
 
-        while (line.revealAccumulator >= 1f &&
-               line.revealCharacters < line.visibleCharacters)
-        {
-            line.revealAccumulator -= 1f;
-            line.revealCharacters++;
+        float width = Mathf.Min(lineWidth, GUIManager.LogicalWidth - 64f);
 
-            char c = VisibleCharacterAt(line.message, line.revealCharacters - 1);
-            float pause = PunctuationPause(c) * presentation.punctuationPause;
-
-            if (pause <= 0f)
-                continue;
-
-            line.revealPause = pause;
-            break;
-        }
-    }
-
-    private static float EstimateTypingDuration(
-        string message,
-        float revealSpeed,
-        float punctuationScale)
-    {
-        int visible = 0;
-        float pauses = 0f;
-        bool insideTag = false;
-
-        for (int i = 0; i < message.Length; i++)
-        {
-            char c = message[i];
-
-            if (c == '<') { insideTag = true; continue; }
-            if (c == '>') { insideTag = false; continue; }
-            if (insideTag) continue;
-
-            visible++;
-            pauses += PunctuationPause(c) * punctuationScale;
-        }
-
-        return visible / Mathf.Max(1f, revealSpeed) + pauses;
-    }
-
-    private static float PunctuationPause(char c)
-    {
-        return c switch
-        {
-            '.' or '!' or '?' or '。' or '！' or '？' => 0.14f,
-            ',' or ';' or ':' or '，' => 0.055f,
-            '—' or '…' => 0.08f,
-            _ => 0f,
-        };
-    }
-
-    private static char VisibleCharacterAt(string text, int visibleIndex)
-    {
-        if (string.IsNullOrEmpty(text) || visibleIndex < 0)
-            return '\0';
-
-        int visible = 0;
-        bool insideTag = false;
-
-        for (int i = 0; i < text.Length; i++)
-        {
-            char c = text[i];
-
-            if (c == '<')
-            {
-                insideTag = true;
-                continue;
-            }
-
-            if (c == '>')
-            {
-                insideTag = false;
-                continue;
-            }
-
-            if (insideTag)
-                continue;
-
-            if (visible == visibleIndex)
-                return c;
-
-            visible++;
-        }
-
-        return '\0';
-    }
-
-    /// <summary>
-    /// 넘치는 줄을 내보낸다. **새 것부터 세고 오래된 것을 버린다** - 겹치기가 켜지면
-    /// duration이 길고 사이가 짧은 대본 하나로 줄이 화면 밖까지 쌓인다.
-    ///
-    /// 지우지 않고 <see cref="BeginLeave"/>를 부르는 것이 중요하다. 그냥 빼면 줄이 뚝
-    /// 사라져서 "밀려났다"가 아니라 "버그"로 읽힌다.
-    /// </summary>
-    private void TrimToMaxLines()
-    {
-        TrimLane(DialogueLane.External, Mathf.Max(1, maxExternalLines));
-        TrimLane(DialogueLane.Internal, Mathf.Max(1, maxInternalLines));
-        TrimLane(DialogueLane.System, Mathf.Max(1, maxSystemLines));
-
-        // 예전 inspector의 maxLines도 마지막 안전망으로만 유지한다.
-        if (maxLines <= 0)
+        // 높이는 알파와 무관하다. 측정 키에 알파를 넣으면 페이드 중 매 프레임 키가 바뀌어 한 번도 안 그린다.
+        if (_blockHeight <= 0f || _measured != Compose(false))
             return;
 
-        int live = 0;
-        for (int i = Texts.Count - 1; i >= 0; i--)
-        {
-            if (Texts[i].leaving)
-                continue;
+        string text = Compose(true);   // OnGUI가 이 글의 높이를 재고 나면 다음 프레임에 그린다
 
-            if (++live > maxLines)
-                BeginLeave(Texts[i]);
+        float h = _blockHeight + platePadding.y * 2f;
+        // 자리는 비율 하나가 정한다. 계기판 띠로 아래를 막던 Max는 뺐다(2026-09-12) - 그게 있으면 0.01을 적어도 178px에서 시작해 값이 죽은 것처럼 보인다.
+        float top = GUIManager.LogicalHeight * topFraction;
+        var box = new Rect((GUIManager.LogicalWidth - width) * 0.5f, top, width, h);
+
+        GUIBoxLabel plate = ImGui.BoxLabel("dlg_plate", box, "", _plate);
+        plate.Layer = PlateLayer;
+        plate.Opacity = Peak();
+
+        GUILabel label = ImGui.Label("dlg_text",
+            new Rect(box.x + platePadding.x, box.y + platePadding.y, width - platePadding.x * 2f, _blockHeight), text, _style);
+        label.Layer = TextLayer;
+
+        _plateItem = plate;
+        _textItem = label;
+
+        // 새 줄의 첫 프레임에만. MoveIn은 자리를 밀어 두고 원래 자리로 돌아온다 - 매 프레임 선언이
+        // Rect를 되돌려도 GUIManager의 틱이 그 뒤에 와서 트윈 값이 그려진다(실행 순서 -100).
+        if (_enter)
+        {
+            _enter = false;
+            var drop = new Vector2(0f, -EnterDrop);
+            plate.MoveIn(drop, EnterTime, 0f, TweenHelper.EaseOutQuad);
+            label.MoveIn(drop, EnterTime, 0f, TweenHelper.EaseOutQuad);
         }
     }
 
-    private void TrimLane(DialogueLane lane, int max)
+    /// <summary>높이는 GUI 함수라 OnGUI에서만 잴 수 있다. 글이 바뀐 프레임에만 잰다.</summary>
+    private void OnGUI()
     {
-        int live = 0;
-        for (int i = Texts.Count - 1; i >= 0; i--)
-        {
-            Dialogue line = Texts[i];
-            if (line.leaving || LaneForStyle(line.style) != lane)
-                continue;
-
-            if (++live > max)
-                BeginLeave(line);
-        }
-    }
-
-
-    private void BeginLeave(Dialogue line)
-    {
-        if (line.leaving)
+        if (Event.current.type != EventType.Layout || Texts.Count == 0 || !GUIStyleMaker.Initialized)
             return;
 
-        line.leaving = true;
-        DialogueLane lane = LaneForStyle(line.style);
-        Vector2 exit = lane switch
-        {
-            DialogueLane.External => new Vector2(-leaveOffset * 0.7f, -leaveOffset * 0.35f),
-            DialogueLane.Internal => new Vector2(-leaveOffset * 0.7f, leaveOffset * 0.35f),
-            _ => new Vector2(0f, -leaveOffset),
-        };
+        Styles();
+        string text = Compose(false);
 
-        line.targetPos += exit;
-        line.velocity += exit * 0.65f * line.intensity;
-        PresentationCue?.Invoke(line.style, "close");
-    }
-
-
-    /// <summary>
-    /// 줄을 다시 쌓는다. **높이가 줄마다 다르다** - 고정 간격으로 쌓으면 두 줄짜리 대사가
-    /// 다음 대사와 겹친다. 아직 못 잰 줄은 최소 높이로 세고, OnGUI가 재고 나면 여기가
-    /// 다시 돌아 자리가 잡힌다.
-    /// </summary>
-    private void RecalculatePos()
-    {
-        if (CutSceneManager.ControlsPlayer)
-        {
-            float y = GUIManager.LogicalHeight - 24f;
-            for (int i = Texts.Count - 1; i >= 0; i--)
-            {
-                Dialogue line = Texts[i];
-                if (line.leaving)
-                    continue;
-                y -= VisualHeight(line);
-                float width = WidthForLane(LaneForStyle(line.style));
-                line.targetPos = new Vector2((GUIManager.LogicalWidth - width) * 0.5f, y + platePadding.y);
-                y -= spacing;
-            }
+        if (_measured == text)
             return;
-        }
 
-        RecalculateExternal();
-        RecalculateInternal();
-        RecalculateSystem();
+        float width = Mathf.Min(lineWidth, GUIManager.LogicalWidth - 64f) - platePadding.x * 2f;
+        _blockHeight = _style.CalcHeight(new GUIContent(text), width);
+        _measured = text;
     }
 
-    private void RecalculateExternal()
+    /// <summary>줄마다 "화자  본문". 화자는 종류 색, 본문은 Hull. 알파는 색 태그의 끝 두 자리로 - 라벨 하나라 줄마다 Opacity가 없다.</summary>
+    private string Compose(bool withAlpha)
     {
-        float y = origin.y;
+        _sb.Clear();
 
-        // 새 통신이 가장 위. 아래로 갈수록 echo history다.
-        for (int i = Texts.Count - 1; i >= 0; i--)
-        {
-            Dialogue line = Texts[i];
-            if (line.leaving || LaneForStyle(line.style) != DialogueLane.External)
-                continue;
-
-            line.targetPos = new Vector2(origin.x, y);
-            y += VisualHeight(line) + spacing;
-        }
-    }
-
-    private void RecalculateInternal()
-    {
-        // **함선 위에 뜬다.** 함내에서 일어나는 말이라 함선이 그 말의 자리다 - 화면
-        // 레인(하단 중앙)에 쌓았더니 계기판과 자리 다툼만 했다.
-        //
-        // 배가 없으면(격파 직후 유언 등) 예전 화면 레인으로 물러난다.
-        Vector2 anchor = InternalAnchor();
-        float x = anchor.x;
-        float y = anchor.y;
-
-        // 함내 무전은 아래에서 위로 쌓인다. 최신 보고가 가장 손 가까운 곳에 남는다.
-        for (int i = Texts.Count - 1; i >= 0; i--)
-        {
-            Dialogue line = Texts[i];
-            if (line.leaving || LaneForStyle(line.style) != DialogueLane.Internal)
-                continue;
-
-            float visual = VisualHeight(line);
-            y -= visual;
-            line.targetPos = new Vector2(x, y + platePadding.y);
-            y -= spacing;
-        }
-    }
-
-    private void RecalculateSystem()
-    {
-        float y = systemTopMargin + platePadding.y;
-        float width = WidthForLane(DialogueLane.System);
-
-        for (int i = Texts.Count - 1; i >= 0; i--)
-        {
-            Dialogue line = Texts[i];
-            if (line.leaving || LaneForStyle(line.style) != DialogueLane.System)
-                continue;
-
-            line.targetPos = new Vector2((GUIManager.LogicalWidth - width) * 0.5f, y);
-            y += VisualHeight(line) + spacing;
-        }
-    }
-
-
-    /// <summary>
-    /// 화면을 비운다. **대본은 안 건드린다** - 돌고 있는 대본을 멈추고 쿨다운을 비우는
-    /// 것은 <see cref="ScriptManager.Clear"/>다. 둘을 한 함수에 두면 "화면만 지우고
-    /// 싶다"가 대본까지 끊는다.
-    /// </summary>
-    public void Clear() => Texts.Clear();
-
-    /// <summary>realTime 이전에 태어난 줄만 지운다. GameManager가 격파 순간 쓴다 -
-    /// 죽기 전 통신은 지우고 그 순간 막 뜨기 시작한 유언(battle-lost)은 살린다.</summary>
-    public void ClearBefore(float realTime) =>
-        Texts.RemoveAll(line => line.spawnRealTime < realTime);
-
-    // =========================================================
-    // Presentation
-    // =========================================================
-
-    public static bool IsKnownStyle(string style)
-    {
-        switch ((style ?? string.Empty).Trim().ToLowerInvariant())
-        {
-            case "radio":
-            case "control":
-            case "crew":
-            case "damage":
-            case "system":
-            case "enemy":
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    /// <summary>Editor validator가 reflection으로 읽는다. compile-time 참조는 필요 없다.</summary>
-    public static string PresentationLaneForStyle(string style)
-        => LaneForStyle(style).ToString().ToLowerInvariant();
-
-    private static DialogueLane LaneForStyle(string style)
-    {
-        switch ((style ?? string.Empty).Trim().ToLowerInvariant())
-        {
-            case "crew":
-            case "damage":
-                return DialogueLane.Internal;
-            case "system":
-                return DialogueLane.System;
-            default:
-                return DialogueLane.External;
-        }
-    }
-
-    private Presentation PresentationFor(string style)
-    {
-        switch ((style ?? string.Empty).Trim().ToLowerInvariant())
-        {
-            case "control":
-                return new Presentation(
-                    "CONTROL",
-                    new Color(0.07f, 0.13f, 0.17f, 0.96f),
-                    new Color(0.28f, 0.86f, 1f, 1f),
-                    new Vector2(-1f, 0.08f),
-                    0.70f, 0.45f, 0.95f, 1.0f, 0.35f);
-
-            case "crew":
-                return new Presentation(
-                    "INTERNAL",
-                    new Color(0.13f, 0.12f, 0.10f, 0.96f),
-                    new Color(1f, 0.78f, 0.34f, 1f),
-                    new Vector2(0.15f, 1f),
-                    0.90f, 0.72f, 1.08f, 0.78f, 0.55f);
-
-            case "damage":
-                return new Presentation(
-                    "DAMAGE CONTROL",
-                    new Color(0.24f, 0.07f, 0.06f, 0.97f),
-                    new Color(1f, 0.22f, 0.12f, 1f),
-                    new Vector2(-1f, 0f),
-                    1.25f, 1.45f, 1.20f, 0.32f, 0.70f, 1.75f);
-
-            case "system":
-                return new Presentation(
-                    "SYSTEM",
-                    new Color(0.09f, 0.10f, 0.12f, 0.97f),
-                    new Color(0.82f, 0.9f, 0.95f, 1f),
-                    new Vector2(0f, -1f),
-                    0.45f, 0.18f, 0.82f, 0.10f, 0.08f);
-
-            case "enemy":
-                return new Presentation(
-                    "INTERCEPT",
-                    new Color(0.16f, 0.07f, 0.17f, 0.96f),
-                    new Color(1f, 0.28f, 0.86f, 1f),
-                    new Vector2(1f, 0.08f),
-                    0.95f, 0.90f, 0.92f, 1.0f, 1.0f);
-
-            case "radio":
-            default:
-                return new Presentation(
-                    "COMMS",
-                    plateColor,
-                    new Color(0.95f, 0.24f, 0.28f, 1f),
-                    new Vector2(-0.35f, 1f),
-                    0.85f, 0.65f, 1f, 0.9f, 0.5f);
-        }
-    }
-
-    private string HeaderText(Dialogue line, Presentation presentation)
-    {
-        string who;
-        if (string.IsNullOrWhiteSpace(line.author))
-            who = presentation.tag;
-        else if (line.author.IndexOf(presentation.tag, StringComparison.OrdinalIgnoreCase) >= 0)
-            who = line.author;
-        else
-            who = $"{presentation.tag}  //  {line.author}";
-
-        if (line.signalQuality >= degradedSignalThreshold)
-            return who;
-
-        int quality = Mathf.RoundToInt(line.signalQuality * 100f);
-        return HeaderGlitch(line, $"{who}  //  LINK {quality}%");
-    }
-
-    private static string HeaderGlitch(Dialogue line, string source)
-    {
-        float damage = 1f - line.signalQuality;
-        if (damage < 0.12f || string.IsNullOrEmpty(source))
-            return source;
-
-        int bucket = Mathf.FloorToInt(Time.unscaledTime * 10f);
-        int salt = StableHash(line.id) ^ bucket * 486187739;
-        StringBuilder sb = new(source.Length);
-
-        for (int i = 0; i < source.Length; i++)
-        {
-            char c = source[i];
-            if (char.IsWhiteSpace(c) || c == '/')
-            {
-                sb.Append(c);
-                continue;
-            }
-
-            unchecked
-            {
-                uint h = (uint)(salt + i * 374761393);
-                h ^= h >> 13;
-                h *= 1274126177u;
-                h ^= h >> 16;
-                float sample = (h & 0xFFFFu) / 65535f;
-                sb.Append(sample < damage * damage * 0.18f ? '·' : c);
-            }
-        }
-
-        return sb.ToString();
-    }
-
-    /// <summary>
-    /// body dropout은 정말 링크가 죽기 직전인 ambient/enemy에만 허용한다.
-    /// control/crew/damage/system의 게임플레이 정보는 끝까지 읽힌다.
-    /// </summary>
-    private string BodyText(Dialogue line, string source)
-    {
-        string style = (line.style ?? string.Empty).Trim().ToLowerInvariant();
-        bool mayCorrupt = style == "enemy" || style == "radio";
-
-        if (!mayCorrupt || line.signalQuality > severeSignalThreshold || string.IsNullOrEmpty(source))
-            return source;
-
-        float severity = 1f - Mathf.Clamp01(line.signalQuality / Mathf.Max(0.01f, severeSignalThreshold));
-        int bucket = Mathf.FloorToInt(Time.unscaledTime * 7f);
-        int salt = StableHash(line.id) ^ bucket * 486187739;
-        StringBuilder sb = new(source.Length);
-        bool insideTag = false;
-        int visible = 0;
-
-        for (int i = 0; i < source.Length; i++)
-        {
-            char c = source[i];
-            if (c == '<') { insideTag = true; sb.Append(c); continue; }
-            if (c == '>') { insideTag = false; sb.Append(c); continue; }
-            if (insideTag || char.IsWhiteSpace(c)) { sb.Append(c); continue; }
-
-            unchecked
-            {
-                uint h = (uint)(salt + visible * 374761393);
-                h ^= h >> 13;
-                h *= 1274126177u;
-                h ^= h >> 16;
-                float sample = (h & 0xFFFFu) / 65535f;
-                float dropout = severity * 0.20f;
-                sb.Append(sample < dropout ? '·' : c);
-            }
-
-            visible++;
-        }
-
-        return sb.ToString();
-    }
-
-    private float SignalFrameFlicker(Dialogue line, float seed)
-    {
-        float damage = 1f - line.signalQuality;
-        if (damage < 0.05f)
-            return 1f;
-
-        float n = Mathf.PerlinNoise(seed + 100f, Time.unscaledTime * 14f);
-        return Mathf.Lerp(1f - damage * 0.34f, 1f, n);
-    }
-
-    private float LaneDepthAlpha(Dialogue line)
-    {
-        DialogueLane lane = LaneForStyle(line.style);
-        int newer = 0;
-        bool found = false;
-
-        for (int i = Texts.Count - 1; i >= 0; i--)
-        {
-            Dialogue candidate = Texts[i];
-            if (candidate.leaving || LaneForStyle(candidate.style) != lane)
-                continue;
-
-            if (ReferenceEquals(candidate, line))
-            {
-                found = true;
-                break;
-            }
-
-            newer++;
-        }
-
-        if (!found || newer <= 0) return activeAlpha;
-        if (newer == 1) return previousAlpha;
-        return historyAlpha;
-    }
-
-    private float WidthForLane(DialogueLane lane)
-    {
-        float width = lane switch
-        {
-            DialogueLane.External => Mathf.Max(240f, externalWidth),
-            DialogueLane.Internal => Mathf.Max(220f, internalWidth),
-            _ => Mathf.Max(260f, systemWidth),
-        };
-        return CutSceneManager.ControlsPlayer ? Mathf.Min(width, Mathf.Max(120f, GUIManager.LogicalWidth - 64f)) : width;
-    }
-
-    private float BodyHeight(Dialogue line)
-        => line.height > 0f ? line.height : lineSize.y;
-
-    /// <summary>머리글 높이. 아직 못 쟀으면 인스펙터 값으로 버틴다.</summary>
-    private float HeaderHeight(Dialogue line)
-        => line.headerH > 0f ? line.headerH : headerHeight;
-
-    private float VisualHeight(Dialogue line)
-        => HeaderHeight(line) + headerBodyGap + BodyHeight(line) + platePadding.y * 2f;
-
-    /// <summary>
-    /// 함내 레인의 기준점 = 플레이어 함선의 화면 위치. 배가 없으면(격파 직후 유언 등)
-    /// 하단 중앙으로 물러난다. 변환 규칙은 - WorldToScreenPoint는
-    /// 실제 픽셀이라 UiScale로 나누고, GUI는 y가 아래로 자라니 뒤집는다.
-    /// </summary>
-    private Vector2 InternalAnchor()
-    {
-        float width = WidthForLane(DialogueLane.Internal);
-        Ship player = GameManager.Player();
-        Camera cam = Camera.main;
-
-        if (player != null && cam != null)
-        {
-            Vector3 screen = cam.WorldToScreenPoint(player.transform.position);
-
-            if (screen.z > 0f)
-            {
-                screen /= GUIManager.UiScale;
-                return new Vector2(
-                    screen.x - width * 0.5f,
-                    GUIManager.LogicalHeight - screen.y - internalLift);
-            }
-        }
-
-        return new Vector2(
-            (GUIManager.LogicalWidth - width) * 0.5f,
-            GUIManager.LogicalHeight - internalBottomMargin);
-    }
-
-    private Vector2 LaneAnchor(DialogueLane lane)
-    {
-        if (CutSceneManager.ControlsPlayer)
-            return new Vector2((GUIManager.LogicalWidth - WidthForLane(lane)) * 0.5f,
-                GUIManager.LogicalHeight - 100f);
-        return lane switch
-        {
-            DialogueLane.External => origin,
-            DialogueLane.Internal => InternalAnchor(),
-            _ => new Vector2((GUIManager.LogicalWidth - WidthForLane(DialogueLane.System)) * 0.5f, systemTopMargin),
-        };
-    }
-
-    private float InterruptY(DialogueLane lane)
-    {
-        return lane switch
-        {
-            DialogueLane.External => origin.y - 18f,
-            // **InternalAnchor()의 그 프레임 값을 그대로 써야 한다.** 고정 하단
-            // 좌표를 남겨뒀더니, 배 위로 뜬 함내 통신이 끼어들 때 붉은 줄이 화면
-            // 아래에 따로 떴다 - 말풍선과 인터럽트 표시가 서로 다른 좌표계를 읽고 있었다.
-            DialogueLane.Internal => InternalAnchor().y - 18f,
-            _ => systemTopMargin - 8f,
-        };
-    }
-
-    private bool HasCriticalTransmission()
-    {
         for (int i = 0; i < Texts.Count; i++)
         {
             Dialogue line = Texts[i];
-            if (line.leaving)
-                continue;
+            byte a = withAlpha ? (byte)Mathf.RoundToInt(Mathf.Clamp01(line.alpha) * 255f) : (byte)255;
+            string who = string.IsNullOrWhiteSpace(line.author) ? Tag(line.style) ?? "COMMS" : line.author;
 
-            string style = (line.style ?? string.Empty).Trim().ToLowerInvariant();
-            if (line.interrupted || style == "damage" && line.intensity >= 1.35f && line.age < 0.45f)
-                return true;
+            if (i > 0)
+                _sb.Append('\n');
+
+            _sb.Append("<color=#").Append(ColorUtility.ToHtmlStringRGB(Accent(line.style))).Append(a.ToString("X2")).Append('>')
+               .Append(who).Append(":</color> <color=#").Append(ColorUtility.ToHtmlStringRGB(Palette.Hull)).Append(a.ToString("X2")).Append('>')
+               .Append(line.message).Append("</color>");
         }
 
-        return _interruptFlash > 0.05f;
+        return _sb.ToString();
     }
 
-    // =========================================================
-    // Background Pattern
-    // =========================================================
-
-    /// <summary>
-    /// 아직 나가는 중이 아닌 대사가 하나라도 있나. <c>Texts.Count &gt; 0</c>이 아닌 이유는
-    /// 마지막 줄이 빠지기 시작하면 배경도 같이 빠져야 하기 때문이다 - 대사가 다 사라진 뒤에
-    /// 배경만 남아 있는 프레임이 생기면 통신이 끝난 것으로 안 읽힌다.
-    /// </summary>
-
-
-
-    /// <summary>
-    /// 패턴 행 위젯 id. **미리 만들어 둔다** - 즉시 모드라 이 선언이 매 프레임 도는데,
-    /// 보간 문자열을 그 자리에 두면 행 수만큼 문자열이 프레임마다 새로 태어난다.
-    /// row는 -2부터 시작하므로 두 칸 밀어 담는다.
-    /// </summary>
-    private static string[] _patternRowIds = System.Array.Empty<string>();
-
-    private static string PatternRowId(int row)
+    private void KillTweens()
     {
-        int index = row + 2;
+        if (_plateItem != null) GUITween.Kill(_plateItem);
+        if (_textItem != null) GUITween.Kill(_textItem);
+        _plateItem = _textItem = null;
+    }
 
-        if (index >= _patternRowIds.Length)
+    /// <summary>판은 제일 밝은 줄만큼 보인다 - 마지막 줄이 사라질 때 판도 같이 꺼진다.</summary>
+    private float Peak()
+    {
+        float peak = 0f;
+        foreach (Dialogue line in Texts)
+            peak = Mathf.Max(peak, line.alpha);
+        return peak;
+    }
+
+    private static string Norm(string style) => (style ?? string.Empty).Trim().ToLowerInvariant();
+
+    private static string Tag(string style) => Norm(style) switch
+    {
+        "control" => "CONTROL",
+        "crew" => "INTERNAL",
+        "damage" => "DAMAGE CONTROL",
+        "system" => "SYSTEM",
+        "enemy" => "INTERCEPT",
+        "radio" or "" => "COMMS",
+        _ => null,
+    };
+
+    private static Color Accent(string style) => Norm(style) switch
+    {
+        "control" => Palette.Telemetry,
+        "crew" => Palette.Radiance,
+        "damage" => Palette.Breach,
+        "system" => Palette.Steel,
+        "enemy" => Palette.Heat,
+        _ => Palette.Signal,
+    };
+
+    private static int VisibleCharacters(string s)
+    {
+        int n = 0;
+        bool tag = false;
+        foreach (char c in s ?? string.Empty)
         {
-            int size = Mathf.Max(16, index + 1);
-            System.Array.Resize(ref _patternRowIds, size);
+            if (c == '<') { tag = true; continue; }
+            if (c == '>') { tag = false; continue; }
+            if (!tag && !char.IsWhiteSpace(c)) n++;
         }
-
-        return _patternRowIds[index] ??= $"comm_pattern_{row}";
+        return n;
     }
 
-    private void DrawCommunicationPattern(float alpha)
+    private void Styles()
     {
-        EnsurePatternLine();
-
-        float width = GUIManager.LogicalWidth;
-        float height = GUIManager.LogicalHeight;
-
-        float t = Time.unscaledTime * patternSpeed;
-        float slide = -(t % 1000f);
-
-        int rowCount = Mathf.CeilToInt(height / patternRowHeight) + 4;
-
-        for (int row = -2; row < rowCount; row++)
-        {
-            float y = row * patternRowHeight;
-
-            // 회전 없이 사선처럼 보이게 x를 행마다 밀어버림
-            float x =
-                -patternStartXPadding +
-                slide +
-                row * patternDiagonalOffset;
-
-            GUILabel bg = ImGui.Label(
-                PatternRowId(row),
-                new Rect(
-                    new Vector2(x, y),
-                    new Vector2(width + patternStartXPadding * 2f, patternRowHeight)
-                ),
-                _patternLineCache,
-                PatternStyle()
-            );
-
-            bg.Layer = PatternLayer;
-            bg.Opacity = patternOpacity * alpha;
-        }
-    }
-
-    private void EnsurePatternLine()
-    {
-        if (!string.IsNullOrWhiteSpace(_patternLineCache))
+        if (_style != null || !GUIStyleMaker.Initialized)
             return;
 
-        StringBuilder sb = new();
-
-        for (int i = 0; i < 40; i++)
-        {
-            if (i > 0)
-                sb.Append("    ");
-
-            sb.Append(patternText);
-        }
-
-        _patternLineCache = sb.ToString();
-    }
-
-    // =========================================================
-    // Styles
-    // =========================================================
-
-    private GUIStyle MessageStyle()
-    {
-        if (_messageStyle != null || !GUIStyleMaker.Initialized)
-            return _messageStyle;
-
-        _messageStyle = GUIStyleMaker.Label(
-            fontSize: fontSize,
-            alignment: TextAnchor.UpperLeft
-        );
-
-        _messageStyle.richText = true;
-        _messageStyle.wordWrap = true;
-        return _messageStyle;
-    }
-
-    /// <summary>함내 레인 본문. MessageStyle과 규칙이 같고 크기만 작다.</summary>
-    private GUIStyle InternalStyle()
-    {
-        if (_internalStyle != null || !GUIStyleMaker.Initialized)
-            return _internalStyle;
-
-        _internalStyle = GUIStyleMaker.Label(
-            fontSize: internalFontSize,
-            alignment: TextAnchor.UpperLeft
-        );
-
-        _internalStyle.richText = true;
-        _internalStyle.wordWrap = true;
-        return _internalStyle;
-    }
-
-
-    private GUIStyle AuthorStyle()
-    {
-        if (_authorStyle != null || !GUIStyleMaker.Initialized)
-            return _authorStyle;
-
-        _authorStyle = GUIStyleMaker.Label(
-            fontSize: authorFontSize,
-            alignment: TextAnchor.UpperLeft
-        );
-
-        _authorStyle.richText = false;
-        _authorStyle.wordWrap = false;
-        _authorStyle.fontStyle = FontStyle.Bold;
-        return _authorStyle;
-    }
-
-
-    private GUIStyle SystemStyle()
-    {
-        if (_systemStyle != null || !GUIStyleMaker.Initialized)
-            return _systemStyle;
-
-        _systemStyle = GUIStyleMaker.Label(
-            fontSize: systemFontSize,
-            alignment: TextAnchor.UpperCenter
-        );
-
-        _systemStyle.richText = true;
-        _systemStyle.wordWrap = true;
-        _systemStyle.fontStyle = FontStyle.Bold;
-        return _systemStyle;
-    }
-
-    private GUIStyle PatternStyle()
-    {
-        if (_patternStyle != null || !GUIStyleMaker.Initialized)
-            return _patternStyle;
-
-        _patternStyle = GUIStyleMaker.Label(
-            fontSize: patternFontSize,
-            alignment: TextAnchor.MiddleLeft
-        );
-
-        _patternStyle.richText = false;
-        _patternStyle.wordWrap = false;
-        _patternStyle.clipping = TextClipping.Clip;
-        _patternStyle.fontStyle = FontStyle.Bold;
-
-        return _patternStyle;
-    }
-
-    // =========================================================
-    // Rich Text Typewriter
-    // =========================================================
-
-    /// <summary>
-    /// 지금 몇 글자까지 보이는 문자열. **글자 수가 안 바뀐 프레임에는 안 만든다** -
-    /// 타이핑이 끝난 줄이 남은 duration 내내 매 프레임 StringBuilder를 돌리고 있었다.
-    /// </summary>
-    private static string RenderedText(Dialogue line)
-    {
-        if (line.renderedAt == line.revealCharacters)
-            return line.rendered;
-
-        line.rendered = RevealRichText(line.message, line.revealCharacters);
-        line.renderedAt = line.revealCharacters;
-
-        return line.rendered;
-    }
-
-    private static int CountVisibleCharacters(string text)
-    {
-        int count = 0;
-        bool insideTag = false;
-
-        for (int i = 0; i < text.Length; i++)
-        {
-            char c = text[i];
-
-            if (c == '<')
-            {
-                insideTag = true;
-                continue;
-            }
-
-            if (c == '>')
-            {
-                insideTag = false;
-                continue;
-            }
-
-            if (!insideTag)
-                count++;
-        }
-
-        return count;
-    }
-
-    private static string RevealRichText(string source, int maxVisibleCharacters)
-    {
-        if (maxVisibleCharacters <= 0)
-            return string.Empty;
-
-        StringBuilder result = new();
-        Stack<string> openTags = new();
-
-        int visible = 0;
-
-        for (int i = 0; i < source.Length;)
-        {
-            if (source[i] == '<')
-            {
-                int end = source.IndexOf('>', i);
-                if (end < 0)
-                    break;
-
-                string tag = source.Substring(i, end - i + 1);
-                result.Append(tag);
-
-                string tagName = GetTagName(tag);
-
-                if (!string.IsNullOrEmpty(tagName))
-                {
-                    if (tag.StartsWith("</"))
-                    {
-                        if (openTags.Count > 0)
-                            openTags.Pop();
-                    }
-                    else if (!tag.EndsWith("/>"))
-                    {
-                        openTags.Push(tagName);
-                    }
-                }
-
-                i = end + 1;
-                continue;
-            }
-
-            if (visible >= maxVisibleCharacters)
-                break;
-
-            result.Append(source[i]);
-            visible++;
-            i++;
-        }
-
-        while (openTags.Count > 0)
-        {
-            string tag = openTags.Pop();
-            result.Append("</");
-            result.Append(tag);
-            result.Append('>');
-        }
-
-        return result.ToString();
-    }
-
-    private static string GetTagName(string tag)
-    {
-        if (tag.Length < 3)
-            return null;
-
-        int start = tag.StartsWith("</") ? 2 : 1;
-        int end = start;
-
-        while (end < tag.Length)
-        {
-            char c = tag[end];
-
-            if (c == '>' || c == '=' || char.IsWhiteSpace(c))
-                break;
-
-            end++;
-        }
-
-        if (end <= start)
-            return null;
-
-        return tag.Substring(start, end - start);
+        _style = GUIStyleMaker.Label(Palette.Hull, fontSize, TextAnchor.UpperLeft).RichText().Wrap();
+        _plate = GUIStyleMaker.Box(Palette.DeepSpace.WithAlpha(plateAlpha));
     }
 }

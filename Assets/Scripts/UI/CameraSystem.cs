@@ -266,6 +266,20 @@ public class CameraSystem : MonoBehaviour
     /// <summary>속도 기반 줌의 상한. 없으면 충각·파편 따위의 순간 고속 스파이크에 화면이 무한히 넓어진다.</summary>
     [SerializeField] float maxSpeedZoom = 80f;
 
+    /// <summary>
+    /// 항해 줌. 전투 눈금(maxSpeedZoom 80 = 폭 280 m)은 전속 467 m/s에서 0.6초짜리 화면이라
+    /// 들판에서는 아무것도 안 보인다. 이 속도를 넘고 **적 접촉이 없으면** 화면을 센서 지름
+    /// (700 = 높이 1.4 km, 폭 2.5 km)까지 넓힌다. 접촉이 생기면 전투 눈금으로 바로 돌아온다 -
+    /// 나가는 건 느리게(cruiseZoomSmooth), 돌아오는 건 zoomSmooth로. 문턱에 히스테리시스를 둔
+    /// 것은 전속 근처에서 화면이 들락거리지 않게.
+    /// </summary>
+    [SerializeField] float cruiseZoom = 700f;
+    [SerializeField] float cruiseSpeed = 100f;
+    [SerializeField] float cruiseExitSpeed = 60f;
+    [SerializeField] float cruiseZoomSmooth = 1.2f;
+
+    private bool _cruising;
+
     private Vector2 moveVelocity;
     private float zoomVelocity;
 
@@ -321,6 +335,18 @@ public class CameraSystem : MonoBehaviour
         float speed = _targetRig != null ? _targetRig.linearVelocity.magnitude : 0f;
         float speedZoom = Mathf.Min(maxSpeedZoom, speed * moveSmooth * speedZoomFactor);
 
+        // 항해 줌은 접촉이 없을 때만. A가 플레이어 배가 아니면(컷신 프레임) 안 탄다.
+        Ship player = A.GetComponent<Ship>();
+        bool contact = player == null || !player.IsPlayerControlled || ContactView.HasHostileContact(player);
+
+        if (contact || speed < cruiseExitSpeed)
+            _cruising = false;
+        else if (speed >= cruiseSpeed)
+            _cruising = true;
+
+        if (_cruising)
+            speedZoom = cruiseZoom;
+
         float targetZoom = GameManager.PlayerDown
             ? minZoom
             : Mathf.Max(mouseZoom, speedZoom);
@@ -340,11 +366,12 @@ public class CameraSystem : MonoBehaviour
             transform.position.z
         );
 
+        // 넓어질 때만 느리다. 접촉 순간 돌아오는 쪽은 전투 눈금의 속도 그대로.
         cam.orthographicSize = Mathf.SmoothDamp(
             cam.orthographicSize,
             targetZoom,
             ref zoomVelocity,
-            zoomSmooth
+            targetZoom > cam.orthographicSize && _cruising ? cruiseZoomSmooth : zoomSmooth
         );
 
         if (_returnRemaining > 0f)

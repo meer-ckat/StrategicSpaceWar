@@ -560,6 +560,9 @@ namespace IMGUI
         public Sprite Sprite;
         public ScaleMode ScaleMode;
 
+        /// <summary>그릴 때 Rect 중심을 축으로 도(deg). 한 장을 어느 각도로도 그린다 - 각도별로 굽지 않는다.</summary>
+        public float Rotation;
+
         public GUIImage(
             Texture texture,
             Rect rect,
@@ -613,12 +616,22 @@ namespace IMGUI
                 return;
             }
 
-            if (Texture != null)
-                GUI.DrawTexture(
-                    DrawRect,
-                    Texture,
-                    ScaleMode
-                );
+            if (Texture == null)
+                return;
+
+            if (Rotation == 0f)
+            {
+                GUI.DrawTexture(DrawRect, Texture, ScaleMode);
+                return;
+            }
+
+            // 논리 좌표에서 먼저 돌리고 그 뒤에 uiScale이 걸리게 뒤에 곱한다. GUIUtility.RotateAroundPivot은
+            // 화면 픽셀 기준이라 uiScale 1.31에서 피벗이 밀려 그림이 엉뚱한 데 찍힌다.
+            Matrix4x4 keep = GUI.matrix;
+            Vector3 pivot = DrawRect.center;
+            GUI.matrix = keep * Matrix4x4.TRS(pivot, Quaternion.Euler(0f, 0f, Rotation), Vector3.one) * Matrix4x4.TRS(-pivot, Quaternion.identity, Vector3.one);
+            GUI.DrawTexture(DrawRect, Texture, ScaleMode);
+            GUI.matrix = keep;
         }
 
         public void SetTexture(Texture texture)

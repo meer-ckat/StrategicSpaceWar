@@ -29,8 +29,12 @@ namespace IMGUI // not I'm GUI.
         [SerializeField, Range(0.5f, 2f)] private float uiScale = 1f;
 
         public static float UiScale => instance != null ? instance.uiScale : 1f;
-        public static float LogicalWidth => Screen.width / UiScale;
-        public static float LogicalHeight => Screen.height / UiScale;
+        // 프레임당 한 번 잰다. Screen.width는 네이티브 호출이라 요소마다 부르면 프레임당 수백 번이고,
+        // 더 중요한 것은 **한 프레임 안에서 값이 하나**라는 보장이다 - 리사이즈 프레임에 위쪽 요소와
+        // 아래쪽 요소가 다른 폭을 읽지 않는다. Update 전(첫 프레임, 에디터)에는 직접 잰다.
+        private static float _logicalW, _logicalH;
+        public static float LogicalWidth => _logicalW > 0f ? _logicalW : Screen.width / UiScale;
+        public static float LogicalHeight => _logicalH > 0f ? _logicalH : Screen.height / UiScale;
 
         public static Vector2 MousePos
         {
@@ -234,6 +238,8 @@ namespace IMGUI // not I'm GUI.
 
         private void Update()
         {
+            _logicalW = Screen.width / uiScale;
+            _logicalH = Screen.height / uiScale;
             TickShake();
 
             isIterating = true;
@@ -254,6 +260,8 @@ namespace IMGUI // not I'm GUI.
         {
             if(!GUIStyleMaker.Initialized)
             GUIStyleMaker.Initialize();
+
+            GUI.depth = 0;   // 다른 OnGUI(ShipStatusHud, depth 1)보다 위. 낮은 값이 위다.
 
             isIterating = true;
 

@@ -188,6 +188,7 @@ namespace IMGUI
                 ?? Adopt(entry, new GUIImage(texture, rect, scaleMode, style));
 
             Reset(image);
+            image.Rotation = 0f;
             image.SetTexture(texture);
             image.Rect = rect;
             image.ScaleMode = scaleMode;
@@ -203,6 +204,7 @@ namespace IMGUI
                 ?? Adopt(entry, new GUIImage(sprite, rect, scaleMode, style));
 
             Reset(image);
+            image.Rotation = 0f;
             image.SetSprite(sprite);
             image.Rect = rect;
             image.ScaleMode = scaleMode;
