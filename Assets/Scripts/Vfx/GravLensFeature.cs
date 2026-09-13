@@ -16,7 +16,6 @@ public static class GravLens
 
     private static readonly int CentreId = Shader.PropertyToID("_LensCentre");
     private static readonly int LensId = Shader.PropertyToID("_Lens");
-    private static readonly int ForegroundId = Shader.PropertyToID("_LensForeground");
 
     /// <summary>렌즈를 거를 카메라. 배경 카메라다 - 메인 카메라의 배는 안 휜다.</summary>
     public static Camera Target => _camera;
@@ -40,32 +39,30 @@ public static class GravLens
     /// <summary>재질에 붓는다. 카메라 뒤면 false.</summary>
     internal static bool Apply(Material material, Camera camera)
     {
-        Vector3 c = camera.WorldToViewportPoint(_centre);
+        bool sceneLens = BlackHoleLens.TryGet(camera, out Vector3 centre, out float rs);
+        if (!sceneLens)
+        {
+            if (!Active || camera != Target) return false;
+            centre = _centre;
+            rs = _rs;
+        }
+        Vector3 c = camera.WorldToViewportPoint(centre);
 
         if (c.z <= 0f)
             return false;
 
         float aspect = camera.pixelHeight > 0 ? (float)camera.pixelWidth / camera.pixelHeight : 1.78f;
         float focal = 0.5f / Mathf.Tan(camera.fieldOfView * 0.5f * Mathf.Deg2Rad);
-        float distance = (_centre - camera.transform.position).magnitude;
+        float distance = (centre - camera.transform.position).magnitude;
 
         material.SetVector(CentreId, new Vector4(c.x, c.y, aspect, 0f));
-        material.SetVector(LensId, new Vector4(_rs / Mathf.Max(distance, _rs), MaxMagnification, ForegroundCut, focal));
+        material.SetVector(LensId, new Vector4(rs / Mathf.Max(distance, rs), MaxMagnification, c.z, focal));
         return true;
     }
 
     /// <summary>고리에서 배율이 발산한다. 여기서 자른다 - 초안, 오너가 고친다.</summary>
     public const float MaxMagnification = 4f;
 
-    /// <summary>
-    /// 이보다 가까운 오파크(m)는 배경이 아니라 앞 물체다 - 블랙홀을 가리고 렌즈는 안 받는다. 별 구름은
-    /// 전부 블랙홀보다 가까워서 "블랙홀보다 가까우면 앞 물체"로는 못 가른다. 별 구름(수백 m~)과
-    /// 씬의 Star(120 m) 사이에 둔 고정값이다. 레이마치 셰이더도 전역 _LensForeground로 같은 값을 읽는다.
-    /// </summary>
-    public const float ForegroundCut = 300f;
-
-    /// <summary>레이마치 셰이더가 읽는 전역. 기능이 만들어질 때 한 번 넣는다.</summary>
-    internal static void PushForeground() => Shader.SetGlobalFloat(ForegroundId, ForegroundCut);
 }
 
 /// <summary>
@@ -82,7 +79,7 @@ public sealed class GravLensFeature : ScriptableRendererFeature
 
     public override void Create()
     {
-        GravLens.PushForeground();
+        CoreUtils.Destroy(_material);
 
         if (shader == null)
             shader = Shader.Find("SUPERRADIANCE/GravLens");
@@ -99,10 +96,12 @@ public sealed class GravLensFeature : ScriptableRendererFeature
 
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
     {
-        if (_pass == null || !GravLens.Active || renderingData.cameraData.camera != GravLens.Target)
+        Camera camera = renderingData.cameraData.camera;
+        bool sceneLens = BlackHoleLens.TryGet(camera, out _, out _);
+        if (_pass == null || (!sceneLens && (!GravLens.Active || camera != GravLens.Target)))
             return;
 
-        _pass.ConfigureInput(ScriptableRenderPassInput.Depth);   // 앞 물체 컷이 _CameraDepthTexture를 읽는다
+        _pass.ConfigureInput(ScriptableRenderPassInput.Depth | ScriptableRenderPassInput.Color);
         renderer.EnqueuePass(_pass);
     }
 
@@ -116,6 +115,13 @@ public sealed class GravLensFeature : ScriptableRendererFeature
     private sealed class LensPass : ScriptableRenderPass
     {
         private readonly Material _material;
+
+        private sealed class PassData
+        {
+            internal TextureHandle source;
+            internal TextureHandle depth;
+            internal Material material;
+        }
 
         public LensPass(Material material) => _material = material;
 
@@ -137,7 +143,21 @@ public sealed class GravLensFeature : ScriptableRendererFeature
 
             TextureHandle temp = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_GravLensTemp", false);
 
-            renderGraph.AddBlitPass(new RenderGraphUtils.BlitMaterialParameters(colour, temp, _material, 0), "GravLens");
+            using (var builder = renderGraph.AddRasterRenderPass<PassData>("GravLens", out var data))
+            {
+                data.source = colour;
+                data.depth = resources.cameraDepthTexture;
+                data.material = _material;
+                builder.UseTexture(colour, AccessFlags.Read);
+                builder.UseTexture(resources.cameraDepthTexture, AccessFlags.Read);
+                builder.SetRenderAttachment(temp, 0, AccessFlags.Write);
+                builder.AllowGlobalStateModification(true);
+                builder.SetRenderFunc((PassData pass, RasterGraphContext context) =>
+                {
+                    context.cmd.SetGlobalTexture("_CameraDepthTexture", pass.depth);
+                    Blitter.BlitTexture(context.cmd, pass.source, new Vector4(1, 1, 0, 0), pass.material, 0);
+                });
+            }
             renderGraph.AddBlitPass(temp, colour, Vector2.one, Vector2.zero, passName: "GravLens Copy");
         }
     }

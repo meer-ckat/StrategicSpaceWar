@@ -30,6 +30,8 @@ Shader "SUPERRADIANCE/PlateSkin"
         _GrainSeed("Grain Seed", Vector) = (0,0,0,0)
         _GrainPpu("Grain PPU", Float) = 48
         _Heat("Heat", Float) = 0
+        _Build("Build Axis(x) / Band(y)", Vector) = (0,1.5,0,0)
+        _BuildFront("Build Front", Float) = 1000000000      // 판 축 < 이 값이면 장갑, 크면 와이어프레임. 기본 = 완성
 
         // **불투명 큐 실험용 스위치.** 기본값은 지금까지의 투명 설정 그대로다.
         // C#(ArmorSkin.ToggleOpaqueProbe)이 이 셋과 renderQueue를 함께 갈아끼워서
@@ -110,7 +112,36 @@ Shader "SUPERRADIANCE/PlateSkin"
                 float _HasShape;
                 float _GrainPpu;
                 float _Heat;
+                float4 _Build;
+                float _BuildFront;
             CBUFFER_END
+
+            // 건조 와이어프레임 색과 전선 띠 색. Palette의 Telemetry·Radiance를 HDR로 - 라이팅 밖에서
+            // 더하는 것이라 SpriteRenderer.color로는 못 보낸다(적열과 같은 규칙).
+            static const half3 WireColor = half3(0.40, 0.78, 0.82) * 1.6;
+            static const half3 BandColor = half3(1.00, 0.78, 0.35) * 3.0;
+            static const float WireLine = 0.08;   // m. 48 PPU에서 4 px
+
+            // 판 실루엣의 테두리인가. 사각형은 콜라이더 변까지의 거리, 폴리곤 판은 마스크의 빈 이웃.
+            bool OnEdge(float2 local)
+            {
+                float2 toEdge = _Rect.zw - abs(local - _Rect.xy);
+
+                if (min(toEdge.x, toEdge.y) < WireLine)
+                    return true;
+
+                if (_HasShape < 0.5)
+                    return false;
+
+                float2 shapeUV = (local - _LocalMin.xy) * _ShapeScale.xy;
+                float2 dx = float2(WireLine * _ShapeScale.x, 0);
+                float2 dy = float2(0, WireLine * _ShapeScale.y);
+
+                return SAMPLE_TEXTURE2D(_ShapeMask, sampler_ShapeMask, shapeUV + dx).r < 0.5
+                    || SAMPLE_TEXTURE2D(_ShapeMask, sampler_ShapeMask, shapeUV - dx).r < 0.5
+                    || SAMPLE_TEXTURE2D(_ShapeMask, sampler_ShapeMask, shapeUV + dy).r < 0.5
+                    || SAMPLE_TEXTURE2D(_ShapeMask, sampler_ShapeMask, shapeUV - dy).r < 0.5;
+            }
 
             // 적열 램프. **SpriteRenderer.color로는 이 값을 못 보낸다** - 그 경로는 HDR을
             // 못 통과시켜서 1을 넘는 성분이 잘린다(예전 CPU 굽기는 텍스처 픽셀에 직접
@@ -190,6 +221,20 @@ Shader "SUPERRADIANCE/PlateSkin"
             half4 LitFragment(Varyings input) : SV_Target
             {
                 const half4 main = input.color * PlateColor(input);
+
+                // 건조 중. 전선(_BuildFront)이 아직 이 픽셀을 안 지났으면 테두리만 남긴다.
+                // 축은 판의 선체 좌표 (x+y) + 판 안 오프셋 - 판 회전은 무시한다(1 m 안의 오차).
+                float2 local = _LocalMin.xy + input.uv * _LocalMin.zw;
+                float axis = _Build.x + (local.x - _Rect.x) + (local.y - _Rect.y);
+                float ahead = axis - _BuildFront;
+
+                if (ahead > _Build.y)
+                {
+                    if (!OnEdge(local))
+                        discard;
+
+                    return half4(WireColor, 1);
+                }
                 const half4 mask = SAMPLE_TEXTURE2D(_MaskTex, sampler_MaskTex, input.uv);
                 const half3 normalTS = half3(0, 0, 1);
 
@@ -213,6 +258,10 @@ Shader "SUPERRADIANCE/PlateSkin"
                 // RearSkin과 같은 값이어야 앞뒤가 같은 열로 보인다.
                 if (_Heat > 0.001)
                     lit.rgb += HeatTint(_Heat) * _Heat * 1.0;
+
+                // 전선 띠. 지나간 뒤 Band 안쪽이 밝고 전선에서 멀어지며 죽는다.
+                if (abs(ahead) < _Build.y)
+                    lit.rgb += BandColor * (1.0 - abs(ahead) / _Build.y);
 
                 return lit;
             }

@@ -1,11 +1,11 @@
 // 중력 렌즈 - 배경 카메라 컬러를 한 번 거른다. 블랙홀 구(투명 큐)가 그려지기 **전**에 돌아서
-// 별과 성운만 휘고 블랙홀 자체는 안 휜다. 구 안은 BlackHoleRaymarch가 덮어쓰므로 이 패스는 구 밖의 약장이다.
+// 블랙홀 뒤의 배경만 휜다. BlackHoleRaymarch는 이 결과 위에 원반과 포획된 광선의 그림자를 합성한다.
 //
 // 각도 공간에서 푼다: 화면 방향 d와 블랙홀 방향 h 사이 각 θ에서 보이는 것은 원래 β = θ - α에 있던 것이다.
 // 관측자가 D에 있고 광원이 무한원이면 α = (r_s/D)·cot(θ/2). 카메라에서 출발해 구를 적분하고 나가는
 // 레이마치와 같은 양이라 구 테두리에서 별이 안 뛴다. 2차항 15π/16·(r_s/b)²는 비율로 곱한다(b = D sinθ).
 // 뷰포트 좌표를 각도로 쓰면 30도에서 편향이 1/3 틀린다 - 그래서 방향 벡터를 세운다.
-// 배율 μ = (sinθ/sinβ)/(dβ/dθ)는 β = 0(아인슈타인 링)에서 발산하므로 _Lens.y에서 자른다.
+// 표면 밝기는 유지한다. 렌즈 확대는 좌표 왜곡으로 표현한다.
 Shader "SUPERRADIANCE/GravLens"
 {
     SubShader
@@ -46,7 +46,7 @@ Shader "SUPERRADIANCE/GravLens"
 
             half4 Frag(Varyings i) : SV_Target
             {
-                // 컷보다 가까운 오파크는 앞 물체다 - 안 휜다. 휜 자리에 있는 앞 물체는 배경이 아니라 검다.
+                // 블랙홀보다 가까운 불투명 물체는 원래 화면 그대로 유지한다.
                 if (Foreground(i.texcoord))
                     return half4(SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, i.texcoord).rgb, 1);
 
@@ -65,14 +65,11 @@ Shader "SUPERRADIANCE/GravLens"
                 float3 e = (d - h * cosT) / sinT;
                 float3 src = h * cos(beta) + e * sin(beta);
 
-                if (src.z <= 1e-3)
-                    return half4(0, 0, 0, 1);   // 카메라 뒤로 휜 별. 화면에 없다.
-
-                float2 uv2 = saturate(0.5 + src.xy / src.z / fix);
-                half3 c = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, uv2).rgb * !ForegroundNear(uv2);
-
-                float mag = sinT / max(abs(sin(beta)), 1e-3) / (1.0 + k / max(1.0 - cosT, 1e-4));
-                c *= min(mag, _Lens.y);
+                float2 uv2 = 0.5 + src.xy / max(src.z, 1e-3) / fix;
+                // 화면 밖이나 앞 물체 뒤의 배경은 현재 화면에 없다. 원본으로 되돌려 검은 구멍을 피한다.
+                if (src.z <= 1e-3 || any(uv2 <= 0.0) || any(uv2 >= 1.0) || ForegroundNear(saturate(uv2)))
+                    uv2 = i.texcoord;
+                half3 c = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp, uv2).rgb;
 
                 return half4(c, 1);
             }

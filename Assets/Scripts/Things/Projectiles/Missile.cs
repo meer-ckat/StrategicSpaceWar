@@ -30,6 +30,9 @@ public class Missile : Projectile
     private float _missedTime;
     public bool FireAndForget; // 사실 지금도 능동에 가깝긴 하지만, 얘는 조준할 필요도 없이 일단 쏘고 나서 앞에 적이 있다면 걔를 따라간다.
 
+    /// <summary>미사일은 자기를 파편으로 쓰지 않는다. 탄두 몫은 blastDamage가 이미 낸다.</summary>
+    protected override bool ShedsFragments => false;
+
     /// <summary>
     /// 포탄과 달리 물려받은 속도에 방향을 맡기지 않는다 - 발사관(포신) 방향으로
     /// 튀어나가고, 배의 속도는 속력에만 남는다. 벡터로 더하면 발사 순간 기수와

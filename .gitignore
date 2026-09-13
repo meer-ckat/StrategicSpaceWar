@@ -139,3 +139,7 @@ InitTestScene*.unity*
 /.claude/worktrees/
 /.claude/settings.local.json
 /Captures/
+.gstack/
+
+# 계측 출력. 판마다 한 줄씩 쌓인다 - 결과지 소스가 아니다.
+FieldLog.tsv

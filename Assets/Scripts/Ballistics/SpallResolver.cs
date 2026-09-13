@@ -438,16 +438,6 @@ public static class SpallResolver
     /// </summary>
     private static void ComputeParallel(int fragmentCount)
     {
-        // 세계 배열은 TraceWorld가 살려 두는 것이라 여기서 만들지도, 치우지도 않는다.
-        // **TempJob 할당보다 먼저** 부른다 - 여기서 던지면 try 밖이라 두 배열이 그대로
-        // 새고, 진짜 예외는 4프레임 뒤의 TempJob 누수 경고에 묻힌다.
-        TraceWorld.GetJobSnapshot(
-            out NativeArray<TraceWorld.JobEntry> world,
-            out NativeArray<byte> active,
-            out _,
-            out NativeArray<TraceWorld.JobHull> hulls,
-            out int hullCount);
-
         var inputs = new NativeArray<FragmentInput>(
             fragmentCount, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
         var results = new NativeArray<TraceWorld.JobHit>(
@@ -463,8 +453,26 @@ public static class SpallResolver
                 var rng = new DeterministicRng(request.seed);
 
                 for (int i = 0; i < request.count; i++)
-                    inputs[at++] = MakeFragment(request, ref rng);
+                {
+                    FragmentInput input = MakeFragment(request, ref rng);
+                    inputs[at++] = input;
+
+                    // 잡은 굽지 못한다. 이 파면의 레이가 닿을 수 있는 몸을 메인 스레드에서
+                    // 먼저 실어 두고, 잡에는 그 읽기 전용 스냅샷만 준다.
+                    TraceWorld.Include(
+                        new Vector2(input.start.x, input.start.y),
+                        new Vector2(input.direction.x, input.direction.y),
+                        input.range);
+                }
             }
+
+            // 세계 배열은 TraceWorld가 살려 두는 것이라 여기서 만들지도, 치우지도 않는다.
+            TraceWorld.GetJobSnapshot(
+                out NativeArray<TraceWorld.JobEntry> world,
+                out NativeArray<byte> active,
+                out _,
+                out NativeArray<TraceWorld.JobHull> hulls,
+                out int hullCount);
 
             var job = new TraceFragmentsJob
             {

@@ -21,6 +21,23 @@ public static class TraceWorldMenu
     private static void Report() => Debug.Log(TraceWorld.VerifyReport());
 
     /// <summary>
+    /// 플레이 모드에서. 운석 100개를 세우고 결정론 레이 300개를 쏴서 시간·굽기 수·판정 파일을
+    /// 낸다. 파일은 Temp/TraceBench.txt - 구현을 바꾸기 전후 두 파일을 diff하면 판정 보존이다.
+    /// </summary>
+    [MenuItem("Tools/Ballistics/Trace Bench (play mode)")]
+    private static void Bench()
+    {
+        if (!Application.isPlaying)
+        {
+            Debug.LogWarning("[TraceWorld] 벤치는 플레이 모드에서만 돈다.");
+            return;
+        }
+
+        string path = System.IO.Path.Combine(Application.dataPath, "..", "Temp", "TraceBench.txt");
+        Debug.Log("[TraceWorld] 벤치\n" + TraceWorld.Bench(path) + "판정 파일: " + path);
+    }
+
+    /// <summary>
     /// 충각 로그. static 필드라 인스펙터에서 못 켜서 여기 문을 낸다 - 켜면 부딪힐 때마다
     /// 속도·각속도·반경·접촉 판 수·예산·소진을 한 줄로 찍는다. 그 한 줄을 같이 봐야
     /// "왜 이게 뚫리나"가 갈린다.

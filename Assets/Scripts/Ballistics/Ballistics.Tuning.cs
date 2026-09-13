@@ -249,6 +249,16 @@ public static partial class Ballistics
     public const float RamSpendPerTick = 0.5f;
 
     /// <summary>
+    /// 실려 가는 몸(상대속도 &lt; RamMinSpeed, 회전 없음)만 앞에 있을 때 충각을 몇 틱에 한 번 돌리나.
+    ///
+    /// 선체에 박힌 운석을 밀고 가면 상대속도가 0이라 부술 에너지는 없는데, 밀고 있으니(pushing) 게이트가
+    /// 열려서 Sweep(판마다 Cast)과 Conduct(96장 x 2)가 **매 틱** 돌았다 - 프로파일러에서 그 둘이 위였다.
+    /// 압착은 힘 x 시간이라 6틱에 한 번 6배로 넣으면 초당 합이 같고, 항복 문턱도 같이 6배라 결과가 같다.
+    /// 값이 곧 압착의 시간 해상도다(6 = 0.1 s).
+    /// </summary>
+    public const int RamCarriedEvery = 6;
+
+    /// <summary>
     /// 충각 피해의 질량 무릎(kg). 때리는 몸의 피해가 `m / (m + 이 값)`으로 깎인다 -
     /// 이 질량에서 절반, 훨씬 무거우면 1, 훨씬 가벼우면 질량에 비례해 0으로 떨어진다.
     ///

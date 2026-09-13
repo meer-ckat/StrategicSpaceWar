@@ -5,8 +5,10 @@ using UnityEngine;
 
 /// <summary>
 /// 탄도용 자체 충돌 세계 - 멀티스레딩의 1단계. Physics2D 레이캐스트가 메인 스레드
-/// 족쇄라(2D엔 RaycastCommand가 없다), 판·모듈 콜라이더를 틱당 한 번 OBB 배열로
-/// 떠서(스냅샷) 선분 교차를 순수 산술로 푼다. 큰 파편 wave에서는 숫자 스냅샷을
+/// 족쇄라(2D엔 RaycastCommand가 없다), 판·모듈 콜라이더를 OBB 배열로 떠서(스냅샷)
+/// 선분 교차를 순수 산술로 푼다. 뜨는 것은 **레이가 닿을 수 있는 몸만**이다 - 몸마다
+/// 등록 때 캐시한 보수 경계를 매 틱 네 귀만 월드로 옮겨 걸러내고, 통과한 몸만 굽는다.
+/// 구운 것은 몸이 안 움직였으면(행렬 동일, 모듈 hasChanged 없음) 다음 틱에도 재사용한다. 큰 파편 wave에서는 숫자 스냅샷을
 /// NativeArray로 옮기고 IJobParallelFor + Burst가 이 교차를 병렬로 푼다.
 ///
 /// **콜라이더가 원본이다. 격자가 아니다.** 경사장갑·콜라이더 크기 덮어쓰기(Placement.size)가
@@ -19,7 +21,7 @@ using UnityEngine;
 /// 폴백이 그걸 막는 밴드에이드다) 이 세계는 정확한 면 법선을 준다. 대조에서 법선은
 /// 안 본다 - 어차피 파편 판정은 법선을 안 쓴다.
 /// </summary>
-public static class TraceWorld
+public static partial class TraceWorld
 {
     /// <summary>대조 모드. Tools > Ballistics > Toggle Trace Verify.</summary>
     public static bool VerifyMode;
@@ -109,6 +111,34 @@ public static class TraceWorld
         public int[] chunkOf = new int[8];
 
         public int chunkCount;
+
+        /// <summary>
+        /// 보수 경계(몸 로컬). 등록 때 한 번. 판은 몸-로컬 OBB를 감싼 상자, 모듈은 원점 둘레
+        /// 정사각이라 포탑이 돌아도 안 벗어난다. 매 틱은 이 상자의 네 귀만 월드로 옮긴다 -
+        /// 정밀 Pose 없이 "이 레이가 이 몸에 닿을 수 있나"를 답하는 값.
+        /// </summary>
+        public Vector2 boundMin = new(float.PositiveInfinity, float.PositiveInfinity);
+        public Vector2 boundMax = new(float.NegativeInfinity, float.NegativeInfinity);
+
+        /// <summary>
+        /// 정밀 Pose(몸 소유). 몸 행렬이 그대로고 모듈이 안 돌았으면 틱을 넘어 재사용한다.
+        /// 평면 스냅샷 배열은 이걸 복사해 싣는다 - 복사가 행렬 곱보다 훨씬 싸다.
+        /// </summary>
+        public Entry[] entries = new Entry[8];
+        public Collider2D[] entryColliders = new Collider2D[8];
+        public Armor[] entryArmor = new Armor[8];
+        public int entryCount;
+        public ChunkEntry[] chunks = new ChunkEntry[4];   // start는 entries 기준
+        public int chunkEntries;
+        public Vector2 tightMin, tightMax;
+        public bool posed;
+        public Matrix4x4 posedMatrix;
+
+        /// <summary>이번 스냅샷. 월드 경계를 계산한 도장 / 평면 배열에 실은 도장.</summary>
+        public int seenStamp = -1;
+        public int publishedStamp = -1;
+        public Matrix4x4 worldMatrix;
+        public Vector2 worldMin, worldMax;
     }
 
     /// <summary>
@@ -145,6 +175,9 @@ public static class TraceWorld
         /// <summary><see cref="_chunks"/>에서 이 몸이 차지하는 구간.</summary>
         public int chunkStart;
         public int chunkCount;
+
+        /// <summary>이 스냅샷에 실렸나. 안 실린 몸은 어느 레이도 보수 경계에 안 닿은 몸이다.</summary>
+        public bool published;
     }
 
     /// <summary>
@@ -241,15 +274,21 @@ public static class TraceWorld
     private static readonly List<Collider2D> _attachedScratch = new();
 
     /// <summary>
-    /// 틱당 한 번, 첫 질의가 부른다. 살아 있는 모든 몸(함선·잔해·운석)의 콜라이더를
-    /// OBB로 뜬다. 박스가 아닌 콜라이더는 못 뜨고 센다 - 대조에서 그 콜라이더에 맞은
-    /// 레이는 "불일치"가 아니라 "미지원"으로 분류해야 억울한 로그가 안 쌓인다.
+    /// Build = 스냅샷 시작(등록 동기화). Pose = 몸 하나 굽기(후보만). 박스가 아닌
+    /// 콜라이더는 못 뜨고 센다 - 대조에서 그 콜라이더에 맞은 레이는 "불일치"가 아니라
+    /// "미지원"으로 분류해야 억울한 로그가 안 쌓인다.
     /// </summary>
     private static readonly Unity.Profiling.ProfilerMarker _mBuild = new("TraceWorld.Build");
     private static readonly Unity.Profiling.ProfilerMarker _mRegister = new("TraceWorld.Register");
     private static readonly Unity.Profiling.ProfilerMarker _mPose = new("TraceWorld.Pose");
 
-    private static void BuildIfStale()
+    /// <summary>
+    /// 스냅샷 시작. 등록만 맞추고 **아무 몸도 굽지 않는다.** 몸은 레이가 보수 경계에 닿는
+    /// 순간 처음 굽힌다(<see cref="Candidate"/>). 예전에는 여기서 전 몸의 판을 다 구웠고,
+    /// 운석 100개 들판에서 그 굽기가 파편 한 파면 비용의 대부분이었다 - 레이는 몇 몸에만
+    /// 닿는데 10,000장을 매 틱 행렬에 곱했다.
+    /// </summary>
+    private static void BeginSnapshotIfStale()
     {
         long tick = Core.TickManager.currentTick;
         int epoch = _epoch;
@@ -261,7 +300,12 @@ public static class TraceWorld
 
         _count = 0;
         _chunkCount = 0;
-        _skippedNonBox = 0;
+        _publishedCount = 0;
+        _snapshotStamp++;
+
+        StatCandidates = 0;
+        StatPosed = 0;
+        StatPosedEntries = 0;
 
         List<HullStructure> all = HullStructure.All;
 
@@ -274,127 +318,23 @@ public static class TraceWorld
             SyncHullSources(all);
         }
 
-        using (_mPose.Auto())
+        _hullCount = _activeHullSourceCount;
+        StatBodies = _hullCount;
+        EnsureHullCapacity(_hullCount);
+
+        for (int h = 0; h < _hullCount; h++)
+            _hulls[h].published = false;
+
+        _skippedNonBox = 0;
+
+        if (VerifyMode)
         {
-            _hullCount = 0;
-            EnsureHullCapacity(_activeHullSourceCount);
-
-            for (int h = 0; h < _activeHullSourceCount; h++)
+            for (int i = 0; i < _nonBoxes.Count; i++)
             {
-                HullSourceCache cache = _activeHullSources[h];
+                Collider2D collider = _nonBoxes[i];
 
-                if (cache.count <= 0)
-                    continue;
-
-                int start = _count;
-                EnsureSnapshotCapacity(_count + cache.count);
-
-                Matrix4x4 bodyToWorld = cache.bodyLocalCount > 0
-                    ? cache.body.transform.localToWorldMatrix
-                    : default;
-
-                Vector2 min = new(
-                    float.PositiveInfinity,
-                    float.PositiveInfinity);
-
-                Vector2 max = new(
-                    float.NegativeInfinity,
-                    float.NegativeInfinity);
-
-                // 청크는 판이 이 순서로 정렬돼 있다는 사실 하나에 얹혀 있다. id가 바뀌는
-                // 자리가 곧 경계라, 상자를 닫고 새로 연다.
-                int chunkStart = _chunkCount;
-                int openChunk = -1;
-                int openFrom = _count;
-
-                Vector2 chunkMin = new(float.PositiveInfinity, float.PositiveInfinity);
-                Vector2 chunkMax = new(float.NegativeInfinity, float.NegativeInfinity);
-
-                for (int c = 0; c < cache.count; c++)
-                {
-                    int sourceIndex = cache.sourceIndices[c];
-                    ref Source source = ref _sources[sourceIndex];
-                    Entry entry;
-
-                    bool built = source.isArmor
-                        ? TryBuildBodyEntry(
-                            in source,
-                            in cache.bodyGeometry[c],
-                            in bodyToWorld,
-                            out entry)
-                        : TryBuildEntry(in source, out entry);
-
-                    if (!built)
-                        continue;
-
-                    int chunk = cache.chunkOf[c];
-
-                    if (chunk != openChunk)
-                    {
-                        CloseChunk(openChunk, openFrom, _count, chunkMin, chunkMax);
-
-                        openChunk = chunk;
-                        openFrom = _count;
-                        chunkMin = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
-                        chunkMax = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
-                    }
-
-                    _obb[_count] = entry;
-                    _colliders[_count] = cache.colliders[c];
-                    _entryArmor[_count] = source.armor;
-
-                    // OBB를 감싸는 월드 AABB
-                    float extentX =
-                        Mathf.Abs(entry.axisU.x) * entry.halfU +
-                        Mathf.Abs(entry.axisV.x) * entry.halfV;
-
-                    float extentY =
-                        Mathf.Abs(entry.axisU.y) * entry.halfU +
-                        Mathf.Abs(entry.axisV.y) * entry.halfV;
-
-                    Vector2 extent = new(extentX, extentY);
-
-                    min = Vector2.Min(
-                        min,
-                        entry.centre - extent);
-
-                    max = Vector2.Max(
-                        max,
-                        entry.centre + extent);
-
-                    chunkMin = Vector2.Min(chunkMin, entry.centre - extent);
-                    chunkMax = Vector2.Max(chunkMax, entry.centre + extent);
-
-                    _count++;
-                }
-
-                CloseChunk(openChunk, openFrom, _count, chunkMin, chunkMax);
-
-                int colliderCount = _count - start;
-
-                if (colliderCount <= 0)
-                    continue;
-
-                _hulls[_hullCount++] = new HullEntry
-                {
-                    min = min,
-                    max = max,
-                    start = start,
-                    count = colliderCount,
-                    chunkStart = chunkStart,
-                    chunkCount = _chunkCount - chunkStart,
-                };
-            }
-
-            if (VerifyMode)
-            {
-                for (int i = 0; i < _nonBoxes.Count; i++)
-                {
-                    Collider2D collider = _nonBoxes[i];
-
-                    if (collider != null && collider.enabled)
-                        _skippedNonBox++;
-                }
+                if (collider != null && collider.enabled)
+                    _skippedNonBox++;
             }
         }
 
@@ -402,25 +342,243 @@ public static class TraceWorld
         _builtEpoch = epoch;
     }
 
+    /// <summary>계측. 스냅샷마다 리셋. 몸 수 / 후보(실린) 몸 / 실제로 구운 몸 / 구운 OBB 수.</summary>
+    public static int StatBodies, StatCandidates, StatPosed, StatPosedEntries;
+
+    /// <summary>검증용. 켜면 후보 몸을 매번 다시 굽는다(재사용 캐시 우회). 컬링 자체는 그대로다.</summary>
+    public static bool ForceRepose;
+
+    private static int _snapshotStamp;
+    private static int _publishedCount;
+
     /// <summary>
-    /// 열려 있던 청크를 <see cref="_chunks"/>에 적는다. 빈 청크는 안 적는다 - 판이 전부
-    /// 죽어 사라진 자리가 상자로 남으면 레이가 매번 헛되이 통과한다.
+    /// 이 레이가 이 몸에 닿을 수 있나. 닿을 수 있으면 이 스냅샷에 실어 둔다(필요하면 굽는다).
+    /// 몸 순서(<see cref="HullStructure.All"/>)로 부르는 것이 규칙이다 - 동점(같은 거리의 판 둘)은
+    /// 먼저 본 쪽이 이기므로 순회 순서가 곧 판정의 일부다.
     /// </summary>
-    private static void CloseChunk(int chunk, int from, int to, Vector2 min, Vector2 max)
+    private static bool Candidate(int h, float2 start, float2 dir, float range)
     {
+        HullSourceCache cache = _activeHullSources[h];
+
+        if (cache.count <= 0)
+            return false;
+
+        if (cache.seenStamp != _snapshotStamp)
+        {
+            cache.seenStamp = _snapshotStamp;
+            cache.worldMatrix = cache.body.transform.localToWorldMatrix;
+
+            // 몸-로컬 상자의 네 귀. 회전·비균등 스케일·반전 전부 행렬이 먹는다.
+            Vector2 a = cache.worldMatrix.MultiplyPoint3x4(cache.boundMin);
+            Vector2 b = cache.worldMatrix.MultiplyPoint3x4(new Vector2(cache.boundMax.x, cache.boundMin.y));
+            Vector2 c = cache.worldMatrix.MultiplyPoint3x4(new Vector2(cache.boundMin.x, cache.boundMax.y));
+            Vector2 d = cache.worldMatrix.MultiplyPoint3x4(cache.boundMax);
+
+            cache.worldMin = Vector2.Min(Vector2.Min(a, b), Vector2.Min(c, d));
+            cache.worldMax = Vector2.Max(Vector2.Max(a, b), Vector2.Max(c, d));
+        }
+
+        if (!RayIntersectsAabb(
+                start, dir, range,
+                new float2(cache.worldMin.x, cache.worldMin.y),
+                new float2(cache.worldMax.x, cache.worldMax.y)))
+            return false;
+
+        if (cache.publishedStamp != _snapshotStamp)
+            Publish(h, cache);
+
+        return true;
+    }
+
+    /// <summary>몸의 정밀 Pose를 평면 스냅샷에 싣는다. 유효한 Pose가 있으면 복사만 한다.</summary>
+    private static void Publish(int h, HullSourceCache cache)
+    {
+        StatCandidates++;
+
+        // 몸이 움직였나는 행렬 하나로 안다(물리가 옮긴 몸은 Transform이 바뀐다). 모듈은 몸에
+        // 대해 도는 것(포탑)이라 따로 본다 - Transform.hasChanged는 이 레포에서 여기만 쓴다.
+        if (ForceRepose || !cache.posed || cache.posedMatrix != cache.worldMatrix || ModulesMoved(cache))
+            Pose(cache);
+
+        int n = cache.entryCount;
+        int start = _count;
+
+        EnsureSnapshotCapacity(_count + n);
+        System.Array.Copy(cache.entries, 0, _obb, start, n);
+        System.Array.Copy(cache.entryColliders, 0, _colliders, start, n);
+        System.Array.Copy(cache.entryArmor, 0, _entryArmor, start, n);
+        _count += n;
+
+        int chunkStart = _chunkCount;
+
+        while (_chunkCount + cache.chunkEntries > _chunks.Length)
+            System.Array.Resize(ref _chunks, _chunks.Length * 2);
+
+        for (int k = 0; k < cache.chunkEntries; k++)
+        {
+            ChunkEntry chunk = cache.chunks[k];
+            chunk.start += start;
+            _chunks[_chunkCount++] = chunk;
+        }
+
+        _hulls[h] = new HullEntry
+        {
+            min = cache.tightMin,
+            max = cache.tightMax,
+            start = start,
+            count = n,
+            chunkStart = chunkStart,
+            chunkCount = cache.chunkEntries,
+            published = true,
+        };
+
+        cache.publishedStamp = _snapshotStamp;
+        _publishedCount++;
+    }
+
+    private static bool ModulesMoved(HullSourceCache cache)
+    {
+        if (cache.count == cache.bodyLocalCount)
+            return false;
+
+        for (int c = 0; c < cache.count; c++)
+        {
+            ref Source source = ref _sources[cache.sourceIndices[c]];
+
+            if (source.isArmor)
+                continue;
+
+            Transform t = source.transform;
+
+            if (t == null || t.hasChanged)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>몸 하나를 굽는다. 예전 BuildIfStale의 안쪽 루프 그대로, 목적지만 몸 소유 배열이다.</summary>
+    private static void Pose(HullSourceCache cache)
+    {
+        using var _ = _mPose.Auto();
+
+        StatPosed++;
+
+        Matrix4x4 bodyToWorld = cache.worldMatrix;
+
+        if (cache.entries.Length < cache.count)
+        {
+            int capacity = Mathf.NextPowerOfTwo(cache.count);
+            System.Array.Resize(ref cache.entries, capacity);
+            System.Array.Resize(ref cache.entryColliders, capacity);
+            System.Array.Resize(ref cache.entryArmor, capacity);
+        }
+
+        if (cache.chunks.Length < cache.chunkCount)
+            System.Array.Resize(ref cache.chunks, Mathf.NextPowerOfTwo(cache.chunkCount));
+
+        cache.entryCount = 0;
+        cache.chunkEntries = 0;
+
+        Vector2 min = new(float.PositiveInfinity, float.PositiveInfinity);
+        Vector2 max = new(float.NegativeInfinity, float.NegativeInfinity);
+
+        // 청크는 판이 이 순서로 정렬돼 있다는 사실 하나에 얹혀 있다. id가 바뀌는
+        // 자리가 곧 경계라, 상자를 닫고 새로 연다.
+        int openChunk = -1;
+        int openFrom = 0;
+        Vector2 chunkMin = new(float.PositiveInfinity, float.PositiveInfinity);
+        Vector2 chunkMax = new(float.NegativeInfinity, float.NegativeInfinity);
+
+        for (int c = 0; c < cache.count; c++)
+        {
+            int sourceIndex = cache.sourceIndices[c];
+            ref Source source = ref _sources[sourceIndex];
+            Entry entry;
+
+            bool built = source.isArmor
+                ? TryBuildBodyEntry(in source, in cache.bodyGeometry[c], in bodyToWorld, out entry)
+                : TryBuildEntry(in source, out entry);
+
+            if (!source.isArmor)
+                source.transform.hasChanged = false;
+
+            if (!built)
+                continue;
+
+            int chunk = cache.chunkOf[c];
+
+            if (chunk != openChunk)
+            {
+                CloseChunkLocal(cache, openChunk, openFrom, chunkMin, chunkMax);
+
+                openChunk = chunk;
+                openFrom = cache.entryCount;
+                chunkMin = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+                chunkMax = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+            }
+
+            int at = cache.entryCount++;
+            cache.entries[at] = entry;
+            cache.entryColliders[at] = cache.colliders[c];
+            cache.entryArmor[at] = source.armor;
+
+            // OBB를 감싸는 월드 AABB
+            float extentX = Mathf.Abs(entry.axisU.x) * entry.halfU + Mathf.Abs(entry.axisV.x) * entry.halfV;
+            float extentY = Mathf.Abs(entry.axisU.y) * entry.halfU + Mathf.Abs(entry.axisV.y) * entry.halfV;
+            Vector2 extent = new(extentX, extentY);
+
+            min = Vector2.Min(min, entry.centre - extent);
+            max = Vector2.Max(max, entry.centre + extent);
+            chunkMin = Vector2.Min(chunkMin, entry.centre - extent);
+            chunkMax = Vector2.Max(chunkMax, entry.centre + extent);
+        }
+
+        CloseChunkLocal(cache, openChunk, openFrom, chunkMin, chunkMax);
+
+        StatPosedEntries += cache.entryCount;
+        cache.tightMin = min;
+        cache.tightMax = max;
+        cache.posed = true;
+        cache.posedMatrix = bodyToWorld;
+    }
+
+    private static void CloseChunkLocal(HullSourceCache cache, int chunk, int from, Vector2 min, Vector2 max)
+    {
+        int to = cache.entryCount;
+
         if (chunk < 0 || to <= from)
             return;
 
-        if (_chunkCount >= _chunks.Length)
-            System.Array.Resize(ref _chunks, _chunks.Length * 2);
+        if (cache.chunkEntries >= cache.chunks.Length)
+            System.Array.Resize(ref cache.chunks, cache.chunks.Length * 2);
 
-        _chunks[_chunkCount++] = new ChunkEntry
-        {
-            min = min,
-            max = max,
-            start = from,
-            count = to - from,
-        };
+        cache.chunks[cache.chunkEntries++] = new ChunkEntry { min = min, max = max, start = from, count = to - from };
+    }
+
+    /// <summary>
+    /// 잡에 넘길 레이 하나를 예고한다. 닿을 수 있는 몸을 미리 실어 두면 <see cref="GetJobSnapshot"/>이
+    /// 그 몸들만 복사한다 - 잡 안에서는 공유 캐시를 못 만지므로 굽기는 전부 여기서 끝나야 한다.
+    /// </summary>
+    public static void Include(Vector2 start, Vector2 dir, float range)
+    {
+        BeginSnapshotIfStale();
+
+        if (_publishedCount >= _hullCount)
+            return;
+
+        float sq = dir.sqrMagnitude;
+
+        if (sq < 1e-12f)
+            return;
+
+        dir /= Mathf.Sqrt(sq);
+
+        float2 startF = new(start.x, start.y);
+        float2 dirF = new(dir.x, dir.y);
+
+        for (int h = 0; h < _hullCount; h++)
+            Candidate(h, startF, dirF, range);
     }
 
     /// <summary>콜라이더 churn 계측 스위치. Tools > Rendering > 콜라이더 churn 로그 토글.</summary>
@@ -550,6 +708,58 @@ public static class TraceWorld
             System.Array.Clear(cache.colliders, cache.count, previousCount - cache.count);
 
         GroupIntoChunks(cache, body);
+        ComputeBound(cache, body);
+
+        // 콜라이더 목록이 바뀌었으니 옛 Pose는 죽는다. 판이 죽고 잔해가 갈라지는 것이
+        // 전부 이 길(attached/child 키)로 들어온다.
+        cache.posed = false;
+    }
+
+    /// <summary>
+    /// 몸-로컬 보수 경계. 판은 몸-로컬 OBB의 축정렬 상자(정확). 모듈은 원점을 중심으로
+    /// 반지름 = |offset| + |halfU| + |halfV|(월드)를 몸 스케일의 최소 축으로 나눈 정사각 -
+    /// 회전은 어차피 안 벗어나고, 비균등 스케일은 큰 쪽으로 틀린다.
+    /// </summary>
+    private static void ComputeBound(HullSourceCache cache, Rigidbody2D body)
+    {
+        Vector2 min = new(float.PositiveInfinity, float.PositiveInfinity);
+        Vector2 max = new(float.NegativeInfinity, float.NegativeInfinity);
+
+        Transform bodyTransform = body.transform;
+        Matrix4x4 worldToBody = bodyTransform.worldToLocalMatrix;
+        Vector3 lossy = bodyTransform.lossyScale;
+        float scale = Mathf.Max(1e-6f, Mathf.Min(Mathf.Abs(lossy.x), Mathf.Abs(lossy.y)));
+
+        for (int c = 0; c < cache.count; c++)
+        {
+            ref Source source = ref _sources[cache.sourceIndices[c]];
+
+            if (source.isArmor)
+            {
+                ref BodyGeometry g = ref cache.bodyGeometry[c];
+                Vector2 extent = new(
+                    Mathf.Abs(g.halfU.x) + Mathf.Abs(g.halfV.x),
+                    Mathf.Abs(g.halfU.y) + Mathf.Abs(g.halfV.y));
+
+                min = Vector2.Min(min, g.offset - extent);
+                max = Vector2.Max(max, g.offset + extent);
+            }
+            else
+            {
+                Matrix4x4 toWorld = source.transform.localToWorldMatrix;
+                Vector2 origin = worldToBody.MultiplyPoint3x4(source.transform.position);
+                float radius = (toWorld.MultiplyVector(source.offset).magnitude
+                    + toWorld.MultiplyVector(source.halfU).magnitude
+                    + toWorld.MultiplyVector(source.halfV).magnitude) / scale;
+                Vector2 extent = new(radius, radius);
+
+                min = Vector2.Min(min, origin - extent);
+                max = Vector2.Max(max, origin + extent);
+            }
+        }
+
+        cache.boundMin = min;
+        cache.boundMax = max;
     }
 
     /// <summary>
@@ -966,7 +1176,7 @@ public static class TraceWorld
     /// </summary>
     public static bool Trace(Vector2 start, Vector2 dir, float range, int layerMask, out Hit hit)
     {
-        BuildIfStale();
+        BeginSnapshotIfStale();
 
         hit = default;
         float sq = dir.sqrMagnitude;
@@ -993,6 +1203,10 @@ public static class TraceWorld
 
         for (int h = 0; h < _hullCount; h++)
         {
+            // 브로드페이즈 0단계: 보수 경계. 여기서 떨어지는 몸은 이 틱에 굽지도 않는다.
+            if (!Candidate(h, startF, dirF, range))
+                continue;
+
             HullEntry hull = _hulls[h];
 
             if (!RayIntersectsAabb(
@@ -1156,21 +1370,24 @@ public static class TraceWorld
     // 렉이 된다 - 스파이크를 눕히려다 총량을 늘린 자리가 여기였다.
     private static NativeArray<JobEntry> _jobWorld;
     private static NativeArray<byte> _jobActive;
-
     private static NativeArray<JobHull> _jobHulls;
-    private static long _jobWorldTick = -1;
-    private static int _jobWorldEpoch = -1;
-    internal static void GetJobSnapshot(
-    out NativeArray<JobEntry> entries,
-    out NativeArray<byte> active,
-    out int count,
-    out NativeArray<JobHull> hulls,
-    out int hullCount)
-    {
-        BuildIfStale();
+    private static int _jobStamp = -1;
+    private static int _jobCopied;
 
-        // 세계 배열은 _count까지 쓴다. 이 블록이 없으면 두 배열이 default NativeArray로
-        // 남아 첫 병렬 파면에서 NRE가 난다 - hull 배열만 잡고 이쪽을 지웠던 자리다.
+    /// <summary>
+    /// 이번 스냅샷에 **실린** 몸의 OBB와 생존 상태를 Job용 배열로 뜬다. 호출자는 레이마다
+    /// <see cref="Include"/>를 먼저 불러야 한다 - 안 실린 몸은 잡에 없고, 잡은 굽지 못한다.
+    /// 같은 스냅샷 안에서는 새로 실린 구간만 이어 복사한다(실리는 것은 덧붙기뿐이다).
+    /// </summary>
+    internal static void GetJobSnapshot(
+        out NativeArray<JobEntry> entries,
+        out NativeArray<byte> active,
+        out int count,
+        out NativeArray<JobHull> hulls,
+        out int hullCount)
+    {
+        BeginSnapshotIfStale();
+
         if (!_jobWorld.IsCreated || _jobWorld.Length < _count)
         {
             if (_jobWorld.IsCreated)
@@ -1179,22 +1396,11 @@ public static class TraceWorld
             if (_jobActive.IsCreated)
                 _jobActive.Dispose();
 
-            int capacity = Mathf.Max(
-                256,
-                Mathf.NextPowerOfTwo(Mathf.Max(1, _count)));
+            int capacity = Mathf.Max(256, Mathf.NextPowerOfTwo(Mathf.Max(1, _count)));
 
-            _jobWorld = new NativeArray<JobEntry>(
-                capacity,
-                Allocator.Persistent,
-                NativeArrayOptions.UninitializedMemory);
-
-            _jobActive = new NativeArray<byte>(
-                capacity,
-                Allocator.Persistent,
-                NativeArrayOptions.UninitializedMemory);
-
-            // 새 배열이면 기하를 다시 채워야 한다
-            _jobWorldTick = -1;
+            _jobWorld = new NativeArray<JobEntry>(capacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            _jobActive = new NativeArray<byte>(capacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            _jobStamp = -1;
         }
 
         if (!_jobHulls.IsCreated || _jobHulls.Length < _hullCount)
@@ -1202,42 +1408,34 @@ public static class TraceWorld
             if (_jobHulls.IsCreated)
                 _jobHulls.Dispose();
 
-            int capacity = Mathf.Max(
-                16,
-                Mathf.NextPowerOfTwo(Mathf.Max(1, _hullCount)));
-
-            _jobHulls = new NativeArray<JobHull>(
-                capacity,
-                Allocator.Persistent,
-                NativeArrayOptions.UninitializedMemory);
-
-            // 새 NativeArray이므로 복사 다시 하게
-            _jobWorldTick = -1;
+            int capacity = Mathf.Max(16, Mathf.NextPowerOfTwo(Mathf.Max(1, _hullCount)));
+            _jobHulls = new NativeArray<JobHull>(capacity, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
         }
 
-        // 기하는 스냅샷이 바뀔 때만. 틱당 최대 두 번이고 파면 수와 무관하다.
-        if (_jobWorldTick != _builtTick || _jobWorldEpoch != _epoch)
+        if (_jobStamp != _snapshotStamp)
         {
-            _jobWorldTick = _builtTick;
-            _jobWorldEpoch = _epoch;
-
-            for (int i = 0; i < _count; i++)
-            {
-                ref Entry e = ref _obb[i];
-
-                _jobWorld[i] = new JobEntry
-                {
-                    centre = new float2(e.centre.x, e.centre.y),
-                    axisU = new float2(e.axisU.x, e.axisU.y),
-                    axisV = new float2(e.axisV.x, e.axisV.y),
-                    halfU = e.halfU,
-                    halfV = e.halfV,
-                    radius = e.radius,
-                    layer = e.layer,
-                    isArmor = e.isArmor ? (byte)1 : (byte)0,
-                };
-            }
+            _jobStamp = _snapshotStamp;
+            _jobCopied = 0;
         }
+
+        for (int i = _jobCopied; i < _count; i++)
+        {
+            ref Entry e = ref _obb[i];
+
+            _jobWorld[i] = new JobEntry
+            {
+                centre = new float2(e.centre.x, e.centre.y),
+                axisU = new float2(e.axisU.x, e.axisU.y),
+                axisV = new float2(e.axisV.x, e.axisV.y),
+                halfU = e.halfU,
+                halfV = e.halfV,
+                radius = e.radius,
+                layer = e.layer,
+                isArmor = e.isArmor ? (byte)1 : (byte)0,
+            };
+        }
+
+        _jobCopied = _count;
 
         // 생존만 파면마다 다시 본다. 틱 안에서 판이 죽고, 그것이 스냅샷을 무효화하지
         // 않는다는 것이 이 세계의 규칙이라(죽은 것은 채택할 때 거른다) 여기가 그 자리다.
@@ -1246,25 +1444,30 @@ public static class TraceWorld
             Collider2D live = _colliders[i];
             _jobActive[i] = live != null && Alive(i, live) ? (byte)1 : (byte)0;
         }
-        for (int i = 0; i < _hullCount; i++)
-        {
-            HullEntry h = _hulls[i];
 
-            _jobHulls[i] = new JobHull
+        // 몸 순서 그대로(All 순서). 동점 규칙이 순회 순서를 타므로 실린 순서로 주면 안 된다.
+        hullCount = 0;
+
+        for (int h = 0; h < _hullCount; h++)
+        {
+            HullEntry e = _hulls[h];
+
+            if (!e.published)
+                continue;
+
+            _jobHulls[hullCount++] = new JobHull
             {
-                min = new float2(h.min.x, h.min.y),
-                max = new float2(h.max.x, h.max.y),
-                start = h.start,
-                count = h.count
+                min = new float2(e.min.x, e.min.y),
+                max = new float2(e.max.x, e.max.y),
+                start = e.start,
+                count = e.count,
             };
         }
 
         entries = _jobWorld;
         active = _jobActive;
         count = _count;
-
         hulls = _jobHulls;
-        hullCount = _hullCount;
     }
 
     private static void DisposeJobSnapshot()
@@ -1278,8 +1481,8 @@ public static class TraceWorld
         if (_jobHulls.IsCreated)
             _jobHulls.Dispose();
 
-        _jobWorldTick = -1;
-        _jobWorldEpoch = -1;
+        _jobStamp = -1;
+        _jobCopied = 0;
     }
 
     // 영속 NativeArray는 주인이 치워야 한다. 플레이 종료·도메인 리로드 둘 다에서.

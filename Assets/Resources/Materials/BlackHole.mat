@@ -25,15 +25,16 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _Beam: 0.9
-    - _Glow: 1.09
-    - _Inner: 2.15
-    - _Outer: 7.53
+    - _Beam: 0.62
+    - _Glow: 0.31
+    - _Inner: 3
+    - _Outer: 7.69
     - _Rs: 120
-    - _Speed: 3.28
-    - _Spin: 0.03
-    - _StepLen: 0.5
-    - _Steps: 120
+    - _Speed: 0.66
+    - _Spin: 1
+    - _StepLen: 0.054
+    - _Steps: 250
+    - _Structure: 1
     m_Colors:
     - _ApproachColor: {r: 0.3, g: 0.6, b: 1, a: 1}
     - _CoolColor: {r: 1, g: 0.31999996, b: 0.079999976, a: 1}

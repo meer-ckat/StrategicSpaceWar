@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Core;
@@ -42,6 +43,17 @@ public class Hulk : Thing
     /// <summary>떨어져 나가는 조각이 받는 이탈 속도. 함선의 같은 이름 필드와 같은 뜻이다.</summary>
     public float breakawaySpeed = 2f;
 
+    /// <summary>
+    /// 건조 초. 0이면 Awake 한 프레임에 다 심는다(씬 배치·도착 암전 밑). 양수면 격납고가 배를
+    /// 뽑는 길(<see cref="ShipBuilder.SpawnOverTime"/>)로 판을 하나씩 심는다 - 들판에서 덩어리
+    /// 하나가 5 km 안에 들어올 때 운석 4~8개 × 90장이 한 프레임에 서면 그게 스파이크다.
+    /// def가 아니라 소환자가 꽂는다. 함선의 같은 이름 필드와 같은 규칙.
+    /// </summary>
+    public float buildSeconds;
+
+    /// <summary>판을 심는 중. 격자·구조가 아직 없다 - OnTick의 "판이 0장이면 지운다"가 이 동안 골조를 지우면 안 된다.</summary>
+    private bool _building;
+
     private HullStructure _structure;
 
     protected override void Awake()
@@ -55,11 +67,50 @@ public class Hulk : Thing
         if (TryGetComponent(out Rigidbody2D body))
             body.gravityScale = 0f;
 
+        if (buildSeconds > 0f)
+        {
+            StartCoroutine(BuildOverTime());
+            return;
+        }
+
         // 함선의 Awake와 같은 순서다. 심고 -> 격자를 도장하고 -> 구조에 넘긴다.
         // 세 단계 전부 Transform만 받으므로 Ship이 없어도 그대로 돈다.
         if (!ShipBuilder.SpawnFrom(transform, structureDefName, this))
             return;
 
+        Finish();
+    }
+
+    /// <summary>
+    /// 판을 하나씩 심고 마지막에 <see cref="Finish"/>. 심는 동안 Kinematic이고 콜라이더는
+    /// 꺼져 있다(SpawnOverTime이 끈다, Stamp의 WireNeighbours가 껍질만 다시 켠다) - 탄은
+    /// 맞고 충각·솔버는 못 본다. 함선의 BuildOverTime과 같은 그림이고 모함만 없다.
+    /// </summary>
+    private IEnumerator BuildOverTime()
+    {
+        ShipDef def = ShipDef.Load(structureDefName);
+
+        if (def == null)
+            yield break;
+
+        _building = true;
+        def.Apply(this);
+
+        var body = GetComponent<Rigidbody2D>();
+        body.bodyType = RigidbodyType2D.Kinematic;
+
+        int plates = def.placements?.Count ?? 0;
+        yield return ShipBuilder.SpawnOverTime(transform, def, plates > 0 ? buildSeconds / plates : 0f, ConstructionFx.Wireframe);
+
+        body.bodyType = RigidbodyType2D.Dynamic;
+        _building = false;
+        Finish();
+        StartCoroutine(ConstructionFx.Reveal(transform));
+    }
+
+    /// <summary>격자를 도장하고 구조에 넘긴다. 한 프레임 건조와 코루틴 건조가 같은 문으로 끝난다.</summary>
+    private void Finish()
+    {
         var armorAt = new Dictionary<Vector2Int, Armor>();
         var doorAt = new Dictionary<Vector2Int, Door>();
 
@@ -81,6 +132,9 @@ public class Hulk : Thing
 
     public override void OnTick()
     {
+        if (_building)
+            return;
+
         // 함선과 같은 자리, 같은 이유. 물리 콜백 밖에서, 이번 틱의 무엇보다 먼저.
         // 덩어리도 다시 쪼개진다 - 가운데 판이 없어지면 남은 두 조각은 더 이상 한 몸이 아니다.
         _structure?.TrySplitIfBroken();

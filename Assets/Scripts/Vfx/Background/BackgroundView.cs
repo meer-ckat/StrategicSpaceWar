@@ -113,7 +113,7 @@ public sealed class BackgroundView : MonoBehaviour
 
         var rng = new DeterministicRng(seed);
 
-        // 첫 출력은 버린다. SubSectorGen과 같은 이유 - 이웃 시드가 하위 비트만 다를 때
+        // 첫 출력은 버린다. OpenSectorGen과 같은 이유 - 이웃 시드가 하위 비트만 다를 때
         // xorshift32의 첫 바퀴가 그걸 상위 비트로 못 올린다.
         rng.NextUInt();
 
@@ -399,7 +399,7 @@ public sealed class BackgroundView : MonoBehaviour
     /// 블랙홀. 원반보다 25% 큰 경계 구에 카메라부터 적분한 광자 경로를 그린다.
     /// 그림자·광자 고리·먼 쪽이 위로 휘어 오르는 호가 거기서 나온다. 재질은
     /// Resources/Materials/BlackHole.mat - 씬의 Sphere에 끌어다 놓으면 그대로 보인다(Z축이 원반 법선).
-    /// 구 안의 별은 원반과 같은 측지선으로 휘고(오파크 텍스처를 읽는다), 구 밖은 GravLens가 약장식으로 잇는다.
+    /// 뒤쪽 배경의 렌즈는 GravLens가 처리하고, 구는 원반과 그림자만 합성한다.
     /// </summary>
     /// <param name="shadow">슈바르츠실트 반지름(m). 개체별 _Rs로 전달한다.</param>
     private void PutBlackHole(Quaternion look, float forward, float side, float up, float shadow)

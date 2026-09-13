@@ -126,6 +126,15 @@ public abstract partial class Projectile : Thing, ITickLate
     /// 죽는 유일한 문. **두 번 불러도 안전하다** - 틱 루프가 한 틱에 판을 여러 장
     /// 지나므로 같은 탄이 여러 경로에서 끝날 수 있다.
     ///
+    /// <summary>
+    /// 쪼개지면 자기를 닮은 작은 탄을 남기는가. <see cref="SpawnHeavyFragments"/>가
+    /// <c>Instantiate(this)</c>로 **이 컴포넌트를 통째로 복제**하기 때문에 이 축이 필요하다 -
+    /// 포탄은 작은 포탄이 맞지만 미사일은 추력·유도·탄두를 전부 물려받아 파편 넷이 각자
+    /// 가속하고 표적을 다시 물고 blastDamage로 또 터진다. def가 아니라 클래스로 가르는
+    /// 이유가 그것이다: 복제되는 것이 def가 아니라 클래스다.
+    /// </summary>
+    protected virtual bool ShedsFragments => true;
+
     /// 이 문이 있어야 하는 진짜 이유는 <see cref="SpawnHeavyFragments"/>다. 그쪽은
     /// <c>Instantiate(this)</c>로 자기를 복제하는데, 이미 <c>Destroy</c>된 뒤라면
     /// **컴포넌트가 꺼진 상태까지 복제돼서** 틱을 못 받는 유령이 태어난다. 죽었다는
@@ -229,7 +238,8 @@ public abstract partial class Projectile : Thing, ITickLate
             // 순서를 바꿔도 파편은 한 톨도 안 달라진다 - 읽는 값이 전부 result(Apply보다
             // 먼저 나온 것)와 탄의 정체(mass·caliber·generation)뿐이고, Apply가 바꾸는
             // velocity·integrity·state는 하나도 안 본다.
-            bool heavy = result.heavySpall && generation < Ballistics.MaxFragmentGeneration;
+            bool heavy = result.heavySpall && ShedsFragments
+                && generation < Ballistics.MaxFragmentGeneration;
 
             if (heavy)
                 SpawnHeavyFragments(result);

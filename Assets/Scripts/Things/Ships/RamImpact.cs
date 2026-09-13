@@ -53,7 +53,7 @@ public static class RamImpact
     /// 300장이고 모듈까지 붙으므로 넉넉히 잡는다. Punch가 OnTick에서만 불리고 재진입하지
     /// 않으므로 정적이어도 안전하다 - Conduct/Radiate와 달리 이 안에서 피해가 안 나간다.
     /// </summary>
-    private static readonly Collider2D[] _attached = new Collider2D[1024];
+    private static Collider2D[] _attached = new Collider2D[1024];   // 부족하면 늘린다 - Ark가 1,299장이라 1,024는 조용히 잘랐다
 
     // 접점마다 새로 만들면 한 번 부딪힐 때 최대 16쌍이 쓰레기가 된다. 충각은 난전에서
     // 매 틱 들어온다.
@@ -217,8 +217,20 @@ public static class RamImpact
         // 사거리 안에 남의 몸이 없으면 스윕할 것도 없다. 부술 수 있는 것(Armor)은 전부
         // HullStructure의 몸에 붙어 있으므로 후보는 All 목록뿐이다 - 포격전 거리에서는
         // 충각이 이 float 비교 몇 번으로 끝난다.
-        if (!GatherNearBodies(body, centre, rMax + step, velocity, Mathf.Abs(omega) * rMax, pushing))
+        if (!GatherNearBodies(body, centre, rMax + step, velocity, Mathf.Abs(omega) * rMax, pushing, out bool carriedOnly))
             return;
+
+        // 앞에 있는 것이 전부 실려 가는 몸이면(박힌 운석을 밀고 가는 중) 압착뿐이라 몇 틱에 한 번만 센다.
+        // 아래 press·항복 문턱·밀어내는 충격량이 전부 batch만큼 커져서 초당 결과는 매 틱과 같다.
+        int batch = 1;
+
+        if (carriedOnly)
+        {
+            if (Core.TickManager.currentTick % Ballistics.RamCarriedEvery != 0)
+                return;
+
+            batch = Ballistics.RamCarriedEvery;
+        }
 
         // body.Cast는 내 콜라이더 300개를 **전부** 스윕한다(ColliderCastAll). 이번 틱에
         // 닿을 수 있는 건 남의 몸 반경 + step 안에 있는 앞면 몇 장뿐이라, 그것만 골라
@@ -341,7 +353,7 @@ public static class RamImpact
         //
         // 속도가 섞이던 것도 같이 사라진다 - step은 속도에 비례했는데, 속도로 부수는
         // 몫은 위 충돌 풀이 이미 따로 센다. step을 쓰면 그 속도를 두 번 냈다.
-        float press = Mathf.Max(0f, Vector2.Dot(thrust, dir)) * dt;
+        float press = Mathf.Max(0f, Vector2.Dot(thrust, dir)) * dt * batch;
 
         float pressEach = press * Ballistics.RamPressureDamageScale / contacts;
 
@@ -390,7 +402,7 @@ public static class RamImpact
             // **충돌 몫에는 안 건다.** 저건 운동에너지 풀이라 쓰면 줄어서 스스로 끝나고,
             // RamMinSpeed가 이미 아래쪽을 막고 있다. 여기만 끝나는 조건이 없었다.
             float crush = Mathf.Max(
-                0f, pressEach * react - plate.PlateHp * Ballistics.RamCrushYield);
+                0f, pressEach * react - plate.PlateHp * Ballistics.RamCrushYield * batch);
 
             // **되받는 것은 실제로 전달된 압착이다.** 접촉력은 양쪽에 똑같이 걸리므로
             // 상대가 안 먹은 몫을 내가 먹을 수는 없다. 예전에는 press 원값을 그대로
@@ -533,7 +545,7 @@ public static class RamImpact
             float pushForce = Mathf.Max(0f, Vector2.Dot(thrust, dir));
 
             if (pushForce > 0f)
-                push = dir * (pushForce * dt * Reaction(body, hitBody));
+                push = dir * (pushForce * dt * batch * Reaction(body, hitBody));
         }
 
         Vector2 handOver = hit + push;
@@ -720,15 +732,17 @@ public static class RamImpact
     /// </summary>
     private static readonly List<(Vector2 centre, float radius)> _nearBodies = new();
 
+    /// <param name="carriedOnly">근처 몸이 전부 나와 같이 움직이는 것뿐인가(상대 운동 없음, 밀고 있어서만 통과).</param>
     private static bool GatherNearBodies(
         Rigidbody2D self, Vector2 centre, float range,
-        Vector2 selfVelocity, float spinReach, bool pushing)
+        Vector2 selfVelocity, float spinReach, bool pushing, out bool carriedOnly)
     {
         using var _ = _mGather.Auto();
 
         RefreshBodySnapshot();
 
         _nearBodies.Clear();
+        carriedOnly = true;
 
         for (int i = 0; i < _bodySnapshot.Count; i++)
         {
@@ -754,13 +768,14 @@ public static class RamImpact
             //
             // sqrt를 안 쓴다. `|dv| + spinReach < RamMinSpeed`를 `|dv| < 남은 몫`으로
             // 옮기면 제곱 비교로 끝난다 - 이 줄은 몸마다 x 몸마다라 O(n^2)다.
-            if (!pushing && spinReach < Ballistics.RamMinSpeed)
-            {
-                float slack = Ballistics.RamMinSpeed - spinReach;
+            float slack = Ballistics.RamMinSpeed - spinReach;
+            bool still = slack > 0f && (selfVelocity - otherVelocity).sqrMagnitude < slack * slack;
 
-                if ((selfVelocity - otherVelocity).sqrMagnitude < slack * slack)
-                    continue;
-            }
+            if (still && !pushing)
+                continue;
+
+            if (!still)
+                carriedOnly = false;
 
             _nearBodies.Add((at, radius));
         }
@@ -883,6 +898,9 @@ public static class RamImpact
     private static int SweepNearColliders(Rigidbody2D body, Vector2 dir, float step, float swing)
     {
         using var _ = _mSweep.Auto();
+        if (body.attachedColliderCount > _attached.Length)
+            System.Array.Resize(ref _attached, Mathf.NextPowerOfTwo(body.attachedColliderCount));
+
         int attached = body.GetAttachedColliders(_attached);
         int n = 0;
 
