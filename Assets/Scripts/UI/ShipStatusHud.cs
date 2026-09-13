@@ -418,7 +418,7 @@ public sealed class ShipStatusHud : MonoBehaviour
             Color oc = CellColor(c);
 
             for (int i = 0; i < poly.Length; i++)
-                DrawLine(ToScreen(poly[i]), ToScreen(poly[(i + 1) % poly.Length]), oc, 1f);
+                Line(ToScreen(poly[i]), ToScreen(poly[(i + 1) % poly.Length]), oc, 1f);
         }
 
         GUI.color = Color.white;
@@ -439,10 +439,19 @@ public sealed class ShipStatusHud : MonoBehaviour
         Vector2 ToScreen(Vector2 g) => new(x0 + (g.x + 0.5f) * cell, y0 + (g.y + 0.5f) * cell);
 
         // 선은 그림 영역 안에서만. 탄 궤적이 45칸 밖에서 오므로 안 자르면 글 위를 가로지른다.
+        //
+        // **배율 밖에서 그린다.** DrawLine의 RotateAroundPivot은 GUI.matrix에 배율이 걸려 있으면 피벗을
+        // 논리 좌표로 받아 화면 좌표에서 돌린다 - 피벗에서 먼 선일수록 밀려서 화면 아래쪽 선이 8칸씩
+        // 떠 있었다. 점(DrawTexture)은 맞고 선만 틀렸던 이유. 조준선을 배율 밖에서 그리는 것과 같다.
         void Line(Vector2 a, Vector2 b, Color c, float lw)
         {
-            if (ClipToRect(ref a, ref b, gridArea))
-                DrawLine(a, b, c, lw);
+            if (!ClipToRect(ref a, ref b, gridArea))
+                return;
+
+            Matrix4x4 inside = GUI.matrix;
+            GUI.matrix = saved;
+            DrawLine(a * uiScale, b * uiScale, c, lw * uiScale);
+            GUI.matrix = inside;
         }
 
         Color TrailColor(SpallTrails.Kind k, out float lw)
