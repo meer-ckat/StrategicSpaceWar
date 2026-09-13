@@ -302,7 +302,10 @@ public sealed class ShipStatusHud : MonoBehaviour
     /// <summary>암전이 시작되고 이만큼 뒤에 뜬다. GameManager.BlackFadeSeconds(1)와 같다 - 검정 위에 떠야 읽힌다.</summary>
     private const float XrayAfterBlackSeconds = 1f;
     private const float XrayCellMax = 14f;
-    private const float XrayStepSeconds = 0.7f;    // 사건 하나 = 이 시간. 열 개면 7초
+    private const float XrayStepSeconds = 1.6f;    // 사건 하나 = 비행 1초 + 읽는 0.6초. 열 개면 16초
+    private const float XrayFlightSeconds = 1f;    // 지금 사건의 탄이 날아오는 시간
+
+    private static readonly Dictionary<int, List<DeathXray.Trail>> _xrayChains = new();
     private const float XrayFlashSeconds = 0.25f;  // 사건이 켜지는 순간 흰빛
     private const float XrayGaugeThickness = 4f;   // LogisticsScreen.GaugeThickness와 같다
 
@@ -380,34 +383,108 @@ public sealed class ShipStatusHud : MonoBehaviour
 
         GUI.color = Color.white;
 
-        // 탄과 파편. 켜진 사건까지의 것만 - 선이 사건과 같이 나타나야 "이 탄이 이 판을"이 읽힌다.
-        // 첫 사건보다 1.5초 앞부터 - 다가오는 탄의 마지막 구간이 보여야 어디서 왔는지 안다.
-        long cutoff = shown > 0 ? groups[shown - 1].tick + 3 : (groups.Count == 0 ? DeathXray.DownTick : long.MinValue);
+        // 탄과 파편. 지난 사건의 것은 그대로, **지금 사건의 탄은 날아온다** - 1초 동안 궤적을 따라
+        // 머리가 가고, 닿는 순간 판정(관통·저지·도탄)이 찍히고 그제야 파편이 퍼진다. 정지 선분은
+        // 어디서 왔는지가 안 읽혔다("이상한 위치에서 날아온다"). 도탄은 튕겨 나가는 구간까지
+        // 같은 궤적이라 저절로 이어진다.
         long earliest = groups.Count > 0 ? groups[0].tick - 90 : DeathXray.DownTick - 90;
+        long nowFrom = shown > 0 ? groups[shown - 1].tick - 90 : long.MaxValue;
+        long nowTo = shown > 0 ? groups[shown - 1].tick + 3 : long.MinValue;
+        long pastTo = shown > 1 ? groups[shown - 2].tick + 3 : long.MinValue;
+        if (groups.Count == 0) { pastTo = DeathXray.DownTick; }
+
+        float flight = Mathf.Clamp01(inStep / XrayFlightSeconds);   // 지금 사건의 탄이 얼마나 날아왔나
+        bool landed = flight >= 1f;
 
         Vector2 ToScreen(Vector2 g) => new(x0 + (g.x + 0.5f) * cell, y0 + (g.y + 0.5f) * cell);
 
+        Color TrailColor(SpallTrails.Kind k, out float lw)
+        {
+            switch (k)
+            {
+                case SpallTrails.Kind.Shell: lw = 2f; return Palette.Hull;
+                case SpallTrails.Kind.Module: lw = 1f; return Palette.Radiance;
+                case SpallTrails.Kind.Armor: lw = 1f; return Palette.Breach.WithAlpha(0.8f);
+                default: lw = 1f; return Palette.Steel.WithAlpha(0.5f);
+            }
+        }
+
+        // 1) 지난 사건: 전부 정지 선.
         DeathXray.ForEachTrail(tr =>
         {
-            if (tr.tick < earliest || tr.tick > cutoff)
+            if (tr.tick < earliest || tr.tick > pastTo)
                 return;
 
-            Color lc; float lw;
-
-            switch (tr.kind)
-            {
-                case SpallTrails.Kind.Shell: lc = Palette.Hull; lw = 2f; break;
-                case SpallTrails.Kind.Module: lc = Palette.Radiance; lw = 1f; break;
-                case SpallTrails.Kind.Armor: lc = Palette.Breach.WithAlpha(0.8f); lw = 1f; break;
-                default: lc = Palette.Steel.WithAlpha(0.5f); lw = 1f; break;
-            }
-
+            Color lc = TrailColor(tr.kind, out float lw);
             DrawLine(ToScreen(tr.a), ToScreen(tr.b), lc, lw);
         });
 
+        // 2) 지금 사건의 탄: id별로 구간을 모아 길이를 재고, flight만큼만 그린다.
+        _xrayChains.Clear();
+
+        DeathXray.ForEachTrail(tr =>
+        {
+            if (tr.tick < nowFrom || tr.tick > nowTo || tr.tick <= pastTo)
+                return;
+
+            if (tr.kind != SpallTrails.Kind.Shell)
+            {
+                // 파편은 탄이 닿은 뒤에만. 닿기 전에 퍼지면 순서가 거짓말이다.
+                if (landed)
+                {
+                    Color lc = TrailColor(tr.kind, out float lw);
+                    DrawLine(ToScreen(tr.a), ToScreen(tr.b), lc, lw);
+                }
+
+                return;
+            }
+
+            if (!_xrayChains.TryGetValue(tr.id, out List<DeathXray.Trail> chain))
+                _xrayChains[tr.id] = chain = new List<DeathXray.Trail>();
+
+            chain.Add(tr);   // ForEachTrail이 오래된 것부터 주므로 이미 틱 순이다
+        });
+
+        foreach (List<DeathXray.Trail> chain in _xrayChains.Values)
+        {
+            float total = 0f;
+            foreach (DeathXray.Trail tr in chain) total += (tr.b - tr.a).magnitude;
+
+            float budget = total * flight;
+            Vector2 head = ToScreen(chain[0].a);
+
+            foreach (DeathXray.Trail tr in chain)
+            {
+                float len = (tr.b - tr.a).magnitude;
+
+                if (budget <= 0f)
+                    break;
+
+                float f = Mathf.Clamp01(budget / Mathf.Max(1e-4f, len));
+                Vector2 b = Vector2.Lerp(tr.a, tr.b, f);
+                DrawLine(ToScreen(tr.a), ToScreen(b), Palette.Hull, 2f);
+                head = ToScreen(b);
+                budget -= len;
+            }
+
+            // 머리. 닿기 전까지만 - 닿으면 판정 점이 그 자리를 대신한다.
+            if (!landed)
+            {
+                float d = Mathf.Max(6f, cell * 0.7f);
+                GUI.color = Color.white;
+                GUI.DrawTexture(new Rect(head.x - d * 0.5f, head.y - d * 0.5f, d, d), Texture2D.whiteTexture);
+            }
+        }
+
+        // 3) 판정 점. 지난 사건은 그대로, 지금 사건은 닿은 뒤에 한 번 부풀며 찍힌다.
+        float pulse = 1f + 1.5f * Mathf.Clamp01(1f - (inStep - XrayFlightSeconds) / 0.3f);
+
         foreach (DeathXray.Hit hit in DeathXray.Hits)
         {
-            if (hit.tick < earliest || hit.tick > cutoff)
+            bool past = hit.tick >= earliest && hit.tick <= pastTo;
+            bool now = hit.tick > pastTo && hit.tick >= nowFrom && hit.tick <= nowTo;
+
+            if (!past && !(now && landed))
                 continue;
 
             Color hc = hit.ram ? Palette.Heat : hit.outcome switch
@@ -418,7 +495,7 @@ public sealed class ShipStatusHud : MonoBehaviour
             };
 
             Vector2 p = ToScreen(hit.at);
-            float d = hit.ram ? Mathf.Max(7f, cell * 0.9f) : Mathf.Max(5f, cell * 0.6f);   // 충각은 면이라 크게
+            float d = (hit.ram ? Mathf.Max(7f, cell * 0.9f) : Mathf.Max(5f, cell * 0.6f)) * (now ? pulse : 1f);
             GUI.color = hc;
             GUI.DrawTexture(new Rect(p.x - d * 0.5f, p.y - d * 0.5f, d, d), Texture2D.whiteTexture);
         }

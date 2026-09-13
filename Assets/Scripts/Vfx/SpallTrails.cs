@@ -72,9 +72,10 @@ public sealed class SpallTrails : MonoBehaviour
     /// SpallResolver가 파편 하나를 해결할 때마다 부른다. 구조체 배열에 쓰기만 하므로
     /// 시뮬레이션 쪽에서 불러도 안전하다 - 물리도, RNG도, 할당도 없다.
     /// </summary>
-    public static void Add(Vector2 from, Vector2 to, Kind kind)
+    /// <param name="id">탄이면 ProjectileId. X-ray가 한 탄의 구간들을 이어 붙여 날아오는 선으로 그린다. 파편은 0.</param>
+    public static void Add(Vector2 from, Vector2 to, Kind kind, int id = 0)
     {
-        DeathXray.AddTrail(from, to, kind);   // 격파 X-ray의 기록. 배 근처만 남긴다
+        DeathXray.AddTrail(from, to, kind, id);   // 격파 X-ray의 기록. 배 근처만 남긴다
 
         _from[_next] = from;
         _to[_next] = to;

@@ -184,7 +184,7 @@ public abstract partial class Projectile
             if (player != null && player.Rig == targetBody)
             {
                 CameraSystem.Shake(Mathf.Min(MaxHitShake, r.armorDamage * HitShakeScale));
-                DeathXray.AddHit(_surfaces.hitPoint, r.outcome);
+                DeathXray.AddHit(_surfaces.hitPoint, r.outcome, ProjectileId);
             }
         }
 

@@ -59,6 +59,7 @@ public static class DeathXray
         public long tick;
         public Vector2 a, b;          // 설계도 격자 좌표(연속). 칸 (c,r)의 중심이 (c,r)
         public SpallTrails.Kind kind;
+        public int id;                // 탄이면 ProjectileId. 구간들을 이어 한 발의 궤적이 된다
     }
 
     public struct Hit
@@ -67,6 +68,7 @@ public static class DeathXray
         public Vector2 at;            // 격자 좌표
         public HitOutcome outcome;
         public bool ram;              // 탄이 아니라 충각. outcome은 무시
+        public int id;                // 어느 탄의 판정인가
     }
 
     /// <summary>링. 유폭은 파편이 수천이라 작으면 제일 큰 사건이 제일 안 남는다.</summary>
@@ -77,8 +79,10 @@ public static class DeathXray
     public static readonly List<Hit> Hits = new();
     private const int HitCapacity = 64;
 
-    /// <summary>격자 밖 이만큼까지는 남긴다 - 다가오는 탄의 마지막 구간이 보여야 어디서 왔는지 읽힌다.</summary>
+    /// <summary>격자 밖 이만큼까지는 남긴다. 파편은 6칸이면 되지만 **탄은 멀리서부터** - 800 m/s면 틱당 13 m라
+    /// 6칸 안에는 구간 하나가 채 안 들어와서 어디서 왔는지 안 읽혔다("이상한 위치에서 날아온다").</summary>
     private const float GridMargin = 6f;
+    private const float ShellMargin = 45f;
 
     private static long _frameTick = -1;
     private static Matrix4x4 _worldToLocal;
@@ -96,7 +100,7 @@ public static class DeathXray
             _frameTick = Core.TickManager.currentTick;
             _worldToLocal = _watched.transform.worldToLocalMatrix;
             _shipPos = _watched.transform.position;
-            _shipRadius = Mathf.Max(Design.width, Design.height) * ShipGrid.CellSize * 0.5f + GridMargin;
+            _shipRadius = Mathf.Max(Design.width, Design.height) * ShipGrid.CellSize * 0.5f + ShellMargin;
         }
 
         return true;
@@ -108,11 +112,11 @@ public static class DeathXray
         return new Vector2((local.x - Design.origin.x) / ShipGrid.CellSize, (Design.origin.y - local.y) / ShipGrid.CellSize);
     }
 
-    private static bool NearGrid(Vector2 g) =>
-        g.x >= -GridMargin && g.y >= -GridMargin && g.x <= Design.width + GridMargin && g.y <= Design.height + GridMargin;
+    private static bool NearGrid(Vector2 g, float margin) =>
+        g.x >= -margin && g.y >= -margin && g.x <= Design.width + margin && g.y <= Design.height + margin;
 
     /// <summary>선 하나. 배 근처가 아니면 버린다 - 5 km 밖 남의 싸움은 기록할 것이 아니다.</summary>
-    public static void AddTrail(Vector2 fromWorld, Vector2 toWorld, SpallTrails.Kind kind)
+    public static void AddTrail(Vector2 fromWorld, Vector2 toWorld, SpallTrails.Kind kind, int id = 0)
     {
         if (!Frame())
             return;
@@ -123,17 +127,18 @@ public static class DeathXray
             return;
 
         Vector2 a = ToGrid(fromWorld), b = ToGrid(toWorld);
+        float margin = kind == SpallTrails.Kind.Shell ? ShellMargin : GridMargin;
 
-        if (!NearGrid(a) && !NearGrid(b))
+        if (!NearGrid(a, margin) && !NearGrid(b, margin))
             return;
 
-        _trails[_trailNext] = new Trail { tick = _frameTick, a = a, b = b, kind = kind };
+        _trails[_trailNext] = new Trail { tick = _frameTick, a = a, b = b, kind = kind, id = id };
         _trailNext = (_trailNext + 1) % TrailCapacity;
         if (_trailCount < TrailCapacity) _trailCount++;
     }
 
     /// <summary>명중 판정 하나. Projectile.Damage.Apply가 플레이어 배일 때 부른다.</summary>
-    public static void AddHit(Vector2 world, HitOutcome outcome)
+    public static void AddHit(Vector2 world, HitOutcome outcome, int id = 0)
     {
         if (!Frame())
             return;
@@ -141,7 +146,7 @@ public static class DeathXray
         if (Hits.Count >= HitCapacity)
             Hits.RemoveAt(0);
 
-        Hits.Add(new Hit { tick = _frameTick, at = ToGrid(world), outcome = outcome });
+        Hits.Add(new Hit { tick = _frameTick, at = ToGrid(world), outcome = outcome, id = id });
     }
 
     /// <summary>충각으로 갈린 자리. 매 틱 접촉마다 오므로 같은 틱·같은 칸은 하나로 접는다.</summary>

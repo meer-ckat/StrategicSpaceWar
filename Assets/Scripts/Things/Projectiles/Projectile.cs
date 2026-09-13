@@ -180,7 +180,7 @@ public abstract partial class Projectile : Thing, ITickLate
         }
         finally
         {
-            SpallTrails.Add(from, transform.position, SpallTrails.Kind.Shell);
+            SpallTrails.Add(from, transform.position, SpallTrails.Kind.Shell, ProjectileId);
         }
     }
 
