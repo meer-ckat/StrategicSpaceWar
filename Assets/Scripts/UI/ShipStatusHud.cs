@@ -379,6 +379,51 @@ public sealed class ShipStatusHud : MonoBehaviour
 
         GUI.color = Color.white;
 
+        // 탄과 파편. 켜진 사건까지의 것만 - 선이 사건과 같이 나타나야 "이 탄이 이 판을"이 읽힌다.
+        // 첫 사건보다 1.5초 앞부터 - 다가오는 탄의 마지막 구간이 보여야 어디서 왔는지 안다.
+        long cutoff = shown > 0 ? groups[shown - 1].tick + 3 : (groups.Count == 0 ? DeathXray.DownTick : long.MinValue);
+        long earliest = groups.Count > 0 ? groups[0].tick - 90 : DeathXray.DownTick - 90;
+
+        Vector2 ToScreen(Vector2 g) => new(x0 + (g.x + 0.5f) * cell, y0 + (g.y + 0.5f) * cell);
+
+        DeathXray.ForEachTrail(tr =>
+        {
+            if (tr.tick < earliest || tr.tick > cutoff)
+                return;
+
+            Color lc; float lw;
+
+            switch (tr.kind)
+            {
+                case SpallTrails.Kind.Shell: lc = Palette.Hull; lw = 2f; break;
+                case SpallTrails.Kind.Module: lc = Palette.Radiance; lw = 1f; break;
+                case SpallTrails.Kind.Armor: lc = Palette.Breach.WithAlpha(0.8f); lw = 1f; break;
+                default: lc = Palette.Steel.WithAlpha(0.5f); lw = 1f; break;
+            }
+
+            DrawLine(ToScreen(tr.a), ToScreen(tr.b), lc, lw);
+        });
+
+        foreach (DeathXray.Hit hit in DeathXray.Hits)
+        {
+            if (hit.tick < earliest || hit.tick > cutoff)
+                continue;
+
+            Color hc = hit.outcome switch
+            {
+                HitOutcome.Penetrated => Palette.Breach,
+                HitOutcome.Ricochet => Palette.Radiance,
+                _ => Palette.Steel,
+            };
+
+            Vector2 p = ToScreen(hit.at);
+            float d = Mathf.Max(5f, cell * 0.6f);
+            GUI.color = hc;
+            GUI.DrawTexture(new Rect(p.x - d * 0.5f, p.y - d * 0.5f, d, d), Texture2D.whiteTexture);
+        }
+
+        GUI.color = Color.white;
+
         // 오른쪽. 원인, 그 아래 사건 열 줄 - 켜진 것까지만 밝다.
         float y = textArea.y;
         GUI.Label(new Rect(textArea.x, y, textArea.width, 20f), "격파", _titleStyle);
@@ -425,6 +470,11 @@ public sealed class ShipStatusHud : MonoBehaviour
         Legend(Palette.Heat, "지난 사건");
         Legend(Palette.Steel, "그 전 상처");
         Legend(Palette.Radiance, "시타델 (탄약고·원자로)");
+        y += 6f;
+        Legend(Palette.Hull, "탄  (굵은 선)");
+        Legend(Palette.Breach.WithAlpha(0.8f), "파편 → 판");
+        Legend(Palette.Radiance, "파편 → 모듈");
+        Legend(Palette.Breach, "관통 · 도탄 노랑 · 저지 회색");
 
         GUI.color = DimColor;
         GUI.Label(new Rect(textArea.x, textArea.yMax - RowHeight, textArea.width, RowHeight), "아무 키  -  다시", _leftStyle);

@@ -182,7 +182,10 @@ public abstract partial class Projectile
             Ship player = GameManager.Player();
 
             if (player != null && player.Rig == targetBody)
+            {
                 CameraSystem.Shake(Mathf.Min(MaxHitShake, r.armorDamage * HitShakeScale));
+                DeathXray.AddHit(_surfaces.hitPoint, r.outcome);
+            }
         }
 
         // Snapshot for the readout after the channel is final, not before.

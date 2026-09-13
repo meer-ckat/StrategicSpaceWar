@@ -74,6 +74,8 @@ public sealed class SpallTrails : MonoBehaviour
     /// </summary>
     public static void Add(Vector2 from, Vector2 to, Kind kind)
     {
+        DeathXray.AddTrail(from, to, kind);   // 격파 X-ray의 기록. 배 근처만 남긴다
+
         _from[_next] = from;
         _to[_next] = to;
         _kind[_next] = kind;

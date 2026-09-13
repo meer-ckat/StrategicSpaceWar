@@ -48,6 +48,110 @@ public static class DeathXray
 
     private static Ship _watched;
 
+    // ---- 탄과 파편. 워썬더 X-ray의 그 선들 ----
+    //
+    // 재시뮬이 아니라 **기록**이다. 결정론은 이 기록이 사건과 정확히 같다는 보장이지 다시 돌릴
+    // 이유가 아니다. SpallTrails.Add가 모든 선(탄 구간·파편)의 단일 깔때기라 거기서 받고, 배가
+    // 움직이므로 받는 순간 배 로컬 → 설계도 격자 좌표로 바꿔 둔다.
+
+    public struct Trail
+    {
+        public long tick;
+        public Vector2 a, b;          // 설계도 격자 좌표(연속). 칸 (c,r)의 중심이 (c,r)
+        public SpallTrails.Kind kind;
+    }
+
+    public struct Hit
+    {
+        public long tick;
+        public Vector2 at;            // 격자 좌표
+        public HitOutcome outcome;
+    }
+
+    /// <summary>링. 유폭은 파편이 수천이라 작으면 제일 큰 사건이 제일 안 남는다.</summary>
+    private const int TrailCapacity = 2048;
+    private static readonly Trail[] _trails = new Trail[TrailCapacity];
+    private static int _trailNext, _trailCount;
+
+    public static readonly List<Hit> Hits = new();
+    private const int HitCapacity = 64;
+
+    /// <summary>격자 밖 이만큼까지는 남긴다 - 다가오는 탄의 마지막 구간이 보여야 어디서 왔는지 읽힌다.</summary>
+    private const float GridMargin = 6f;
+
+    private static long _frameTick = -1;
+    private static Matrix4x4 _worldToLocal;
+    private static Vector2 _shipPos;
+    private static float _shipRadius;
+
+    /// <summary>틱당 한 번만 배의 행렬을 읽는다. 파편 수천 개가 한 틱에 오는데 그때마다 네이티브를 부르면 안 된다.</summary>
+    private static bool Frame()
+    {
+        if (_watched == null || Design == null)
+            return false;
+
+        if (_frameTick != Core.TickManager.currentTick)
+        {
+            _frameTick = Core.TickManager.currentTick;
+            _worldToLocal = _watched.transform.worldToLocalMatrix;
+            _shipPos = _watched.transform.position;
+            _shipRadius = Mathf.Max(Design.width, Design.height) * ShipGrid.CellSize * 0.5f + GridMargin;
+        }
+
+        return true;
+    }
+
+    private static Vector2 ToGrid(Vector2 world)
+    {
+        Vector2 local = _worldToLocal.MultiplyPoint3x4(world);
+        return new Vector2((local.x - Design.origin.x) / ShipGrid.CellSize, (Design.origin.y - local.y) / ShipGrid.CellSize);
+    }
+
+    private static bool NearGrid(Vector2 g) =>
+        g.x >= -GridMargin && g.y >= -GridMargin && g.x <= Design.width + GridMargin && g.y <= Design.height + GridMargin;
+
+    /// <summary>선 하나. 배 근처가 아니면 버린다 - 5 km 밖 남의 싸움은 기록할 것이 아니다.</summary>
+    public static void AddTrail(Vector2 fromWorld, Vector2 toWorld, SpallTrails.Kind kind)
+    {
+        if (!Frame())
+            return;
+
+        // 거친 거름망은 월드 거리로. 행렬 곱 전에 대부분이 여기서 빠진다.
+        float r = _shipRadius;
+        if ((fromWorld - _shipPos).sqrMagnitude > r * r && (toWorld - _shipPos).sqrMagnitude > r * r)
+            return;
+
+        Vector2 a = ToGrid(fromWorld), b = ToGrid(toWorld);
+
+        if (!NearGrid(a) && !NearGrid(b))
+            return;
+
+        _trails[_trailNext] = new Trail { tick = _frameTick, a = a, b = b, kind = kind };
+        _trailNext = (_trailNext + 1) % TrailCapacity;
+        if (_trailCount < TrailCapacity) _trailCount++;
+    }
+
+    /// <summary>명중 판정 하나. Projectile.Damage.Apply가 플레이어 배일 때 부른다.</summary>
+    public static void AddHit(Vector2 world, HitOutcome outcome)
+    {
+        if (!Frame())
+            return;
+
+        if (Hits.Count >= HitCapacity)
+            Hits.RemoveAt(0);
+
+        Hits.Add(new Hit { tick = _frameTick, at = ToGrid(world), outcome = outcome });
+    }
+
+    /// <summary>오래된 것부터. 그리는 쪽이 틱으로 거른다.</summary>
+    public static void ForEachTrail(System.Action<Trail> visit)
+    {
+        int start = (_trailNext - _trailCount + TrailCapacity) % TrailCapacity;
+
+        for (int i = 0; i < _trailCount; i++)
+            visit(_trails[(start + i) % TrailCapacity]);
+    }
+
     /// <summary>매 프레임. 설계도가 바뀐 배(새 런, 새 구역 재건조)만 다시 읽는다 - 나머지 프레임은 참조 비교 하나.</summary>
     public static void Observe(Ship player)
     {
@@ -170,6 +274,9 @@ public static class DeathXray
     public static void Reset()
     {
         Groups.Clear();
+        Hits.Clear();
+        _trailNext = _trailCount = 0;
+        _frameTick = -1;
         _watched = null;
         Design = null;
         Citadel.Clear();
