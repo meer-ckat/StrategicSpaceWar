@@ -66,6 +66,14 @@ public sealed class SolidSkin : MonoBehaviour
     private static readonly Dictionary<string, Sprite> _sprites = new();
 
     private SpriteRenderer _renderer;
+
+    /// <summary>
+    /// 실내 모듈(원자로·탄약고·탱크)인가. 선체 안에 있는 것이라 외피가 덮여 있을 때는 안 보여야 맞고,
+    /// Tab으로 기압 오버레이를 열었을 때만 드러난다(오너, 2026-09-13). 탄·포·엔진은 밖이라 늘 보인다.
+    /// 판정은 컴포넌트다 - 이름 목록(IsExteriorModule)은 def 이름을 알아야 하는데 SolidSkin은 모른다.
+    /// </summary>
+    private bool _interior;
+    private bool _shown = true;
     private IDamageable _damageable;
     private Color _base = Color.white;
     private float _painted = -1f;
@@ -133,6 +141,8 @@ public sealed class SolidSkin : MonoBehaviour
         // 받는다) 포대가 상하면 같이 어두워져야 한 덩어리로 읽힌다.
         _damageable = GetComponent<IDamageable>() ?? GetComponentInParent<IDamageable>();
 
+        _interior = GetComponent<CriticalModule>() != null || GetComponent<Tank>() != null;
+
         // 콜라이더의 bounds가 아니라 size다. bounds는 월드 기준이라 회전한 판이 1.41배로
         // 부풀어 그려진다. ThingDef가 붙이는 것은 박스뿐이므로 다른 종류는 볼 일이 없다.
         Vector2 size = TryGetComponent(out BoxCollider2D box) ? box.size : skinSize;
@@ -166,6 +176,15 @@ public sealed class SolidSkin : MonoBehaviour
     {
         if (_damageable != null && !Mathf.Approximately(_damageable.Health01, _painted))
             Repaint();
+
+        // 바뀔 때만 네이티브를 만진다.
+        bool show = !_interior || RoomView.Showing;
+
+        if (show != _shown)
+        {
+            _shown = show;
+            _renderer.enabled = show;
+        }
     }
 
     private void Repaint()

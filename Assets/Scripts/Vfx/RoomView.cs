@@ -80,6 +80,9 @@ public sealed class RoomView : MonoBehaviour
     private readonly Dictionary<Ship, Overlay> _overlays = new();
     private bool _visible = true;
 
+    /// <summary>Tab 오버레이가 켜져 있나. 실내 모듈(SolidSkin)이 이걸 보고 자기를 보인다 - 기압을 볼 때만 안이 보인다.</summary>
+    public static bool Showing { get; private set; } = true;
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Install()
     {
@@ -129,6 +132,8 @@ public sealed class RoomView : MonoBehaviour
     {
         if (Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame)
             _visible = !_visible;
+
+        Showing = _visible;
 
 #if UNITY_EDITOR
         // 오른쪽 클릭한 방을 진공으로 만든다. **에디터 전용이다** - 빌드에 들어가면
