@@ -29,6 +29,18 @@ public static class RunLog
         /// <summary>승무원이 전멸했다. 되돌릴 수 없고, 배는 그 순간부터 표류물이다.</summary>
         CrewLost,
 
+        /// <summary>플레이어 탄약 25% 아래. <c>what</c>은 남은 발수.</summary>
+        AmmoLow,
+
+        /// <summary>플레이어 탄약 0.</summary>
+        AmmoOut,
+
+        /// <summary>급여. <c>what</c>은 금액.</summary>
+        Paid,
+
+        /// <summary>보급 자리에서 실었다. <c>what</c>은 제일 많이 받은 것.</summary>
+        Supplied,
+
         /// <summary>
         /// 역할 하나가 끊겼다. <c>what</c>은 함선 이름이 아니라 <see cref="Ship.ShipRole"/>
         /// 이름이다 - 이 사건만 그렇다.
@@ -215,6 +227,20 @@ public static class RunLog
     /// <summary>구역 승리. 부르는 자리는 Campaign.OnBattleEnd의 승리 가지 하나다.</summary>
     public static void SectorCleared(int number)
         => Add(Kind.SectorCleared, number.ToString(), Ship.Team.Ally);
+
+    // ---- 상황 보고. 시뮬이 아는데 화면에 없던 것들. 전부 플레이어(Ally) 사건이다. ----
+
+    /// <summary>탄약 25% 아래로 처음 내려갔다. <c>what</c>은 남은 발수. 걸쇠는 Ship이 든다.</summary>
+    public static void AmmoLow(int left) => Add(Kind.AmmoLow, left.ToString(), Ship.Team.Ally);
+
+    /// <summary>탄약 0. 포탑은 돌지만 안 나간다 - 왜 안 쏘는지 모르는 것이 제일 나쁘다.</summary>
+    public static void AmmoOut() => Add(Kind.AmmoOut, "0", Ship.Team.Ally);
+
+    /// <summary>급여가 들어왔다. <c>what</c>은 금액.</summary>
+    public static void Paid(int credits) => Add(Kind.Paid, credits.ToString(), Ship.Team.Ally);
+
+    /// <summary>보급 자리에서 실었다. <c>what</c>은 제일 많이 받은 것(MUN/PROP/CR).</summary>
+    public static void Supplied(string what) => Add(Kind.Supplied, what, Ship.Team.Ally);
 
     private static string NameOf(Ship ship)
         => string.IsNullOrEmpty(ship.shipDefName) ? ship.name : ship.shipDefName;

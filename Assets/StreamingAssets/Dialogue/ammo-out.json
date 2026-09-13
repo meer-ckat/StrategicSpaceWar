@@ -1,0 +1,19 @@
+{
+  "defName": "ammo-out",
+  "pickOne": true,
+  "cooldown": 20,
+  "lines": [
+    {
+      "message": "<color=#E65345>급탄 없음.</color> 포탑은 돌지만 나갈 게 없습니다.",
+      "author": "포술",
+      "duration": 4,
+      "intensity": 1.4
+    },
+    {
+      "message": "<color=#E65345>탄약 0.</color> 지금부터는 배로 때리거나 도망치거나입니다.",
+      "author": "포술",
+      "duration": 4,
+      "intensity": 1.4
+    }
+  ]
+}

@@ -249,6 +249,7 @@ public sealed class ContactView : MonoBehaviour
             _dwell.Clear();
             _occluded.Clear();
             _ghosts.Clear();
+            _announced.Clear();
             _selected = null;
 
             // 원장 복원. 새 노드면 비어 있고, 재개면 알아낸 좌표가 돌아온다.
@@ -324,6 +325,18 @@ public sealed class ContactView : MonoBehaviour
             {
                 _reveal[s.at] = now;
                 RunState.RememberReveal(s.at, (int)now);
+
+                // 아는 것이 늘어난 순간을 말한다. RunLog가 아니라 직접 부르는 이유: 이건 시뮬 사건이
+                // 아니라 **인지** 사건이고, 인지는 UI 소관이다. 대본의 cooldown이 도배를 막는다.
+                if (!s.dead && ScriptManager.current != null)
+                {
+                    string label = LabelFor(campaign, sector, s.at, now, out _);
+
+                    if (was < Reveal.Identified && now >= Reveal.Identified)
+                        ScriptManager.current.PlayIfExists(s.gate >= 0 ? "exit-identified" : "contact-identified", label);
+                    else if (was < Reveal.Resolved && now >= Reveal.Resolved)
+                        ScriptManager.current.PlayIfExists("contact-resolved", label);
+                }
             }
 
             if (s.dead)
@@ -341,6 +354,10 @@ public sealed class ContactView : MonoBehaviour
         _near.Sort((a, b) => (b.size / Mathf.Max(b.d, 1f)).CompareTo(a.size / Mathf.Max(a.d, 1f)));
         Occlude(eye);
 
+        // 도착 첫 프레임은 조용히 채운다 - 그때는 field-entered가 말하는 중이고, 여덟 신호가
+        // 한꺼번에 "새 접촉"이면 대사가 아니라 소음이다. 그 뒤에 새로 오르는 것만 말한다.
+        bool firstFill = _announced.Count == 0;
+
         for (int i = 0; i < _near.Count && _rows.Count < TrackerRows; i++)
         {
             (float d, Vector2 at, float size) = _near[i];
@@ -354,7 +371,13 @@ public sealed class ContactView : MonoBehaviour
             string label = LabelFor(campaign, sector, at, state, out string kind);
 
             if (!occluded)
+            {
                 _rows.Add((at, label));
+
+                // 트래커에 처음 오른 신호. 도착 첫 프레임엔 여덟이 한꺼번에 들어오는데 cooldown이 하나만 남긴다.
+                if (_announced.Add(at) && !firstFill && ScriptManager.current != null)
+                    ScriptManager.current.PlayIfExists("contact-new", label);
+            }
 
             Known.Add(new Contact(at, label, kind, state, Mathf.Clamp01(size / Mathf.Max(d, 1f)), d, size, occluded));
         }
@@ -644,6 +667,9 @@ public sealed class ContactView : MonoBehaviour
     private static readonly ContactFilter2D _noFilter = new ContactFilter2D().NoFilter();
     private static float _occludedAt = -1f;
     private static readonly List<(Vector2 at, string label)> _rows = new();
+
+    /// <summary>"새 접촉"을 이미 말한 자리. 구역이 바뀌면 트래커 리셋이 같이 비운다.</summary>
+    private static readonly HashSet<Vector2> _announced = new();
     private static readonly List<(float d, Vector2 at, float size)> _near = new();
 
     /// <summary>정비 잔해 옆. 한 줄이면 된다 - 키 하나를 알리는 것이 전부다.</summary>

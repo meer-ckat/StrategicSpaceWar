@@ -1575,6 +1575,9 @@ public sealed class Campaign : TickBehaviour
             RunState.Credits += earned.credits;
             RunState.Research += earned.research;
 
+            if (earned.credits > 0)
+                RunLog.Paid(earned.credits);
+
             Debug.Log(
                 $"[Campaign] 급여 CR +{earned.credits} RSCH +{earned.research} " +
                 $"(누적 CR {RunState.Credits} RSCH {RunState.Research}).");
@@ -1841,6 +1844,9 @@ public sealed class Campaign : TickBehaviour
 
         DialogueManager.current.Spawn(
             got.ToString().TrimEnd() + left, "보급", duration: 5f, style: "system");
+
+        // 시스템 줄은 숫자고, 승무원 줄은 "그래서 뭐가 달라졌나"다. 둘 다 있어야 읽힌다.
+        RunLog.Supplied(mun >= prop / 1000 && mun >= cr ? "MUN" : prop / 1000 >= cr ? "PROP" : "CR");
     }
 
     /// <summary>신호 소멸 검사 주기(틱). 자리 수십 개 x Ship.All이라 매 틱 돌 이유가 없다 - 자리가 죽는 것은 초 단위 사건이다.</summary>

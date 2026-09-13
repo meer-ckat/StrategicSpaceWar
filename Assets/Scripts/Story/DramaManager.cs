@@ -259,6 +259,10 @@ public class DramaManager : MonoBehaviour
             RunLog.Kind.CrewLost => "crew-lost",
             RunLog.Kind.SectorEntered => "sector-entered",
             RunLog.Kind.SectorCleared => "sector-cleared",
+            RunLog.Kind.AmmoLow => "ammo-low",
+            RunLog.Kind.AmmoOut => "ammo-out",
+            RunLog.Kind.Paid => "paid",
+            RunLog.Kind.Supplied => "supplied",
             _ => null,
         };
 

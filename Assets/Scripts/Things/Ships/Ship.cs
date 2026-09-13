@@ -105,6 +105,11 @@ public partial class Ship : Thing
     // 설계에 탄약고가 있었는가. 없던 배(dart·asteroid)는 탄약을 안 센다 - _needsPower와 같은 질문이다.
     private bool _hasMagazine;
 
+    /// <summary>탄약 경고 걸쇠. 0 = 안 했다, 1 = 25% 알렸다, 2 = 0 알렸다. Rearm이 되돌린다.</summary>
+    private int _ammoWarned;
+
+    private const float AmmoLowFraction = 0.25f;
+
     /// <summary>한 발 꺼낸다. 탄약고가 설계에 없으면 언제나 true, 있는데 전부 비었거나 떠났으면 false.</summary>
     public bool TakeRound()
     {
@@ -116,7 +121,27 @@ public partial class Ship : Thing
             CriticalModule m = shipCriticals[i];
 
             if (m != null && StillAboard(m, this) && m.TakeRound())
+            {
+                // 전이만 적는다 - 상태를 매 발 적으면 25% 아래에서 쏘는 모든 발이 경고다.
+                // 여기가 아니라 Gun에서 하면 포탑 수만큼 걸쇠가 생긴다.
+                if (IsPlayerControlled)
+                {
+                    int left = Rounds, max = MaxRounds;
+
+                    if (_ammoWarned < 2 && left <= 0)
+                    {
+                        _ammoWarned = 2;
+                        RunLog.AmmoOut();
+                    }
+                    else if (_ammoWarned < 1 && max > 0 && left <= max * AmmoLowFraction)
+                    {
+                        _ammoWarned = 1;
+                        RunLog.AmmoLow(left);
+                    }
+                }
+
                 return true;
+            }
         }
 
         return false;
@@ -150,6 +175,7 @@ public partial class Ship : Thing
     public int Rearm(int offer)
     {
         int loaded = 0;
+        _ammoWarned = 0;   // 채웠으면 다음에 또 알린다
 
         for (int i = 0; i < shipCriticals.Count && loaded < offer; i++)
         {

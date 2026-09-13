@@ -1,0 +1,25 @@
+{
+  "defName": "paid",
+  "pickOne": true,
+  "cooldown": 15,
+  "lines": [
+    {
+      "message": "관제에서 정산 들어왔습니다. <color=#FFC85A>{0} CR.</color>",
+      "author": "통신",
+      "duration": 3.5,
+      "intensity": 0.8
+    },
+    {
+      "message": "<color=#FFC85A>{0} CR</color> 입금. 베이스에서 판 값은 됩니다.",
+      "author": "기관",
+      "duration": 3.5,
+      "intensity": 0.8
+    },
+    {
+      "message": "급여 {0} CR. 이걸로 뭘 고칠지는 함장님 몫입니다.",
+      "author": "기관",
+      "duration": 3.5,
+      "intensity": 0.8
+    }
+  ]
+}

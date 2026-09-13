@@ -1,0 +1,19 @@
+{
+  "defName": "contact-resolved",
+  "pickOne": true,
+  "cooldown": 15,
+  "lines": [
+    {
+      "message": "<color=#65C8D0>{0}</color> 좌표 확보. 거리 나옵니다.",
+      "author": "전술",
+      "duration": 3.5,
+      "intensity": 0.9
+    },
+    {
+      "message": "{0}, 자리 잡혔습니다. 지도에 찍습니다.",
+      "author": "전술",
+      "duration": 3,
+      "intensity": 0.9
+    }
+  ]
+}
