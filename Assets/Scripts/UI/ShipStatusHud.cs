@@ -307,7 +307,195 @@ public sealed class ShipStatusHud : MonoBehaviour
     private const float XrayFlightSeconds = 1f;    // 지금 사건의 탄이 날아오는 시간
 
     private static readonly Dictionary<int, List<DeathXray.Trail>> _xrayChains = new();
+
+    /// <summary>탄 하나의 궤적을 이어 붙인 점들. 부른 자리에서 바로 쓰고 버린다 - 자세한 이유는 BuildXrayPath.</summary>
+    private static readonly List<Vector2> _xrayPath = new();
+
+    /// <summary>탄종별 판정 집계. 매 프레임 다시 세므로 재사용한다 - 판정은 64발 상한이다.</summary>
+    private static readonly List<(string shell, int pen, int ric, int stop, float mm)> _xrayLesson = new();
+
+    /// <summary>이번 화면에 실제로 나온 것만. 화면 맨 아래 한 줄로 편다.</summary>
+    private static readonly List<(Color colour, string text)> _xrayLegend = new();
+
+    /// <summary>분석창에 띄울 탄. 마우스를 올리면 그것, 클릭하면 고정. 빈 값이면 창 자체가 없다.</summary>
+    private static string _xrayHoverShell, _xrayPinnedShell;
     private static readonly HashSet<int> _xrayHitIds = new();
+
+    /// <summary>
+    /// 이 포를 어떻게 상대하는가. 맞아 본 탄의 관통력과 우리 면별 방호력을 견준다.
+    ///
+    /// 경사장갑의 유효 RHA는 `rha / cos(법선각)`이므로, 세워야 하는 각은 그 식을 뒤집은
+    /// `acos(rha / pen)` 하나다. 60도가 상한인 이유는 그 너머가 실전에서 유지 안 되는 자세이고,
+    /// `Ballistics.BaseCritAngle`(70도)에 닿기 전에 도탄이 먼저 먹기 때문이다.
+    /// 조언 세 줄은 그 각도에서 **파생된다** - 분기마다 다른 규칙을 적지 않는다.
+    /// </summary>
+    private static void DrawXrayThreats(Rect gridArea, Matrix4x4 saved, float uiScale)
+    {
+        // **고른 탄만 띄운다.** 늘 떠 있으면 사건 현장을 가린다 - 이 창은 분석이지 상황이 아니다.
+        string want = _xrayPinnedShell ?? _xrayHoverShell;
+
+        if (want == null || DeathXray.ArmorBow <= 0f)
+            return;
+
+        int at = _xrayLesson.FindIndex(e => e.shell == want);
+
+        if (at < 0 || _xrayLesson[at].mm <= 0f)
+            return;
+
+        (string shell, int _p, int _r, int _s, float mm) shot = _xrayLesson[at];
+
+        // 함선 **옆**. 탄 궤적이 그 위를 지나므로 불투명 패널을 깔고 제일 마지막에 그린다 -
+        // X-ray는 선이 화면을 가로지르는 그림이라, 배경 없는 글자는 반드시 한 번 묻힌다.
+        float pad = RowHeight * 0.5f;
+        float diagram = RowHeight * 3.4f;
+        var panel = new Rect(gridArea.x, gridArea.y, gridArea.width * 0.42f,
+                             RowHeight * 5.4f + diagram + pad * 2f);
+
+        GUI.color = Palette.Bulkhead;
+        GUI.DrawTexture(panel, Texture2D.whiteTexture);
+        GUI.color = Palette.DeepSpace.WithAlpha(0.97f);
+        GUI.DrawTexture(new Rect(panel.x + 1f, panel.y + 1f, panel.width - 2f, panel.height - 2f), Texture2D.whiteTexture);
+
+        float x = panel.x + pad;
+        float inner = panel.width - pad * 2f;
+        float nameW = inner * 0.28f;
+        float colW = inner * 0.24f;
+        float y = panel.y + pad;
+
+        Rect Col(int f) => new(x + nameW + colW * f, y, colW, RowHeight);
+
+        GUI.color = Palette.Hull;
+        GUI.Label(new Rect(x, y, inner, RowHeight), $"{shot.shell}을 어떻게 상대하나", _titleStyle);
+        y += RowHeight;
+
+        GUI.color = Palette.Breach;
+        GUI.Label(new Rect(x, y, inner, RowHeight), $"관통력 {shot.mm:0} mm", _leftStyle);
+        y += RowHeight * 1.2f;
+
+        GUI.color = DimColor;
+        string[] names = { "전면", "측면", "후면" };
+
+        for (int f = 0; f < 3; f++)
+            GUI.Label(Col(f), names[f], _leftStyle);
+
+        y += RowHeight;
+
+        float[] facings = { DeathXray.ArmorBow, DeathXray.ArmorSide, DeathXray.ArmorStern };
+
+        GUI.color = Palette.Steel;
+        GUI.Label(new Rect(x, y, nameW, RowHeight), "장갑 mm", _leftStyle);
+
+        for (int f = 0; f < 3; f++)
+            GUI.Label(Col(f), $"{facings[f]:0}", _leftStyle);
+
+        y += RowHeight;
+
+        GUI.color = Palette.Steel;
+        GUI.Label(new Rect(x, y, nameW, RowHeight), "필요한 각", _leftStyle);
+
+        int worstBand = -1;
+        float showAngle = 0f;
+
+        for (int f = 0; f < 3; f++)
+        {
+            int band = ThreatBand(shot.mm, facings[f], out string verdict);
+
+            if (band > worstBand)
+                worstBand = band;
+
+            if (band is 1 or 2)
+                showAngle = Mathf.Acos(Mathf.Clamp01(facings[f] / shot.mm)) * Mathf.Rad2Deg;
+
+            GUI.color = BandColor(band);
+            GUI.Label(Col(f), verdict, _leftStyle);
+        }
+
+        y += RowHeight * 1.1f;
+
+        DrawAngleDiagram(new Rect(x, y, inner, diagram), showAngle, BandColor(worstBand), saved, uiScale);
+
+        GUI.color = BandColor(worstBand);
+        GUI.Label(new Rect(x, panel.yMax - pad - RowHeight, inner, RowHeight), worstBand switch
+        {
+            3 => $"{shot.shell}은 피하는 게 낫습니다.",
+            2 => "각도를 줘서 도탄되게 하세요.",
+            1 => "절대 수직을 내주지 마세요.",
+            _ => "정면으로도 막힙니다.",
+        }, _leftStyle);
+
+        GUI.color = Color.white;
+    }
+
+    /// <summary>
+    /// 각도가 무엇에서 재는 각인지 한 번만 그린다. 판을 세우고, 탄이 옆에서 들어오고, 판의
+    /// 법선과 탄이 이루는 각이 그 숫자다 - "함선이 몇 도로 보인다"가 아니라 **입사각**이다.
+    /// 숫자만 있으면 처음 보는 사람은 반드시 둘을 헷갈린다.
+    /// </summary>
+    private static void DrawAngleDiagram(Rect box, float angleDeg, Color tint, Matrix4x4 saved, float uiScale)
+    {
+        void Seg(Vector2 a, Vector2 b, Color c, float lw)
+        {
+            Matrix4x4 inside = GUI.matrix;
+            GUI.matrix = saved;
+            DrawLine(a * uiScale, b * uiScale, c, lw * uiScale);
+            GUI.matrix = inside;
+        }
+
+        var hit = new Vector2(box.center.x + box.width * 0.12f, box.center.y);
+        float half = box.height * 0.42f;
+        float rad = angleDeg * Mathf.Deg2Rad;
+
+        // 판. 각이 0이면 수직(= 탄을 정면으로 받는다), 커질수록 눕는다.
+        var along = new Vector2(Mathf.Sin(rad), Mathf.Cos(rad));
+        Seg(hit - along * half, hit + along * half, Palette.Hull, 3f);
+
+        // 법선. 판에 수직인 선 - 각을 재는 기준이다.
+        var normal = new Vector2(-Mathf.Cos(rad), Mathf.Sin(rad));
+        Seg(hit, hit + normal * half * 0.9f, Palette.Steel.WithAlpha(0.7f), 1f);
+
+        // 탄. 언제나 수평으로 들어온다 - 배를 돌리는 것이 판을 돌리는 것이라는 뜻이다.
+        Seg(new Vector2(box.x + 4f, hit.y), hit, tint, 2f);
+
+        GUI.color = tint;
+        GUI.Label(new Rect(hit.x - box.width * 0.42f, hit.y - RowHeight, box.width * 0.4f, RowHeight),
+                  angleDeg > 0.5f ? $"{angleDeg:0}°" : "", _rightStyle);
+        GUI.color = DimColor;
+        GUI.Label(new Rect(box.x, box.yMax - RowHeight, box.width, RowHeight), "탄 · 법선 · 판", _leftStyle);
+        GUI.color = Color.white;
+    }
+
+    private static Color BandColor(int band) => band switch
+    {
+        3 => Palette.Breach,
+        2 => Palette.Heat,
+        1 => Palette.Radiance,
+        _ => Palette.Signal,
+    };
+
+    /// <summary>
+    /// 0 = 수직으로도 막는다, 1 = 조금만 세우면 막는다(30도 미만), 2 = 각도가 필요하다(60도까지),
+    /// 3 = 60도로도 못 막는다. 경계는 전부 acos(rha / pen) 하나에서 나온다.
+    /// </summary>
+    private static int ThreatBand(float pen, float rha, out string verdict)
+    {
+        if (rha <= 0f || pen <= rha)
+        {
+            verdict = "막는다";
+            return 0;
+        }
+
+        float need = Mathf.Acos(Mathf.Clamp01(rha / pen)) * Mathf.Rad2Deg;
+
+        if (need >= 60f)
+        {
+            verdict = "뚫린다";
+            return 3;
+        }
+
+        // 이 각도 이상으로 세워야 막는다. 숫자 자체가 조언이라 꾸밀 말이 필요 없다.
+        verdict = $"{need:0}°";
+        return need >= 30f ? 2 : 1;
+    }
 
     /// <summary>Liang-Barsky. 선분을 사각형 안으로 자른다. 하나도 안 남으면 false.</summary>
     private static bool ClipToRect(ref Vector2 a, ref Vector2 b, Rect r)
@@ -336,6 +524,10 @@ public sealed class ShipStatusHud : MonoBehaviour
         return true;
     }
     private const float XrayFlashSeconds = 0.25f;  // 사건이 켜지는 순간 흰빛
+    private const float XrayPastTrailAlpha = 0.28f; // 지난 사건의 선. 지금 사건만 100%다
+    private const float XraySpallSeconds = 0.22f;  // 관통 프레임에서 파편이 다 퍼지기까지
+    private const float XrayBlastSeconds = 0.35f;  // 충격파 원이 다 퍼지기까지. 파편보다 느리게 - 뒤에 남는 것이 폭발이다
+    private const int XrayBlastSegments = 28;      // 원 한 바퀴의 선분 수
     private const float XrayGaugeThickness = 4f;   // LogisticsScreen.GaugeThickness와 같다
     private static float _xrayReplayFrom;          // R로 되감은 시각(DownSeconds). 0이면 처음 그대로
 
@@ -463,13 +655,56 @@ public sealed class ShipStatusHud : MonoBehaviour
             GUI.matrix = inside;
         }
 
-        Color TrailColor(SpallTrails.Kind k, out float lw)
+        // 파편도 맞은 자리가 있다. 선만 그리면 어디서 멈췄는지가 굵기 1px 끝점에 숨는다 -
+        // 탄의 판정 점과 같은 자리를 파편에도 준다. 새 자료가 필요 없다: 선의 끝(tr.b)이 곧
+        // SpallResolver가 판을 때린 hit.point다.
+        void Dot(Vector2 p, Color c, float d)
         {
+            if (!gridArea.Contains(p))
+                return;
+
+            GUI.color = c;
+            GUI.DrawTexture(new Rect(p.x - d * 0.5f, p.y - d * 0.5f, d, d), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+        }
+
+        float spallDot = Mathf.Max(3f, cell * 0.35f);
+
+        // 충격파. 반경은 세기에서 나온다(Ballistics.BlastRadiusFor) - 작약 90은 한 칸,
+        // 탄약고 3,200은 다섯 칸. 시뮬이 실제로 때리는 원과 같은 식이라 그림이 판정을 안 속인다.
+
+        void Ring(Vector2 centre, float radius, Color c, float lw)
+        {
+            Vector2 prev = ToScreen(centre + new Vector2(radius, 0f));
+
+            for (int i = 1; i <= XrayBlastSegments; i++)
+            {
+                float a = i * 2f * Mathf.PI / XrayBlastSegments;
+                Vector2 next = ToScreen(centre + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * radius);
+                Line(prev, next, c, lw);
+                prev = next;
+            }
+        }
+
+        // 범례는 화면에 실제로 나온 것만 설명한다. 아홉 줄을 늘 띄우면 처음 보는 사람이
+        // 범례를 읽다가 사건을 놓친다.
+        bool sawShell = false, sawArmor = false, sawModule = false, sawOld = false, sawFrag = false, sawBlast = false;
+        bool sawPen = false, sawRic = false, sawStop = false, sawRam = false;
+
+        foreach (DeathXray.Lost l in DeathXray.LostPlates)
+            if (when.TryGetValue(l.cell, out int wg) && wg < 0) { sawOld = true; break; }
+
+        Color TrailColor(SpallTrails.Kind k, bool frag, out float lw)
+        {
+            // 파편이 된 탄은 가늘고 차갑게. 주포 한 발과 같은 굵기로 그리면 유폭 한 번에
+            // 굵은 선 수십 개가 깔려서 원인이 된 그 한 발이 묻힌다.
+            if (frag) { lw = 1f; sawFrag = true; return Palette.Steel; }
+
             switch (k)
             {
-                case SpallTrails.Kind.Shell: lw = 2f; return Palette.Hull;
-                case SpallTrails.Kind.Module: lw = 1f; return Palette.Radiance;
-                case SpallTrails.Kind.Armor: lw = 1f; return Palette.Breach.WithAlpha(0.8f);
+                case SpallTrails.Kind.Shell: lw = 2f; sawShell = true; return Palette.Hull;
+                case SpallTrails.Kind.Module: lw = 1f; sawModule = true; return Palette.Radiance;
+                case SpallTrails.Kind.Armor: lw = 1f; sawArmor = true; return Palette.Breach.WithAlpha(0.8f);
                 default: lw = 1f; return Palette.Steel.WithAlpha(0.5f);
             }
         }
@@ -479,41 +714,34 @@ public sealed class ShipStatusHud : MonoBehaviour
         foreach (DeathXray.Hit hit in DeathXray.Hits)
             if (!hit.ram) _xrayHitIds.Add(hit.id);
 
-        // 1) 지난 사건: 전부 정지 선.
+        // 1) 지난 사건의 파편. **탄은 여기서 안 그린다** - 구간을 이어 붙여야 하므로(아래 체인)
+        // 한 자리에서만 그린다. 두 자리로 두면 사건이 "지금"에서 "지난"으로 넘어가는 순간
+        // 이어 붙인 선이 날것 구간으로 바뀌어 궤적이 통째로 순간이동한다.
         DeathXray.ForEachTrail(tr =>
         {
-            if (tr.tick < earliest || tr.tick > pastTo)
+            if (tr.kind == SpallTrails.Kind.Shell || tr.tick < earliest || tr.tick > pastTo)
                 return;
 
-            if (tr.kind == SpallTrails.Kind.Shell && !_xrayHitIds.Contains(tr.id))
-                return;
+            // 지난 사건의 선은 흐리게. 굵은 흰 탄 궤적이 전부 100%면 제일 먼저 보이는 것이
+            // "함선이 뚫렸다"가 아니라 백색 레이저빔 다발이 된다.
+            Color lc = TrailColor(tr.kind, tr.frag, out float lw);
+            Color dim = lc.WithAlpha(lc.a * XrayPastTrailAlpha);
+            Line(ToScreen(tr.a), ToScreen(tr.b), dim, lw);
 
-            Color lc = TrailColor(tr.kind, out float lw);
-            Line(ToScreen(tr.a), ToScreen(tr.b), lc, lw);
+            if (tr.kind == SpallTrails.Kind.Armor || tr.kind == SpallTrails.Kind.Module)
+                Dot(ToScreen(tr.b), dim, spallDot);
         });
 
-        // 2) 지금 사건의 탄: id별로 구간을 모아 길이를 재고, flight만큼만 그린다.
+        // 2) 탄: 지난 것까지 전부 id별로 모은다. 지금 사건의 것만 flight만큼 그리고 나머지는 흐리게.
         _xrayChains.Clear();
 
         DeathXray.ForEachTrail(tr =>
         {
-            if (tr.tick < nowFrom || tr.tick > nowTo || tr.tick <= pastTo)
+            if (tr.kind != SpallTrails.Kind.Shell || tr.tick < earliest || tr.tick > nowTo)
                 return;
 
-            if (tr.kind == SpallTrails.Kind.Shell && !_xrayHitIds.Contains(tr.id))
+            if (!_xrayHitIds.Contains(tr.id))
                 return;
-
-            if (tr.kind != SpallTrails.Kind.Shell)
-            {
-                // 파편은 탄이 닿은 뒤에만. 닿기 전에 퍼지면 순서가 거짓말이다.
-                if (landed)
-                {
-                    Color lc = TrailColor(tr.kind, out float lw);
-                    Line(ToScreen(tr.a), ToScreen(tr.b), lc, lw);
-                }
-
-                return;
-            }
 
             if (!_xrayChains.TryGetValue(tr.id, out List<DeathXray.Trail> chain))
                 _xrayChains[tr.id] = chain = new List<DeathXray.Trail>();
@@ -521,47 +749,143 @@ public sealed class ShipStatusHud : MonoBehaviour
             chain.Add(tr);   // ForEachTrail이 오래된 것부터 주므로 이미 틱 순이다
         });
 
-        foreach (List<DeathXray.Trail> chain in _xrayChains.Values)
+        // 틱마다 배가 움직이므로 구간마다 좌표계가 다르다. 특히 **관통한 그 틱에 탄이 배를
+        // 밀어서**(ImpactImpulse) 다음 구간부터 몇 m씩 밀린 자리에 찍힌다 - 증상이 "잘 날아가다
+        // 갑자기 순간이동해서 같은 방향으로 계속"이다. 방향과 길이는 맞고 원점만 어긋난 것이라,
+        // 마지막 구간(명중점이 있는 자리)을 붙잡고 거꾸로 이어 붙인다. 배에 탄 사람이 보는
+        // 상대 운동이 그것이고, X-ray가 답해야 하는 질문도 "어디서 왔나"지 우주 절대 좌표가 아니다.
+        List<Vector2> BuildXrayPath(List<DeathXray.Trail> chain)
         {
-            float total = 0f;
-            foreach (DeathXray.Trail tr in chain) total += (tr.b - tr.a).magnitude;
+            List<Vector2> path = _xrayPath;
+            path.Clear();
 
-            float budget = total * flight;
-            Vector2 head = ToScreen(chain[0].a);
+            for (int i = 0; i <= chain.Count; i++)
+                path.Add(Vector2.zero);
 
-            foreach (DeathXray.Trail tr in chain)
+            path[chain.Count] = chain[chain.Count - 1].b;
+
+            for (int i = chain.Count - 1; i >= 0; i--)
+                path[i] = path[i + 1] - (chain[i].b - chain[i].a);
+
+            return path;
+        }
+
+        // 판정이 궤적의 **어디**인가. 탄은 뚫고도 계속 날아가므로 명중점은 궤적의 끝이 아니다 -
+        // 비행 전체가 끝난 뒤(flight == 1)에 파편을 내면 관통과 파편 사이가 비어서 두 사건으로
+        // 읽힌다. 워썬더 X-ray가 한 프레임에 붙여 보여주는 것이 정확히 이 지점이다.
+        float ChainProgressAt(List<Vector2> path, Vector2 at)
+        {
+            float total = 0f, run = 0f, best = float.MaxValue, bestRun = 0f;
+
+            for (int i = 0; i + 1 < path.Count; i++)
             {
-                float len = (tr.b - tr.a).magnitude;
+                Vector2 d = path[i + 1] - path[i];
+                float len = d.magnitude;
+                float t = len > 1e-4f ? Mathf.Clamp01(Vector2.Dot(at - path[i], d) / (len * len)) : 0f;
+                float dist = (Vector2.LerpUnclamped(path[i], path[i + 1], t) - at).sqrMagnitude;
+
+                if (dist < best) { best = dist; bestRun = run + len * t; }
+
+                run += len;
+                total = run;
+            }
+
+            return total > 1e-4f ? bestRun / total : 1f;
+        }
+
+        // 지금 사건에서 제일 먼저 닿는 판정. 파편은 그 프레임부터 퍼진다.
+        float burst = 1f;
+
+        foreach (DeathXray.Hit hit in DeathXray.Hits)
+        {
+            if (hit.ram || hit.tick <= pastTo || hit.tick < nowFrom || hit.tick > nowTo)
+                continue;
+
+            if (_xrayChains.TryGetValue(hit.id, out List<DeathXray.Trail> c))
+                burst = Mathf.Min(burst, ChainProgressAt(BuildXrayPath(c), hit.at));
+        }
+
+        // 파편은 그 자리에서 **퍼져 나간다.** 다 그려 놓고 켜면 관통은 순간이고 파편은 이미
+        // 끝나 있는 그림이라, 인과가 시간으로 안 읽힌다.
+        float spall01 = Mathf.Clamp01((inStep - burst * XrayFlightSeconds) / XraySpallSeconds);
+
+        if (spall01 > 0f)
+            DeathXray.ForEachTrail(tr =>
+            {
+                if (tr.kind == SpallTrails.Kind.Shell || tr.tick < nowFrom || tr.tick > nowTo || tr.tick <= pastTo)
+                    return;
+
+                Color lc = TrailColor(tr.kind, false, out float lw);
+                Line(ToScreen(tr.a), ToScreen(Vector2.Lerp(tr.a, tr.b, spall01)), lc, lw);
+
+                if (spall01 >= 1f && (tr.kind == SpallTrails.Kind.Armor || tr.kind == SpallTrails.Kind.Module))
+                    Dot(ToScreen(tr.b), lc, spallDot);
+            });
+
+        foreach (KeyValuePair<int, List<DeathXray.Trail>> entry in _xrayChains)
+        {
+            List<DeathXray.Trail> chain = entry.Value;
+            List<Vector2> path = BuildXrayPath(chain);
+            Color shellColor = TrailColor(SpallTrails.Kind.Shell, chain[0].frag, out float shellWidth);
+
+            // 지금 사건의 탄인가. 마지막 구간이 이번 사건 창 안이면 날아오는 중이고,
+            // 그 앞의 것은 이미 도착한 선이다.
+            long last = chain[chain.Count - 1].tick;
+            bool nowShell = last > pastTo && last >= nowFrom && last <= nowTo;
+
+            if (!nowShell)
+                shellColor = shellColor.WithAlpha(shellColor.a * XrayPastTrailAlpha);
+
+            float total = 0f;
+
+            for (int i = 0; i + 1 < path.Count; i++) total += (path[i + 1] - path[i]).magnitude;
+
+            float budget = total * (nowShell ? flight : 1f);
+            Vector2 head = ToScreen(path[0]);
+
+            for (int i = 0; i + 1 < path.Count; i++)
+            {
+                float len = (path[i + 1] - path[i]).magnitude;
 
                 if (budget <= 0f)
                     break;
 
                 float f = Mathf.Clamp01(budget / Mathf.Max(1e-4f, len));
-                Vector2 b = Vector2.Lerp(tr.a, tr.b, f);
-                Line(ToScreen(tr.a), ToScreen(b), Palette.Hull, 2f);
+                Vector2 b = Vector2.Lerp(path[i], path[i + 1], f);
+                Line(ToScreen(path[i]), ToScreen(b), shellColor, shellWidth);
                 head = ToScreen(b);
                 budget -= len;
             }
 
-            // 머리. 닿기 전까지만 - 닿으면 판정 점이 그 자리를 대신한다.
-            if (!landed && gridArea.Contains(head))
+            // 머리. 궤적이 다 그려질 때까지 - 도중의 판정 점은 지나쳐 간다.
+            if (nowShell && !landed && gridArea.Contains(head))
             {
-                float d = Mathf.Max(6f, cell * 0.7f);
-                GUI.color = Color.white;
+                float d = chain[0].frag ? Mathf.Max(3f, cell * 0.35f) : Mathf.Max(6f, cell * 0.7f);
+                GUI.color = chain[0].frag ? Palette.Steel : Color.white;
                 GUI.DrawTexture(new Rect(head.x - d * 0.5f, head.y - d * 0.5f, d, d), Texture2D.whiteTexture);
             }
         }
 
-        // 3) 판정 점. 지난 사건은 그대로, 지금 사건은 닿은 뒤에 한 번 부풀며 찍힌다.
-        float pulse = 1f + 1.5f * Mathf.Clamp01(1f - (inStep - XrayFlightSeconds) / 0.3f);
-
+        // 3) 판정 점. 지난 사건은 그대로, 지금 사건은 **탄의 머리가 그 자리를 지나는 프레임에**
+        // 부풀며 찍힌다. 충각은 궤적이 없으므로 비행이 끝날 때.
         foreach (DeathXray.Hit hit in DeathXray.Hits)
         {
             bool past = hit.tick >= earliest && hit.tick <= pastTo;
             bool now = hit.tick > pastTo && hit.tick >= nowFrom && hit.tick <= nowTo;
 
-            if (!past && !(now && landed))
+            float at = !now ? 0f
+                     : hit.ram || !_xrayChains.TryGetValue(hit.id, out List<DeathXray.Trail> hitChain) ? 1f
+                     : ChainProgressAt(BuildXrayPath(hitChain), hit.at);
+
+            if (!past && !(now && flight >= at))
                 continue;
+
+            float pulse = 1f + 1.5f * Mathf.Clamp01(1f - (inStep - at * XrayFlightSeconds) / 0.3f);
+
+            if (hit.ram) sawRam = true;
+            else if (hit.outcome == HitOutcome.Penetrated) sawPen = true;
+            else if (hit.outcome == HitOutcome.Ricochet) sawRic = true;
+            else sawStop = true;
 
             Color hc = hit.ram ? Palette.Heat : hit.outcome switch
             {
@@ -575,12 +899,43 @@ public sealed class ShipStatusHud : MonoBehaviour
             if (!gridArea.Contains(p))
                 continue;
 
-            float d = (hit.ram ? Mathf.Max(7f, cell * 0.9f) : Mathf.Max(5f, cell * 0.6f)) * (now ? pulse : 1f);
+            // 실체 파편의 판정은 작게. 그 탄은 굵은 흰 궤적이 아니라 가는 회색 선으로 오므로,
+            // 점만 주포와 같은 크기면 "탄이 안 보이는 피탄"으로 읽힌다.
+            float d = (hit.ram ? Mathf.Max(7f, cell * 0.9f) : Mathf.Max(hit.frag ? 3f : 5f, cell * (hit.frag ? 0.35f : 0.6f))) * (now ? pulse : 1f);
             GUI.color = hc;
             GUI.DrawTexture(new Rect(p.x - d * 0.5f, p.y - d * 0.5f, d, d), Texture2D.whiteTexture);
         }
 
+        // 4) 폭발. 작약·유폭·충각 유폭이 전부 RamImpact.Detonate 한 문으로 가므로 종류를 안 가른다.
+        // 지금 사건의 것은 파편과 같은 순간(burst)에 시작해 퍼지고, 지난 사건의 것은 다 퍼진 원으로 남는다.
+        foreach (DeathXray.Blast blast in DeathXray.Blasts)
+        {
+            bool past = blast.tick >= earliest && blast.tick <= pastTo;
+            bool now = blast.tick > pastTo && blast.tick >= nowFrom && blast.tick <= nowTo;
+
+            if (!past && !now)
+                continue;
+
+            float grow = now ? Mathf.Clamp01((inStep - burst * XrayFlightSeconds) / XrayBlastSeconds) : 1f;
+
+            if (grow <= 0f)
+                continue;
+
+            sawBlast = true;
+
+            // 퍼질수록 옅어진다 - 지금 막 터진 것이 제일 밝다.
+            float radiusCells = Ballistics.BlastRadiusFor(blast.damage) / ShipGrid.CellSize;
+
+            if (radiusCells <= 0f)
+                continue;
+
+            Color bc = Palette.Radiance.WithAlpha((past ? XrayPastTrailAlpha : 1f) * Mathf.Lerp(1f, 0.35f, grow));
+            Ring(blast.at, radiusCells * grow, bc, blast.damage >= 1000f ? 2f : 1f);
+        }
+
         GUI.color = Color.white;
+
+        DrawXrayThreats(gridArea, saved, uiScale);
 
         // 오른쪽. 원인, 그 아래 사건 열 줄 - 켜진 것까지만 밝다.
         float y = textArea.y;
@@ -591,7 +946,7 @@ public sealed class ShipStatusHud : MonoBehaviour
         GUI.color = Color.white;
         y += 40f;
 
-        GUI.Label(new Rect(textArea.x, y, textArea.width, RowHeight), $"마지막 {groups.Count}개 사건", _titleStyle);
+        GUI.Label(new Rect(textArea.x, y, textArea.width, RowHeight), groups.Count == 1 ? "마지막 사건" : $"마지막 {groups.Count}개 사건", _titleStyle);
         y += RowHeight;
 
         float dt = Core.TickManager.TickDeltaTime;
@@ -606,34 +961,142 @@ public sealed class ShipStatusHud : MonoBehaviour
             string tag = string.IsNullOrEmpty(group.tag) ? "피탄" : group.tag;
 
             GUI.color = !lit ? Palette.Hull.WithAlpha(0.25f) : now ? current : Palette.Hull;
-            GUI.Label(new Rect(textArea.x, y, textArea.width * 0.7f, RowHeight), $"{tag}  판 {group.cells.Count}장", _leftStyle);
+            string line = string.IsNullOrEmpty(group.shell) ? $"{tag}  판 {group.cells.Count}장"
+                                                            : $"{group.shell} — 판 {group.cells.Count}장 {tag}";
+
+            GUI.Label(new Rect(textArea.x, y, textArea.width * 0.7f, RowHeight), line, _leftStyle);
             GUI.color = lit ? DimColor : Palette.Hull.WithAlpha(0.15f);
-            GUI.Label(new Rect(textArea.x + textArea.width * 0.7f, y, textArea.width * 0.3f, RowHeight), $"-{ago:0.0} s", _rightStyle);
+            // 죽기 0.04초 전은 죽는 순간이다. "-0.0 s"는 반올림이 만든 마이너스 0초다.
+            GUI.Label(new Rect(textArea.x + textArea.width * 0.7f, y, textArea.width * 0.3f, RowHeight),
+                      ago < 0.05f ? "격파" : $"-{ago:0.0} s", _rightStyle);
             y += RowHeight;
         }
 
         GUI.color = Color.white;
         y += RowHeight;
 
-        void Legend(Color c, string text)
+        // 학습. **결론을 안 쓴다** - 이 배가 이번 전투에서 받은 판정을 탄종별로 세어서 올린다.
+        // "155mm에는 뚫리고 20mm는 막는다"는 문장은 숫자가 이미 말하고, 지어낸 교훈 한 줄보다
+        // 다음 판에 쓸 수 있는 것이 그쪽이다. 워썬더 킬 카메라가 데미지 모델을 가르치는 방식이
+        // 설명이 아니라 그림인 것과 같은 이유다.
+        _xrayLesson.Clear();
+        int fragHits = 0, ramHits = 0;
+
+        foreach (DeathXray.Hit hit in DeathXray.Hits)
         {
-            GUI.color = c;
-            GUI.DrawTexture(new Rect(textArea.x, y + 5f, 12f, 12f), Texture2D.whiteTexture);
-            GUI.color = Palette.Hull;
-            GUI.Label(new Rect(textArea.x + 18f, y, textArea.width - 18f, RowHeight), text, _leftStyle);
+            if (hit.ram) { ramHits++; continue; }
+            if (hit.frag) { fragHits++; continue; }
+
+            string name = string.IsNullOrEmpty(hit.shell) ? "?" : hit.shell;
+            int at = _xrayLesson.FindIndex(e => e.shell == name);
+
+            if (at < 0)
+            {
+                _xrayLesson.Add((name, 0, 0, 0, 0f));
+                at = _xrayLesson.Count - 1;
+            }
+
+            (string shell, int pen, int ric, int stop, float mm) e2 = _xrayLesson[at];
+
+            if (hit.outcome == HitOutcome.Penetrated) e2.pen++;
+            else if (hit.outcome == HitOutcome.Ricochet) e2.ric++;
+            else e2.stop++;
+
+            // 같은 탄종이라도 속도가 달라 관통력이 다르다. 제일 셌던 한 발로 재는 것이
+            // 조언의 기준이다 - 평균으로 재면 "가끔 뚫리는 포"가 안전해 보인다.
+            e2.mm = Mathf.Max(e2.mm, hit.pen);
+            _xrayLesson[at] = e2;
+        }
+
+        if (_xrayLesson.Count > 0 || fragHits > 0)
+        {
+            _xrayLesson.Sort((a, b) => (b.pen + b.ric + b.stop).CompareTo(a.pen + a.ric + a.stop));
+
+            GUI.Label(new Rect(textArea.x, y, textArea.width, RowHeight), "받은 탄", _titleStyle);
+            GUI.color = DimColor;
+            GUI.Label(new Rect(textArea.x, y, textArea.width, RowHeight),
+                      _xrayPinnedShell != null ? "클릭 해제" : "마우스를 올리면 분석", _rightStyle);
+            GUI.color = Color.white;
+            y += RowHeight;
+
+            // 마우스는 화면 픽셀, 여기 Rect는 논리 좌표다(GUI.matrix에 UiScale이 걸려 있다).
+            Vector2 mouse = GUIManager.MousePos / uiScale;
+            _xrayHoverShell = null;
+
+            for (int i = 0; i < _xrayLesson.Count && i < 5; i++)
+            {
+                (string shell, int pen, int ric, int stop, float mm) e = _xrayLesson[i];
+                int total = e.pen + e.ric + e.stop;
+                var row = new Rect(textArea.x, y, textArea.width, RowHeight);
+                bool over = row.Contains(mouse);
+
+                if (over)
+                {
+                    _xrayHoverShell = e.shell;
+
+                    if (Event.current.type == EventType.MouseDown && Event.current.button == 0)
+                        _xrayPinnedShell = _xrayPinnedShell == e.shell ? null : e.shell;
+                }
+
+                if (over || _xrayPinnedShell == e.shell)
+                {
+                    GUI.color = Palette.Bulkhead.WithAlpha(0.7f);
+                    GUI.DrawTexture(row, Texture2D.whiteTexture);
+                }
+
+                GUI.color = e.pen > 0 ? Palette.Hull : DimColor;
+                GUI.Label(new Rect(textArea.x, y, textArea.width * 0.5f, RowHeight), e.shell, _leftStyle);
+
+                // 관통 / 전체. 도탄이 있었으면 그것만 따로 - 각도가 값을 한 증거다.
+                GUI.color = e.pen > 0 ? Palette.Breach : Palette.Steel;
+                GUI.Label(new Rect(textArea.x + textArea.width * 0.5f, y, textArea.width * 0.5f, RowHeight),
+                          e.ric > 0 ? $"관통 {e.pen}/{total}  도탄 {e.ric}" : $"관통 {e.pen}/{total}", _rightStyle);
+                y += RowHeight;
+            }
+
+            if (fragHits > 0 || ramHits > 0)
+            {
+                GUI.color = DimColor;
+                GUI.Label(new Rect(textArea.x, y, textArea.width, RowHeight),
+                          ramHits > 0 ? $"파편 {fragHits}발 · 충각 {ramHits}회" : $"파편 {fragHits}발", _leftStyle);
+                y += RowHeight;
+            }
+
+            GUI.color = Color.white;
             y += RowHeight;
         }
 
-        Legend(Palette.Breach, "지금 이 사건");
-        Legend(Palette.Heat, "지난 사건");
-        Legend(Palette.Steel, "그 전 상처");
-        Legend(Palette.Radiance, "시타델 (탄약고·원자로)");
-        y += 6f;
-        Legend(Palette.Hull, "탄  (굵은 선)");
-        Legend(Palette.Breach.WithAlpha(0.8f), "파편 → 판");
-        Legend(Palette.Radiance, "파편 → 모듈");
-        Legend(Palette.Breach, "관통 · 도탄 노랑 · 저지 회색");
-        Legend(Palette.Heat, "충각 (갈린 자리)");
+        // 범례는 화면 맨 아래 한 줄로 간다. 사건의 색(지금·지난·옛 상처)은 안 넣는다 -
+        // 오른쪽 사건 목록이 같은 색으로 같은 것을 이미 말하고 있어서, 두 번 적으면
+        // 처음 보는 사람이 범례부터 읽다가 재생을 놓친다.
+        _xrayLegend.Clear();
+        if (DeathXray.Citadel.Count > 0) _xrayLegend.Add((Palette.Radiance, "시타델"));
+        if (sawShell) _xrayLegend.Add((Palette.Hull, "탄"));
+        if (sawFrag) _xrayLegend.Add((Palette.Steel, "파편 탄"));
+        if (sawArmor) _xrayLegend.Add((Palette.Breach.WithAlpha(0.8f), "파편이 때린 판"));
+        if (sawModule) _xrayLegend.Add((Palette.Radiance, "파편이 때린 모듈"));
+        if (sawPen) _xrayLegend.Add((Palette.Breach, "관통"));
+        if (sawRic) _xrayLegend.Add((Palette.Radiance, "도탄"));
+        if (sawStop) _xrayLegend.Add((Palette.Steel, "막힘"));
+        if (sawBlast) _xrayLegend.Add((Palette.Radiance, "폭발"));
+        if (sawRam) _xrayLegend.Add((Palette.Heat, "충각"));
+
+        if (_xrayLegend.Count > 0)
+        {
+            float slot = w / _xrayLegend.Count;
+            float ly = h - RowHeight * 1.6f;
+
+            for (int i = 0; i < _xrayLegend.Count; i++)
+            {
+                (Color c, string text) item = _xrayLegend[i];
+                float lx = slot * i + RowHeight * 0.4f;
+
+                GUI.color = item.c;
+                GUI.DrawTexture(new Rect(lx, ly + 5f, 12f, 12f), Texture2D.whiteTexture);
+                GUI.color = Palette.Hull;
+                GUI.Label(new Rect(lx + 18f, ly, slot - 18f, RowHeight), item.text, _leftStyle);
+            }
+        }
 
         GUI.color = DimColor;
         GUI.Label(new Rect(textArea.x, textArea.yMax - RowHeight, textArea.width, RowHeight), "R  다시 보기      Space 길게  -  재시작", _leftStyle);

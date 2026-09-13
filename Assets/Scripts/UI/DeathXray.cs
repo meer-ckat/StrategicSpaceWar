@@ -21,6 +21,15 @@ public static class DeathXray
     }
 
     public static ShipGrid.Map Design { get; private set; }
+
+    /// <summary>
+    /// 면별 대표 방호력(mm RHA, 수직). 바깥 껍질의 **중앙값**이다 - 평균은 유리창 한 장이나
+    /// Lance Armor 한 장이 통째로 끌어내리거나 올린다. 설계 시점 값이라 전투 중에 안 바뀐다:
+    /// "이 배가 원래 얼마나 단단한가"를 묻는 값이고, 지금 얼마나 남았나는 X-ray 그림이 답한다.
+    /// </summary>
+    public static float ArmorBow { get; private set; }
+    public static float ArmorSide { get; private set; }
+    public static float ArmorStern { get; private set; }
     public static readonly List<Vector2Int> Citadel = new();
 
     /// <summary>
@@ -44,6 +53,7 @@ public static class DeathXray
         public long tick;
         public List<Vector2Int> cells;
         public string tag;   // 그 순간의 RunLog 사건. "유폭" "절단" "관통". 없으면 ""
+        public string shell; // 그 순간 맞은 탄의 이름. 없으면 null(유폭 연쇄처럼 탄이 없는 사건)
     }
 
     /// <summary>마지막 <see cref="MaxGroups"/>개. 0이 제일 오래된 것 - 재생 순서다.</summary>
@@ -68,6 +78,7 @@ public static class DeathXray
         public Vector2 a, b;          // 설계도 격자 좌표(연속). 칸 (c,r)의 중심이 (c,r)
         public SpallTrails.Kind kind;
         public int id;                // 탄이면 ProjectileId. 구간들을 이어 한 발의 궤적이 된다
+        public bool frag;             // 실체 파편(generation > 0)의 탄. 궤적은 같은 규칙, 굵기만 다르다
     }
 
     public struct Hit
@@ -77,15 +88,50 @@ public static class DeathXray
         public HitOutcome outcome;
         public bool ram;              // 탄이 아니라 충각. outcome은 무시
         public int id;                // 어느 탄의 판정인가
+        public string shell;          // 탄의 defName. "105mm". 사건 줄이 "무엇에" 맞았는지를 말한다
+        public bool frag;             // 실체 파편(generation > 0)의 판정. 주포 한 발과 같은 무게로 읽히면 안 된다
+        public float pen;             // 맞는 순간의 관통력(mm RHA). 우리 장갑과 견주는 유일한 값
     }
 
     /// <summary>링. 유폭은 파편이 수천이라 작으면 제일 큰 사건이 제일 안 남는다.</summary>
-    private const int TrailCapacity = 2048;
+    private const int TrailCapacity = 8192;
     private static readonly Trail[] _trails = new Trail[TrailCapacity];
     private static int _trailNext, _trailCount;
 
     public static readonly List<Hit> Hits = new();
     private const int HitCapacity = 64;
+
+    /// <summary>
+    /// 폭발 하나. 탄약고 유폭도 작약도 충각 유폭도 전부 <see cref="RamImpact.Detonate"/> 한
+    /// 문으로 가므로 여기 한 자리에서 받는다 - "무엇이 터졌나"는 안 적는다. 반경은
+    /// <see cref="Ballistics.BlastRadiusFor"/>가 세기에서 낸다 - 그릴 때 필요한 것은 자리와 세기뿐이다.
+    /// </summary>
+    public struct Blast
+    {
+        public long tick;
+        public Vector2 at;      // 격자 좌표
+        public float damage;
+    }
+
+    public static readonly List<Blast> Blasts = new();
+    private const int BlastCapacity = 64;
+
+    /// <summary>폭발 하나. RamImpact.Detonate가 부른다 - 폭심이 내 격자 근처일 때만 남는다.</summary>
+    public static void AddBlast(Vector2 world, float damage)
+    {
+        if (!Frame() || damage <= 0f)
+            return;
+
+        Vector2 g = ToGrid(world);
+
+        if (!NearGrid(g, 8f))
+            return;
+
+        if (Blasts.Count >= BlastCapacity)
+            Blasts.RemoveAt(0);
+
+        Blasts.Add(new Blast { tick = _frameTick, at = g, damage = damage });
+    }
 
     /// <summary>격자 밖 이만큼까지는 남긴다. 파편은 6칸이면 되지만 **탄은 멀리서부터** - 800 m/s면 틱당 13 m라
     /// 6칸 안에는 구간 하나가 채 안 들어와서 어디서 왔는지 안 읽혔다("이상한 위치에서 날아온다").</summary>
@@ -132,10 +178,11 @@ public static class DeathXray
         if (!Frame())
             return;
 
-        // 실체 파편(generation > 0)도 Projectile이라 틱마다 Shell 구간을 낸다. 배가 도는 동안 여러 틱에
-        // 걸쳐 적히니 배 좌표에서는 나선이 된다 - 탄이 아니라 파편 비행으로 분류한다(회색 가는 선).
-        if (kind == SpallTrails.Kind.Shell && generation > 0)
-            kind = SpallTrails.Kind.Vent;
+        // 실체 파편(generation > 0)도 Projectile이라 틱마다 Shell 구간을 낸다. 예전에는 이것을
+        // Vent(공기 새는 김)로 접었는데, 그 탄이 판을 맞히면 **판정 점은 찍히고 탄은 안 보이는**
+        // 그림이 됐다 - 회색 가는 선이 알파 0.5라 지난 사건에서는 사실상 사라진다. 파편도 탄이다:
+        // 같은 궤적 규칙으로 이어 그리고 굵기와 색만 낮춘다.
+        bool frag = kind == SpallTrails.Kind.Shell && generation > 0;
 
         // 거친 거름망은 월드 거리로. 행렬 곱 전에 대부분이 여기서 빠진다.
         float r = _shipRadius;
@@ -153,13 +200,13 @@ public static class DeathXray
         if (kind == SpallTrails.Kind.Shell ? !NearGrid(a, ShellMargin) && !NearGrid(b, ShellMargin) : !NearGrid(b, 1f))
             return;
 
-        _trails[_trailNext] = new Trail { tick = _frameTick, a = a, b = b, kind = kind, id = id };
+        _trails[_trailNext] = new Trail { tick = _frameTick, a = a, b = b, kind = kind, id = id, frag = frag };
         _trailNext = (_trailNext + 1) % TrailCapacity;
         if (_trailCount < TrailCapacity) _trailCount++;
     }
 
     /// <summary>명중 판정 하나. Projectile.Damage.Apply가 플레이어 배일 때 부른다.</summary>
-    public static void AddHit(Vector2 world, HitOutcome outcome, int id = 0)
+    public static void AddHit(Vector2 world, HitOutcome outcome, int id = 0, string shell = null, bool frag = false, float pen = 0f)
     {
         if (!Frame())
             return;
@@ -167,7 +214,7 @@ public static class DeathXray
         if (Hits.Count >= HitCapacity)
             Hits.RemoveAt(0);
 
-        Hits.Add(new Hit { tick = _frameTick, at = ToGrid(world), outcome = outcome, id = id });
+        Hits.Add(new Hit { tick = _frameTick, at = ToGrid(world), outcome = outcome, id = id, shell = shell, frag = frag, pen = pen });
     }
 
     /// <summary>충각으로 갈린 자리. 매 틱 접촉마다 오므로 같은 틱·같은 칸은 하나로 접는다.</summary>
@@ -213,6 +260,7 @@ public static class DeathXray
         Design = player.DesignMap;
         Citadel.Clear();
         BuildFootprints(player);
+        BuildFacingArmor(player);
 
         foreach (CriticalModule m in player.shipCriticals)
         {
@@ -221,6 +269,62 @@ public static class DeathXray
 
             Citadel.Add(Design.ToCell(player.transform.InverseTransformPoint(m.transform.position)));
         }
+    }
+
+    /// <summary>
+    /// 바깥 껍질을 면마다 모아 중앙값을 낸다. 기수가 +X(col 증가), 좌현이 +Y(row 감소)라
+    /// 전면 = 각 행의 최대 col, 후면 = 최소 col, 측면 = 각 열의 최소·최대 row다.
+    /// </summary>
+    private static void BuildFacingArmor(Ship player)
+    {
+        ArmorBow = ArmorSide = ArmorStern = 0f;
+
+        if (player.shipArmors == null || player.shipArmors.Count == 0 || Design == null)
+            return;
+
+        var bowOf = new Dictionary<int, (int col, float rha)>();
+        var sternOf = new Dictionary<int, (int col, float rha)>();
+        var portOf = new Dictionary<int, (int row, float rha)>();
+        var starboardOf = new Dictionary<int, (int row, float rha)>();
+
+        foreach (Armor plate in player.shipArmors)
+        {
+            if (plate == null)
+                continue;
+
+            Vector2Int c = Design.ToCell(plate.transform.localPosition);
+
+            if (!Design.Inside(c))
+                continue;
+
+            float rha = plate.RHA;
+
+            if (!bowOf.TryGetValue(c.y, out var b) || c.x > b.col) bowOf[c.y] = (c.x, rha);
+            if (!sternOf.TryGetValue(c.y, out var s) || c.x < s.col) sternOf[c.y] = (c.x, rha);
+            if (!portOf.TryGetValue(c.x, out var p) || c.y < p.row) portOf[c.x] = (c.y, rha);
+            if (!starboardOf.TryGetValue(c.x, out var t) || c.y > t.row) starboardOf[c.x] = (c.y, rha);
+        }
+
+        var scratch = new List<float>();
+
+        float Median(params Dictionary<int, (int, float)>[] sets)
+        {
+            scratch.Clear();
+
+            foreach (var set in sets)
+                foreach (var kv in set)
+                    scratch.Add(kv.Value.Item2);
+
+            if (scratch.Count == 0)
+                return 0f;
+
+            scratch.Sort();
+            return scratch[scratch.Count / 2];
+        }
+
+        ArmorBow = Median(bowOf);
+        ArmorStern = Median(sternOf);
+        ArmorSide = Median(portOf, starboardOf);
     }
 
     private static void BuildFootprints(Ship player)
@@ -335,7 +439,13 @@ public static class DeathXray
             bool det = false, split = false, pen = false, crew = false, role = false, ram = false;
 
             foreach (Hit hit in Hits)
-                if (hit.ram && hit.tick >= from && hit.tick <= to) { ram = true; break; }
+            {
+                if (hit.tick < from || hit.tick > to)
+                    continue;
+
+                if (hit.ram) ram = true;
+                else if (group.shell == null && !hit.frag) group.shell = hit.shell;
+            }
 
             for (int i = 0; i < log.Count; i++)
             {
@@ -373,6 +483,7 @@ public static class DeathXray
         ShipStatusHud.XrayRewindReset();
         Groups.Clear();
         Hits.Clear();
+        Blasts.Clear();
         _trailNext = _trailCount = 0;
         _frameTick = -1;
         _watched = null;
