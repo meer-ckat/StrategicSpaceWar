@@ -201,6 +201,9 @@ public sealed class ShipStatusHud : MonoBehaviour
         if (BeginSection(ship, 1)) DrawFlightPanel(ship);
         if (BeginSection(ship, 0)) DrawWeaponPanel(ship);
 
+        // 마지막이라 전부 위에 온다. 같은 OnGUI 안에서는 나중에 그린 것이 위다.
+        if (BeginSection(ship, 0)) DrawScuttleWarning(ship);
+
         _sectionDying = false;
         _sectionShake = Vector2.zero;
 
@@ -305,6 +308,7 @@ public sealed class ShipStatusHud : MonoBehaviour
     private const float XrayCellMax = 14f;
     private const float XrayStepSeconds = 1.6f;    // 사건 하나 = 비행 1초 + 읽는 0.6초. 열 개면 16초
     private const float XrayFlightSeconds = 1f;    // 지금 사건의 탄이 날아오는 시간
+    private const float XrayKillFadeSeconds = 0.9f; // 마지막 사건 뒤 배 전체가 붉어지는 시간
 
     private static readonly Dictionary<int, List<DeathXray.Trail>> _xrayChains = new();
 
@@ -583,7 +587,15 @@ public sealed class ShipStatusHud : MonoBehaviour
 
         Color current = Color.Lerp(Color.white, Palette.Breach, Mathf.Clamp01(inStep / XrayFlashSeconds));
 
-        Color CellColor(Vector2Int c)
+        // 마지막 사건까지 다 보여준 뒤의 한 박자. 사건이 5-4-3-2-1로 지나가고 0에서 배가
+        // 통째로 붉어진다 - 마지막 피격과 격파 사이가 비어 있으면 재생이 그냥 멎은 것으로 읽힌다.
+        float kill = groups.Count > 0
+            ? Mathf.Clamp01((t - groups.Count * XrayStepSeconds) / XrayKillFadeSeconds)
+            : 0f;
+
+        Color CellColor(Vector2Int c) => Color.Lerp(CellColorAt(c), Palette.Breach, kill);
+
+        Color CellColorAt(Vector2Int c)
         {
             bool citadel = DeathXray.Citadel.Contains(c);
 
@@ -1019,8 +1031,9 @@ public sealed class ShipStatusHud : MonoBehaviour
             GUI.color = Color.white;
             y += RowHeight;
 
-            // 마우스는 화면 픽셀, 여기 Rect는 논리 좌표다(GUI.matrix에 UiScale이 걸려 있다).
-            Vector2 mouse = GUIManager.MousePos / uiScale;
+            // GUIManager.MousePos가 이미 UiScale로 나눈 논리 좌표다. 여기서 또 나누면
+            // 1.31^2만큼 왼쪽 위로 어긋나 어느 줄에도 안 걸린다(증상: 마우스를 올려도 분석이 안 뜬다).
+            Vector2 mouse = GUIManager.MousePos;
             _xrayHoverShell = null;
 
             for (int i = 0; i < _xrayLesson.Count && i < 5; i++)
@@ -1142,6 +1155,72 @@ public sealed class ShipStatusHud : MonoBehaviour
 
         DrawRect(rect, PanelBg);
         DrawText(rect, line, Palette.Radiance, _objectiveStyle);
+    }
+
+
+    // ------------------------------------------------------------
+    // SCUTTLE
+    // ------------------------------------------------------------
+
+    private const float ScuttleWidth = 360f;
+    private const float ScuttleHeight = 56f;
+    private const float ScuttleTop = 0.30f;      // 논리 높이 비율
+    private const float ScuttleBarHeight = 4f;
+    private const float ScuttleBlinkPeriod = 0.32f;
+
+    /// <summary>
+    /// 자침 카운트다운. 대사는 누른 순간 한 번뿐이라 남은 시간을 말할 수 없다 - 되돌릴 수
+    /// 있는 3초를 되돌릴 수 있게 보이려면 매 프레임 줄어드는 값이 필요하다.
+    ///
+    /// 시계는 <see cref="Ship.ScuttleHeldSeconds"/> 하나다. 여기서 따로 세면 손 뗀 프레임과
+    /// 어긋나서 배는 안 터졌는데 계기만 0을 찍는다.
+    /// </summary>
+    private static void DrawScuttleWarning(Ship ship)
+    {
+        float held = ship.ScuttleHeldSeconds;
+
+        if (held <= 0f)
+            return;
+
+        float left = Mathf.Max(0f, Ship.Action_SelfDestructTime - held);
+
+        var box = new Rect(
+            (GUIManager.LogicalWidth - ScuttleWidth) * 0.5f,
+            GUIManager.LogicalHeight * ScuttleTop,
+            ScuttleWidth,
+            ScuttleHeight);
+
+        DrawRect(box, PanelBg);
+
+        // 테두리만 깜빡인다. 글자를 깜빡이면 남은 시간을 읽는 동안 사라진다.
+        bool lit = Mathf.Repeat(Time.unscaledTime, ScuttleBlinkPeriod) < ScuttleBlinkPeriod * 0.5f;
+
+        if (lit)
+        {
+            DrawRect(new Rect(box.x, box.y, box.width, 1f), CriticalColor);
+            DrawRect(new Rect(box.x, box.yMax - 1f, box.width, 1f), CriticalColor);
+            DrawRect(new Rect(box.x, box.y, 1f, box.height), CriticalColor);
+            DrawRect(new Rect(box.xMax - 1f, box.y, 1f, box.height), CriticalColor);
+        }
+
+        DrawText(
+            new Rect(box.x, box.y + 6f, box.width, 22f),
+            "자침 절차 진행 중",
+            CriticalColor,
+            _objectiveStyle);
+
+        DrawText(
+            new Rect(box.x, box.y + 26f, box.width, 20f),
+            $"T-{left:0.0}s   J를 놓으면 중단",
+            WarnColor,
+            _objectiveStyle);
+
+        // 차오르는 막대. 끝까지 차면 터진다 - 숫자와 같은 사실의 두 번째 표현이다.
+        float fill = Mathf.Clamp01(held / Ship.Action_SelfDestructTime);
+
+        DrawRect(
+            new Rect(box.x, box.yMax - ScuttleBarHeight, box.width * fill, ScuttleBarHeight),
+            CriticalColor);
     }
 
 
@@ -1617,8 +1696,12 @@ public sealed class ShipStatusHud : MonoBehaviour
             DrawText(new Rect(x, y, width * 0.5f, RowHeight), "SYS", DimColor, _leftStyle);
             DrawText(new Rect(x + width * 0.5f, y, width * 0.25f, RowHeight), "PWR",
                 ship.HasPower ? HudColor : CriticalColor, _rightStyle);
-            DrawText(new Rect(x + width * 0.75f, y, width * 0.25f, RowHeight), "CREW",
-                ship.CrewAlive ? HudColor : CriticalColor, _rightStyle);
+            // 승무원 모델이 없는 배(방 없음)는 숫자가 없다 - 죽을 수 없으니 라벨만.
+            int total = ship.crewmen.Count;
+            int alive = ship.AliveCrew;
+            DrawText(new Rect(x + width * 0.75f, y, width * 0.25f, RowHeight),
+                total == 0 ? "CREW" : $"CREW {alive}/{total}",
+                alive == total ? HudColor : alive > 0 ? WarnColor : CriticalColor, _rightStyle);
             y += RowHeight;
         }
     }
@@ -1900,6 +1983,7 @@ public sealed class ShipStatusHud : MonoBehaviour
         Gun.HoldReason.LineBlocked => "LINE BLOCKED",
         Gun.HoldReason.OutOfArc => "OUT OF ARC",
         Gun.HoldReason.NoGunner => "NO GUNNER",
+        Gun.HoldReason.NoPower => "NO POWER",
         Gun.HoldReason.NoAmmo => "NO AMMO",
 
         // Adrift/Destroyed는 BuildWeaponEntries가 이미 걸러서 여기 안 온다.
@@ -2121,7 +2205,7 @@ public sealed class ShipStatusHud : MonoBehaviour
                 continue;
 
             // 못 쏘는 포에는 조준선이 없다 - 부서졌거나 포수가 없다(전력·승무원). 선이 있으면 쏠 수 있다는 약속이다.
-            if (gun.Neutralized || gun.Hold == Gun.HoldReason.NoGunner)
+            if (gun.Neutralized || gun.Hold == Gun.HoldReason.NoGunner || gun.Hold == Gun.HoldReason.NoPower)
                 continue;
 
             Transform turret =

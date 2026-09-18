@@ -186,6 +186,20 @@ public sealed class ShipPainter : EditorWindow
     private bool _gridOnly;
 
     /// <summary>
+    /// 전력망 모드. 켜면 팔레트가 전기 기기와 전선뿐이고, 일반 모드에서는 전기가 안 놓인다 -
+    /// 두 층을 한 화면에 섞으면 판 밑의 전선이 안 보이고 클릭이 어느 층으로 가는지 안 갈린다.
+    /// </summary>
+    private bool _powerMode;
+    private bool _brushIsWire;
+
+    /// <summary>전선. 점은 격자 좌표(칸 번호 정수, y 아래). 저장은 칸 중심 기준(-0.5)이다.</summary>
+    private readonly List<List<Vector2>> _wires = new();
+    private readonly List<Vector2> _wireInProgress = new();
+
+    /// <summary>전선 점의 눈금. 서브셀 하나(1/6 m) - 런타임 노드 키와 같은 눈금이다.</summary>
+    private const float WireStep = 1f / 6f;
+
+    /// <summary>
     /// 실행취소. **판과 모듈 사전을 통째로 복사해 쌓는다.**
     ///
     /// EditorWindow의 평범한 필드는 Unity의 Undo가 못 본다(ScriptableObject가 아니다).
@@ -193,8 +207,14 @@ public sealed class ShipPainter : EditorWindow
     /// 통째로 찍어 두면 그 실수가 존재할 자리가 없다. 배 한 척이 판 수백 장이라
     /// 복사가 아깝지 않다: 사람이 키를 누르는 속도로만 일어난다.
     /// </summary>
-    private readonly List<(Dictionary<Vector2Int, Placed> plates, Dictionary<Vector2Int, Placed> modules)> _undo = new();
-    private readonly List<(Dictionary<Vector2Int, Placed> plates, Dictionary<Vector2Int, Placed> modules)> _redo = new();
+    private class Snapshot
+    {
+        public Dictionary<Vector2Int, Placed> plates, modules;
+        public List<List<Vector2>> wires;
+    }
+
+    private readonly List<Snapshot> _undo = new();
+    private readonly List<Snapshot> _redo = new();
 
     private const int MaxUndo = 64;
 
@@ -287,6 +307,8 @@ public sealed class ShipPainter : EditorWindow
                 Push();
                 _plates.Clear();
                 _modules.Clear();
+                _wires.Clear();
+                _wireInProgress.Clear();
                 _selected = null;
                 _status = "";
             }
@@ -303,6 +325,27 @@ public sealed class ShipPainter : EditorWindow
                 CancelEdit();
             }
 
+            bool wasPower = _powerMode;
+            _powerMode = GUILayout.Toggle(_powerMode, "전력망", EditorStyles.toolbarButton, GUILayout.Width(56f));
+
+            if (wasPower != _powerMode)
+            {
+                _wireInProgress.Clear();
+                _brushIsWire = _powerMode;
+
+                if (_powerMode)
+                {
+                    CancelShape();
+                    CancelEdit();
+                    _shapeMode = false;
+                }
+                else if (_brushIsModule && IsElectrical(_brush))
+                {
+                    _brush = _plateDefs.Count > 0 ? _plateDefs[0] : "";
+                    _brushIsModule = false;
+                }
+            }
+
             using (new EditorGUI.DisabledScope(!_mirror))
             {
                 GUILayout.Label("축", EditorStyles.miniLabel, GUILayout.Width(16f));
@@ -311,14 +354,16 @@ public sealed class ShipPainter : EditorWindow
 
             GUILayout.Space(12f);
             GUILayout.Label(
-                $"판 {_plates.Count}  모듈 {_modules.Count}"
+                $"판 {_plates.Count}  모듈 {_modules.Count}  전선 {_wires.Count}"
                 + (Mathf.Approximately(_brushRot, 0f) ? "" : $"   브러시 {_brushRot:0.#}도")
                 + (_shapeCell != null ? $"   모양 {_shapeCell.Value.x},{_shapeCell.Value.y} 점 {_shapePoints.Count}" : ""),
                 EditorStyles.miniLabel);
             GUILayout.FlexibleSpace();
             GUILayout.Label(
                 "좌클릭 칠하기 / Shift+클릭 사선 잇기 / Ctrl+클릭 시작점 / 우클릭 지우기 / Alt+클릭 스포이드 / 가운데 끌기 이동 / 휠 확대"
-                + (_shapeMode
+                + (_powerMode
+                    ? "   |   전선: 클릭=점 / 기기 클릭=끝 / Enter 끝 / Backspace 점 빼기 / Esc 버리기 / 우클릭 전선 지우기"
+                    : _shapeMode
                     ? "   |   모양: 판 클릭=편집(점 끌기/변 클릭 끼우기/Delete 빼기) / 빈칸 클릭=새 모양 / Ctrl 정밀(0.01, 자석끔) / Enter 닫기 / Backspace 취소 / Esc 버리기"
                     : "   |   방향키 offset / Shift+방향키 크기 / Alt+좌우([ ]) 회전 / Ctrl+Z 되돌리기"),
                 EditorStyles.miniLabel);
@@ -330,26 +375,55 @@ public sealed class ShipPainter : EditorWindow
         GUILayout.BeginArea(area);
         _paletteScroll = GUILayout.BeginScrollView(_paletteScroll);
 
-        GUILayout.Label("판", EditorStyles.boldLabel);
-
-        foreach (string def in _plateDefs)
+        if (_powerMode)
         {
-            if (GUILayout.Toggle(!_brushIsModule && _brush == def, def, EditorStyles.miniButton))
+            GUILayout.Label("전력망", EditorStyles.boldLabel);
+
+            if (GUILayout.Toggle(_brushIsWire, "전선", EditorStyles.miniButton))
             {
-                _brush = def;
+                _brushIsWire = true;
                 _brushIsModule = false;
             }
-        }
 
-        GUILayout.Space(8f);
-        GUILayout.Label("모듈", EditorStyles.boldLabel);
-
-        foreach (string def in _moduleDefs)
-        {
-            if (GUILayout.Toggle(_brushIsModule && _brush == def, def, EditorStyles.miniButton))
+            foreach (string def in _moduleDefs)
             {
-                _brush = def;
-                _brushIsModule = true;
+                if (!IsElectrical(def))
+                    continue;
+
+                if (GUILayout.Toggle(_brushIsModule && _brush == def, def, EditorStyles.miniButton))
+                {
+                    _brush = def;
+                    _brushIsModule = true;
+                    _brushIsWire = false;
+                }
+            }
+        }
+        else
+        {
+            GUILayout.Label("판", EditorStyles.boldLabel);
+
+            foreach (string def in _plateDefs)
+            {
+                if (GUILayout.Toggle(!_brushIsModule && _brush == def, def, EditorStyles.miniButton))
+                {
+                    _brush = def;
+                    _brushIsModule = false;
+                }
+            }
+
+            GUILayout.Space(8f);
+            GUILayout.Label("모듈", EditorStyles.boldLabel);
+
+            foreach (string def in _moduleDefs)
+            {
+                if (IsElectrical(def))
+                    continue;
+
+                if (GUILayout.Toggle(_brushIsModule && _brush == def, def, EditorStyles.miniButton))
+                {
+                    _brush = def;
+                    _brushIsModule = true;
+                }
             }
         }
 
@@ -505,7 +579,7 @@ public sealed class ShipPainter : EditorWindow
             // 그것들을 같이 그리면 "어느 칸이 막혔나"가 안 보인다. 여기서 답해야 하는
             // 질문은 하나뿐이다: 방이 생기려면 어느 칸에 판을 더 놓아야 하나.
             foreach (Vector2Int cell in _plates.Keys)
-                DrawCell(cell, PlateColour(_plates[cell].def), local);
+                DrawCell(cell, Muted(PlateColour(_plates[cell].def)), local);
         }
 
         // **채우기 뒤에 그린다.** 앞에 그리면 방 오버레이가 선을 덮어서 격자가 안 보인다.
@@ -526,10 +600,12 @@ public sealed class ShipPainter : EditorWindow
 
         // 실내는 판 위에 안 겹치므로 뒤에 그려도 된다. 판이 없는 칸만 칠한다.
         foreach (Vector2Int cell in Interior(exterior))
-            DrawCell(cell, new Color(0.16f, 0.34f, 0.5f, 0.55f), local);
+            DrawCell(cell, Muted(new Color(0.16f, 0.34f, 0.5f, 0.55f)), local);
 
         foreach (KeyValuePair<Vector2Int, Placed> pair in _modules)
             DrawModule(pair.Key, pair.Value, local);
+
+        DrawWires(local);
 
         // 모듈 브러시의 미리보기. 놓기 전에 크기·방향·벽 안 여부가 보인다.
         if (_brushIsModule && !string.IsNullOrEmpty(_brush) && local.Contains(Event.current.mousePosition))
@@ -584,6 +660,12 @@ public sealed class ShipPainter : EditorWindow
             : warn ? new Color(1f, 0.7f, 0.2f, 0.35f)
             : new Color(c.r, c.g, c.b, 0.32f);
         Color line = buried ? new Color(1f, 0.35f, 0.3f) : warn ? new Color(1f, 0.75f, 0.3f) : c;
+
+        if (_powerMode && !IsDevice(placed.def))
+        {
+            fill = Muted(fill);
+            line = Muted(line);
+        }
 
         if (ghost)
         {
@@ -683,7 +765,7 @@ public sealed class ShipPainter : EditorWindow
             ? placed.size
             : (def != null ? def.collider.size : Vector2.one);
 
-        Color colour = PlateColour(placed.def);
+        Color colour = Muted(PlateColour(placed.def));
 
         // 모양이 있으면 그것이 진짜 실루엣이다. 회전·크기는 모양이 있을 때 0으로
         // 두기로 했으므로 여기서 갈라도 두 그림이 겹칠 일이 없다.
@@ -1010,6 +1092,27 @@ public sealed class ShipPainter : EditorWindow
 
         Vector2Int cell = CellAt(point);
 
+        // 전선 브러시. 왼쪽 버튼 이벤트를 통째로 삼킨다 - 모양 모드와 같은 이유(드래그가 칠하기로 샌다).
+        if (_powerMode && _brushIsWire)
+        {
+            if (e.type == EventType.MouseDown)
+            {
+                if (e.button == 0) WireClick(point);
+                else if (e.button == 1) EraseWireAt(point);
+            }
+
+            e.Use();
+            Repaint();
+            return;
+        }
+
+        // 전력망 모드에서는 전기 기기만 지운다. 판은 일반 모드의 것이다.
+        if (_powerMode && erase && !(_modules.TryGetValue(cell, out Placed under) && IsElectrical(under.def)))
+        {
+            e.Use();
+            return;
+        }
+
         // **Ctrl+클릭은 선의 시작점만 옮긴다.** 칠하지도 지우지도 않는다.
         //
         // 없으면 선 도구가 한붓 그리기가 된다 - _selected가 늘 마지막 선의 끝이라
@@ -1262,9 +1365,18 @@ public sealed class ShipPainter : EditorWindow
         p.shape);
 
     /// <summary>지금 상태를 실행취소 더미에 올린다. **바꾸기 전에** 부른다.</summary>
+    private Snapshot Snap() => new() { plates = Copy(_plates), modules = Copy(_modules), wires = CopyWires(_wires) };
+
+    private static List<List<Vector2>> CopyWires(List<List<Vector2>> src)
+    {
+        var copy = new List<List<Vector2>>(src.Count);
+        foreach (List<Vector2> w in src) copy.Add(new List<Vector2>(w));
+        return copy;
+    }
+
     private void Push()
     {
-        _undo.Add((Copy(_plates), Copy(_modules)));
+        _undo.Add(Snap());
 
         if (_undo.Count > MaxUndo)
             _undo.RemoveAt(0);
@@ -1297,13 +1409,12 @@ public sealed class ShipPainter : EditorWindow
         return copy;
     }
 
-    private void Step(List<(Dictionary<Vector2Int, Placed> plates, Dictionary<Vector2Int, Placed> modules)> from,
-                     List<(Dictionary<Vector2Int, Placed> plates, Dictionary<Vector2Int, Placed> modules)> to)
+    private void Step(List<Snapshot> from, List<Snapshot> to)
     {
         if (from.Count == 0)
             return;
 
-        to.Add((Copy(_plates), Copy(_modules)));
+        to.Add(Snap());
 
         var snap = from[from.Count - 1];
         from.RemoveAt(from.Count - 1);
@@ -1315,6 +1426,10 @@ public sealed class ShipPainter : EditorWindow
         _modules.Clear();
         foreach (KeyValuePair<Vector2Int, Placed> pair in snap.modules)
             _modules[pair.Key] = pair.Value;
+
+        _wires.Clear();
+        _wires.AddRange(snap.wires);
+        _wireInProgress.Clear();
 
         if (_selected != null && !_plates.ContainsKey(_selected.Value))
             _selected = null;
@@ -1389,6 +1504,31 @@ public sealed class ShipPainter : EditorWindow
 
                 case KeyCode.Escape:
                     CancelShape();
+                    e.Use();
+                    Repaint();
+                    return;
+            }
+        }
+
+        if (_powerMode && _wireInProgress.Count > 0)
+        {
+            switch (e.keyCode)
+            {
+                case KeyCode.Return:
+                case KeyCode.KeypadEnter:
+                    CommitWire();
+                    e.Use();
+                    Repaint();
+                    return;
+
+                case KeyCode.Backspace:
+                    _wireInProgress.RemoveAt(_wireInProgress.Count - 1);
+                    e.Use();
+                    Repaint();
+                    return;
+
+                case KeyCode.Escape:
+                    _wireInProgress.Clear();
                     e.Use();
                     Repaint();
                     return;
@@ -2186,6 +2326,16 @@ public sealed class ShipPainter : EditorWindow
     private static bool Same(Placed a, Placed b)
         => a.def == b.def && a.rot == b.rot && a.size == b.size && a.offset == b.offset;
 
+    /// <summary>전력망 모드에서 전기와 무관한 것은 채도를 빼고 어둡게 - 전선과 기기만 눈에 남는다.</summary>
+    private Color Muted(Color c)
+    {
+        if (!_powerMode)
+            return c;
+
+        float grey = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
+        return new Color(grey * 0.45f, grey * 0.45f, grey * 0.45f, c.a);
+    }
+
     private static Color PlateColour(string def) => def switch
     {
         "Ballistic Door" => new Color(0.85f, 0.72f, 0.30f),
@@ -2197,14 +2347,185 @@ public sealed class ShipPainter : EditorWindow
         _ => new Color(0.70f, 0.71f, 0.72f),
     };
 
-    private static Color ModuleColour(string def) => def switch
+    // 이름이 아니라 종류로 - "Reactor Mini"·"Mini Engine"이 이름 표에서 빠져 있었다.
+    private static bool IsReactor(string def)
     {
-        "Reactor" => new Color(0.35f, 0.85f, 0.45f),
-        "Magazine" => new Color(0.90f, 0.35f, 0.30f),
-        "SuperDuper Engine" => new Color(0.95f, 0.60f, 0.25f),
-        "Fuel Tank" => new Color(0.85f, 0.80f, 0.30f),
-        _ => new Color(0.55f, 0.75f, 0.95f),
-    };
+        ThingDef thing = DefDatabase.Get(def);
+        return thing?.MainType != null
+            && typeof(CriticalModule).IsAssignableFrom(thing.MainType)
+            && (JsonUtility.FromJson<PowerNums>(thing.raw)?.providesPower ?? false);
+    }
+
+    private static bool IsEngine(string def)
+    {
+        System.Type t = DefDatabase.Get(def)?.MainType;
+        return t != null && typeof(Engine).IsAssignableFrom(t);
+    }
+
+    private static bool IsGun(string def)
+    {
+        System.Type t = DefDatabase.Get(def)?.MainType;
+        return t != null && typeof(Gun).IsAssignableFrom(t);
+    }
+
+    /// <summary>전력망 모드에서만 놓이는 것. 릴레이·퓨즈가 오면 여기 늘어난다.</summary>
+    private static bool IsElectrical(string def) => IsReactor(def);
+
+    /// <summary>전선이 붙는 것. 전기를 내거나 먹는 기기.</summary>
+    private static bool IsDevice(string def) => IsElectrical(def) || IsGun(def);
+
+    // =========================================================
+    // 전선
+    // =========================================================
+
+    private void DrawWires(Rect clip)
+    {
+        var on = new Color(1f, 0.78f, 0.35f, _powerMode ? 1f : 0.35f);
+
+        foreach (List<Vector2> w in _wires)
+            DrawWire(w, on);
+
+        if (_wireInProgress.Count == 0)
+            return;
+
+        var mark = new Color(0.4f, 0.9f, 1f);
+        DrawWire(_wireInProgress, mark);
+
+        // 마지막 점에서 커서까지 미리보기.
+        if (_brushIsWire && clip.Contains(Event.current.mousePosition))
+            Line(GridToScreen(_wireInProgress[_wireInProgress.Count - 1]),
+                 GridToScreen(WireSnap(Event.current.mousePosition)), new Color(0.4f, 0.9f, 1f, 0.5f));
+    }
+
+    private void DrawWire(List<Vector2> w, Color c)
+    {
+        for (int i = 0; i < w.Count; i++)
+        {
+            Vector2 p = GridToScreen(w[i]);
+            EditorGUI.DrawRect(new Rect(p.x - 2f, p.y - 2f, 5f, 5f), c);
+
+            if (i > 0)
+                Line(GridToScreen(w[i - 1]), p, c);
+        }
+    }
+
+    /// <summary>화면 → 격자, 1/6 m 눈금. 기기 칸 위면 그 칸 중심 - 런타임이 기기를 칸으로 찾는다.</summary>
+    private Vector2 WireSnap(Vector2 screen)
+    {
+        Vector2Int cell = CellAt(screen);
+
+        if (_modules.TryGetValue(cell, out Placed m) && IsDevice(m.def))
+            return new Vector2(cell.x + 0.5f, cell.y + 0.5f);
+
+        return Snap(new Vector2((screen.x - _pan.x) / _zoom, (screen.y - _pan.y) / _zoom), WireStep);
+    }
+
+    private void WireClick(Vector2 screen)
+    {
+        GUI.FocusControl(null);
+
+        Vector2 p = WireSnap(screen);
+        Vector2Int cell = CellAt(screen);
+        bool onDevice = _modules.TryGetValue(cell, out Placed m) && IsDevice(m.def);
+
+        if (_wireInProgress.Count > 0 && p == _wireInProgress[_wireInProgress.Count - 1])
+            return;
+
+        _wireInProgress.Add(p);
+
+        if (onDevice && _wireInProgress.Count >= 2)
+            CommitWire();
+        else
+            _status = onDevice
+                ? $"({cell.x},{cell.y})에서 전선 시작."
+                : $"전선 점 {_wireInProgress.Count}. 기기를 클릭하거나 Enter로 끝낸다.";
+    }
+
+    private void CommitWire()
+    {
+        if (_wireInProgress.Count < 2)
+        {
+            _wireInProgress.Clear();
+            return;
+        }
+
+        Push();
+        _wires.Add(new List<Vector2>(_wireInProgress));
+        _wireInProgress.Clear();
+        _status = $"전선 {_wires.Count}개.";
+    }
+
+    private void EraseWireAt(Vector2 screen)
+    {
+        var g = new Vector2((screen.x - _pan.x) / _zoom, (screen.y - _pan.y) / _zoom);
+        float best = 0.25f * 0.25f;   // 1/4 칸 안
+        int hit = -1;
+
+        for (int i = 0; i < _wires.Count; i++)
+            for (int j = 1; j < _wires[i].Count; j++)
+            {
+                float d = DistToSegment(g, _wires[i][j - 1], _wires[i][j]);
+                if (d < best) { best = d; hit = i; }
+            }
+
+        if (hit < 0)
+            return;
+
+        Push();
+        _wires.RemoveAt(hit);
+    }
+
+    private static float DistToSegment(Vector2 p, Vector2 a, Vector2 b)
+    {
+        Vector2 ab = b - a;
+        float t = ab.sqrMagnitude < 1e-6f ? 0f : Mathf.Clamp01(Vector2.Dot(p - a, ab) / ab.sqrMagnitude);
+        return (p - (a + ab * t)).sqrMagnitude;
+    }
+
+    /// <summary>끝점이 기기 칸 위거나 다른 전선의 꼭짓점과 같은 자리인가.</summary>
+    private bool WireEndAttached(Vector2 p, List<Vector2> self)
+    {
+        var cell = new Vector2Int(Mathf.FloorToInt(p.x), Mathf.FloorToInt(p.y));
+
+        if (_modules.TryGetValue(cell, out Placed m) && IsDevice(m.def))
+            return true;
+
+        foreach (List<Vector2> w in _wires)
+            if (w != self && w.Contains(p))
+                return true;
+
+        return false;
+    }
+
+    private string WiresJson()
+    {
+        var sb = new System.Text.StringBuilder("[");
+
+        for (int i = 0; i < _wires.Count; i++)
+        {
+            sb.Append(i == 0 ? "\n    { \"points\": [" : ",\n    { \"points\": [");
+
+            for (int j = 0; j < _wires[i].Count; j++)
+                sb.Append(j == 0 ? "" : ", ").Append(Json(_wires[i][j] - new Vector2(0.5f, 0.5f)));
+
+            sb.Append("] }");
+        }
+
+        sb.Append(_wires.Count == 0 ? "]" : "\n  ]");
+        return sb.ToString();
+    }
+
+    [System.Serializable] private class PowerNums { public bool providesPower; }
+
+    private static Color ModuleColour(string def)
+    {
+        System.Type t = DefDatabase.Get(def)?.MainType;
+        if (IsReactor(def)) return new Color(0.35f, 0.85f, 0.45f);
+        if (t != null && typeof(CriticalModule).IsAssignableFrom(t)) return new Color(0.90f, 0.35f, 0.30f);
+        if (IsEngine(def)) return new Color(0.95f, 0.60f, 0.25f);
+        if (t != null && typeof(Tank).IsAssignableFrom(t)) return new Color(0.85f, 0.80f, 0.30f);
+        return new Color(0.55f, 0.75f, 0.95f);
+    }
 
     // =========================================================
     // 밀폐 판정
@@ -2406,8 +2727,8 @@ public sealed class ShipPainter : EditorWindow
             else if (fit.verdict == ModulePlacement.Verdict.Buried)
                 buried++;
 
-            if (pair.Value.def == "Reactor") reactor = true;
-            if (pair.Value.def == "SuperDuper Engine") engine = true;
+            if (IsReactor(pair.Value.def)) reactor = true;
+            if (IsEngine(pair.Value.def)) engine = true;
         }
 
         Bounds(out Vector2Int min, out Vector2Int max);
@@ -2418,6 +2739,16 @@ public sealed class ShipPainter : EditorWindow
             $"판 {_plates.Count}",
             $"실내 {inside}",
         };
+
+        int loose = 0;
+        foreach (List<Vector2> w in _wires)
+            if (!WireEndAttached(w[0], w) || !WireEndAttached(w[w.Count - 1], w))
+                loose++;
+
+        notes.Add($"전선 {_wires.Count}");
+
+        if (loose > 0)
+            notes.Add($"<!> 끝이 기기에 안 닿은 전선 {loose}개");
 
         List<Vector2Int> spill = Overhanging();
 
@@ -2557,6 +2888,14 @@ public sealed class ShipPainter : EditorWindow
                 _modules[cell] = placed;
         }
 
+        _wires.Clear();
+        _wireInProgress.Clear();
+
+        if (def.wires != null)
+            foreach (Wire w in def.wires)
+                if (w?.points != null && w.points.Count >= 2)
+                    _wires.Add(w.points.ConvertAll(p => p + new Vector2(0.5f, 0.5f)));
+
         _status = Validate() + skinNote;
         Repaint();
     }
@@ -2606,6 +2945,9 @@ public sealed class ShipPainter : EditorWindow
             _status = "기존 파일에서 placements를 못 찾았다. 파일을 확인해라.";
             return;
         }
+
+        // 전선은 설계도에 없던 키일 수 있어서 끼워 넣는다 - rearLost와 같은 사정.
+        text = DefKeys.UpsertTopLevelValue(text, "wires", WiresJson()) ?? text;
 
         File.WriteAllText(path, text);
         AssetDatabase.Refresh();

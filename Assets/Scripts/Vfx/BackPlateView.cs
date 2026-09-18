@@ -53,6 +53,10 @@ public sealed class BackPlateView : MonoBehaviour
         public byte[] heatBytes;
         public readonly HashSet<Vector2Int> hotWritten = new();
 
+        /// <summary>_Map 벡터. z(Shade)만 기압 보기 토글로 바뀐다.</summary>
+        public Vector4 mapVec;
+        public bool dimmed;
+
         public ShipGrid.Map _designMap; //immutable;
         public Vector2 localOffset;
         public int currentRearCount;
@@ -221,6 +225,9 @@ public sealed class BackPlateView : MonoBehaviour
     }
 
     /// <summary>그렸으면 true. false를 돌려주면 호출자가 그 배의 오버레이를 파괴한다.</summary>
+    private static float Shade(Overlay overlay)
+        => overlay.dimmed ? 1f - (overlay.mine ? MineDarken : SkinDarken) : 1f;
+
     private bool Draw(HullStructure structure)
     {
         if (structure.DesignMap == null || structure.Rear.Count == 0)
@@ -245,6 +252,18 @@ public sealed class BackPlateView : MonoBehaviour
             overlay.currentRearCount = structure.Rear.Count;
             overlay.currentRearVersion = structure.RearVersion;
             FillCellMask(overlay, structure);
+        }
+
+        // 후면 어둡게는 기압을 볼 때만. 평소엔 100% (오너, 2026-09-18).
+        if (overlay.dimmed != RoomView.Showing && overlay.renderer != null)
+        {
+            overlay.dimmed = RoomView.Showing;
+            overlay.mapVec.z = Shade(overlay);
+
+            var props = new MaterialPropertyBlock();
+            overlay.renderer.GetPropertyBlock(props);
+            props.SetVector(MapId, overlay.mapVec);
+            overlay.renderer.SetPropertyBlock(props);
         }
 
         UpdateHeat(overlay, structure);
@@ -464,10 +483,12 @@ public sealed class BackPlateView : MonoBehaviour
         // 늘어난다. w에는 세로 뒤집기용 높이를 넣는다(row는 아래로, uv.y는 위로 증가).
         props.SetVector(GridId, new Vector4(
             minX, minRowDown, (float)SharedTexSize / scale, height));
-        props.SetVector(MapId, new Vector4(
+        overlay.dimmed = RoomView.Showing;
+        overlay.mapVec = new Vector4(
             DM.width, DM.height,
-            1f - (overlay.mine ? MineDarken : SkinDarken),
-            structure.ShipHullPng != null ? 1f : 0f));
+            Shade(overlay),
+            structure.ShipHullPng != null ? 1f : 0f);
+        props.SetVector(MapId, overlay.mapVec);
         props.SetVector(FootId, masks.footRect);
 
         overlay.renderer.SetPropertyBlock(props);

@@ -33,6 +33,12 @@ public class CriticalModule : Thing, IDamageable
     /// </summary>
     public bool providesPower;
 
+    /// <summary>발전기+변압기 유닛의 출력. 선간(L-L) RMS. 상전압(L-N)은 저장하지 않는다 - √3으로 파생.</summary>
+    public float lineVoltage = 554f;
+    public int phases = 3;
+
+    public float PhaseVoltage => phases == 3 ? lineVoltage / 1.7320508f : lineVoltage;
+
     /// <summary>터질 때 띄울 빛의 defName. 비우면 안 띄운다.</summary>
     public string flashDef = "Blast Flash";
 

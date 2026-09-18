@@ -60,6 +60,9 @@ public class Gun : Thing, IDamageable
         /// <summary>포수가 없다 - 전기가 나갔거나 승무원이 죽었다.</summary>
         NoGunner,
 
+        /// <summary>배엔 전기가 있는데 이 포까지 케이블이 안 닿는다. 케이블 없는 설계에서는 안 나온다.</summary>
+        NoPower,
+
         /// <summary>얹혔던 판이 잔해로 떨어져 나갔다. 이제 이 배의 포가 아니다.</summary>
         Adrift,
 
@@ -488,6 +491,12 @@ public class Gun : Thing, IDamageable
         if (owner != null && !owner.isGunnerReady)
         {
             Hold = HoldReason.NoGunner;
+            return;
+        }
+
+        if (owner != null && !owner.Powered(this))
+        {
+            Hold = HoldReason.NoPower;
             return;
         }
 

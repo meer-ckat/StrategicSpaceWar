@@ -671,7 +671,7 @@ public static class ShipGrid
     }
 
     /// <summary>칸의 로컬 좌표를 정수로 굳힌 것. 격자가 밀려도 같은 칸은 같은 값이 나온다.</summary>
-    private static Vector2Int Anchor(Map map, Vector2Int cell) =>
+    public static Vector2Int Anchor(Map map, Vector2Int cell) =>
         Vector2Int.RoundToInt(map.ToLocal(cell.x, cell.y) / CellSize);
 
     /// <summary>

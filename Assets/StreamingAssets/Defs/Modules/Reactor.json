@@ -19,6 +19,8 @@
   "maxHealth": 90,
   "blastDamage": 1600,
   "providesPower": true,
+  "lineVoltage": 554,
+  "phases": 3,
   "tint": {
     "r": 0.4,
     "g": 1.0,

@@ -256,6 +256,9 @@ public partial class Ship : Thing
     // Room은 Unity 직렬화 대상이 아니라 인스펙터에 뜨지 않는다. 런타임 전용.
     public List<Room> rooms = new();
 
+    // crews(def 키)만큼 태운다. 방이 없는 배는 0명.
+    public List<Crewman> crewmen = new();
+
     readonly Dictionary<Door, List<Room>> roomsOfDoor = new();
 
     // 격자 원본. 방 BFS도, 선체 구조도, 오버레이도 전부 이걸 읽는다.
@@ -506,7 +509,10 @@ public partial class Ship : Thing
         IsPlayerControlled = GetComponent<PlayerInput>() != null && GetComponent<ShipAi>() == null;
 
         if (IsPlayerControlled)
+        {
             BindBoost();
+            BindScuttle();
+        }
 
         // 함선 선택 화면이 고른 배가 씬의 기본값을 이긴다. 선택 화면은 고르고 나서
         // 씬을 다시 여는 방식이라(암전이 공짜다), 그 선택이 살아남는 자리가 여기다.
@@ -531,6 +537,7 @@ public partial class Ship : Thing
         // 근처라 마치 그럴듯해 보인다.
         ShipDef blueprint = string.IsNullOrEmpty(shipDefName) ? null : ShipDef.Load(shipDefName);
         ShipDef design = RunShipFor(blueprint);
+        _design = design;
 
         // 인스펙터에 남아 있던 목록은 곧 지울 자식을 가리킨다.
         shipArmors.Clear();
@@ -823,6 +830,13 @@ public partial class Ship : Thing
         }
 
         BuildRooms();
+        crewmen = PlaceCrew(rooms, _map, crews);
+
+        // 설계에 전선이 있었는가. 없으면 HasPower 하나로 판정하던 예전 규칙 그대로다 -
+        // _needsPower와 같은 질문이고, 전선 없는 배 스물두 척이 갑자기 무전력이 되면 안 된다.
+        _hasWiring = _design?.wires != null && _design.wires.Count > 0;
+        BuildWires(_design);
+        RebuildPowerNet();
 
         // 질량을 판 수에서 뽑는다. 손으로 맞추면 설계를 바꿀 때마다 잊고, 세 척에 같은 값을
         // 적어두면 작은 배가 큰 배만큼 굼떠진다 - 정찰함이 빨라야 하는 이유가 이것이다.
@@ -886,7 +900,7 @@ public partial class Ship : Thing
         _mRam.End();
 
         _mDrive.Begin();
-        if (isDriverReady)
+        if (isDriverReady) //isDriverReady
         {
             if (isMouseAim) MouseAim();
             Angle();
@@ -906,6 +920,7 @@ public partial class Ship : Thing
 
         _mAtmosphere.Begin();
         if (dueForAtmosphere) Atmosphere();
+        if (dueForAtmosphere) RebuildPowerNet();
         _mAtmosphere.End();
 
         _mWatch.Begin();
@@ -942,26 +957,64 @@ public partial class Ship : Thing
         if (!CrewAlive)
             return;
 
-        // 맵이 없는 함선은 방 자체가 없다. 기압 모델이 없는 것이지 진공인 것이 아니다.
-        if (rooms.Count == 0)
+        Suffocate(crewmen, rooms, _map);
+
+        if (CrewAlive)
             return;
-
-        foreach (Room room in rooms)
-        {
-            if (room.Pressure >= Ballistics.CrewMinPressure)
-                return;
-        }
-
-        // 되돌릴 수 없다. 재가압해도 죽은 사람은 안 돌아온다 - 그래야 결과가 결과로 남는다.
-        // 세 준비 플래그는 여기서 안 건드린다. CrewAlive에서 파생되므로 저절로 꺼진다.
-        CrewAlive = false;
 
         // 조종간을 놓은 채로 마지막 입력이 남아 있으면 시체가 계속 가속한다.
         thrustInput = Vector2.zero;
         angleInput = 0f;
 
-        // CrewAlive가 걸쇠라 이 자리는 배 한 척당 정확히 한 번이다.
+        // 위의 early return이 걸쇠라 이 자리는 배 한 척당 정확히 한 번이다.
         RunLog.CrewLost(this);
+    }
+
+    /// <summary>
+    /// 각자 자기 방의 기압으로 산다. 방이 없어진 사람(칸이 잔해로 떠났다)도 죽는다.
+    /// 되돌릴 수 없다 - 재가압해도 죽은 사람은 안 돌아온다. 순수 함수라 셀프테스트가 부른다.
+    /// </summary>
+    public static void Suffocate(List<Crewman> crewmen, List<Room> rooms, ShipGrid.Map map)
+    {
+        foreach (Crewman c in crewmen)
+        {
+            if (!c.alive) continue;
+            Room room = RoomAt(rooms, map, c.anchor);
+            if (room == null || room.Pressure < Ballistics.CrewMinPressure)
+                c.alive = false;
+        }
+    }
+
+    /// <summary>큰 방부터 한 명씩 돌아가며 앉힌다. 방 순서가 BFS 순이라 결정론적이다.</summary>
+    public static List<Crewman> PlaceCrew(List<Room> rooms, ShipGrid.Map map, int count)
+    {
+        var crew = new List<Crewman>();
+        if (rooms == null || rooms.Count == 0 || map == null)
+            return crew;
+
+        var byVolume = new List<Room>(rooms);
+        // 안정 정렬(삽입) - List.Sort는 동률 순서를 안 지킨다.
+        for (int i = 1; i < byVolume.Count; i++)
+            for (int j = i; j > 0 && byVolume[j].Volume > byVolume[j - 1].Volume; j--)
+                (byVolume[j], byVolume[j - 1]) = (byVolume[j - 1], byVolume[j]);
+
+        for (int i = 0; i < count; i++)
+        {
+            Room room = byVolume[i % byVolume.Count];
+            crew.Add(new Crewman { anchor = ShipGrid.Anchor(map, room.cells[0]) });
+        }
+        return crew;
+    }
+
+    // ponytail: 선형 탐색. 승무원 ≤ 8, 10틱마다. 승무원이 매 틱 움직이면(M0 경로) 칸→방 사전으로.
+    static Room RoomAt(List<Room> rooms, ShipGrid.Map map, Vector2Int anchor)
+    {
+        if (map == null) return null;
+        foreach (Room room in rooms)
+            foreach (Vector2Int c in room.cells)
+                if (ShipGrid.Anchor(map, c) == anchor)
+                    return room;
+        return null;
     }
 
     /// <summary>
@@ -999,8 +1052,22 @@ public partial class Ship : Thing
     // 배가 다 지어진 뒤의 실제 상태로 시작한다.
     private bool _wasEffective = true;
 
-    /// <summary>한 번 죽으면 끝. Crew()만 이 값을 내린다.</summary>
-    public bool CrewAlive { get; private set; } = true;
+    /// <summary>
+    /// 파생값. 승무원이 없는 배(방이 없는 잔해)는 기압 모델이 없을 때와 같이 안 죽는다.
+    /// 죽은 사람이 안 돌아오므로 한 방향이다 - RunLog가 그 전제로 한 번만 적는다.
+    /// </summary>
+    public bool CrewAlive => crewmen.Count == 0 || AliveCrew > 0;
+
+    public int AliveCrew
+    {
+        get
+        {
+            int n = 0;
+            foreach (Crewman c in crewmen)
+                if (c.alive) n++;
+            return n;
+        }
+    }
 
     /// <summary>
     /// 지금 쏠 수 있는 포탑이 하나라도 있는가.
@@ -1082,7 +1149,9 @@ public partial class Ship : Thing
         rooms = new List<Room>();
         roomsOfDoor.Clear();
 
-        var armorAt = new Dictionary<Vector2Int, Armor>();
+        // 전선 래스터가 계속 읽는다 - 파단으로 다시 지으면 판이 바뀌므로 그때 다시 굽는다.
+        _armorAt = new Dictionary<Vector2Int, Armor>();
+        Dictionary<Vector2Int, Armor> armorAt = _armorAt;
         var doorAt = new Dictionary<Vector2Int, Door>();
 
         _map = ShipBuilder.Stamp(transform, armorAt, doorAt);
@@ -1110,6 +1179,7 @@ public partial class Ship : Thing
         ShipGrid.CarryAir(old, oldRooms, _map, rooms);
 
         _structure.Build(_map, breakawaySpeed);
+        RasterizeWires();
 
         // 문 -> 접한 방들. 틱마다 다시 뒤지지 않으려고 여기서 한 번만 만든다.
         foreach (Room room in rooms)
@@ -1610,6 +1680,21 @@ public partial class Ship : Thing
     /// </summary>
     private InputAction _boostAction;
 
+    private InputAction _scuttleAction;
+    public const float Action_SelfDestructTime = 3f;
+    private float _selfDestructTimer;
+
+    /// <summary>
+    /// WASD가 배를 실제로 미는 상태인가. 방아쇠와 계기가 같은 술어를 읽어야 "조종할 수
+    /// 있을 때만 자침"이 두 자리에서 안 갈라진다. 지도는 Update가 추력을 0으로 덮어쓰지만
+    /// J는 그 덮어쓰기를 안 지나가므로 여기서 한 번 더 막는다.
+    /// </summary>
+    public bool PilotHasControl
+        => IsPlayerControlled && isDriverReady && !Core.TickManager.Paused && !MapScreen.IsOpen;
+
+    /// <summary>자침 버튼을 누르고 있는 시간(초). 0이면 안 누르고 있다.</summary>
+    public float ScuttleHeldSeconds => _selfDestructTimer;
+
     private void BindBoost()
     {
         var input = GetComponent<PlayerInput>();
@@ -1623,6 +1708,21 @@ public partial class Ship : Thing
             Debug.LogWarning(
                 $"[{name}] 입력에 'Boost' 액션이 없다. InputSystem_Actions에 Button으로 " +
                 "추가하고 Shift를 바인딩해라. 없으면 부스터가 영영 안 켜진다.", this);
+    }
+
+    private void BindScuttle()
+    {
+        var input = GetComponent<PlayerInput>();
+
+        if (input == null || input.actions == null)
+            return;
+
+        _scuttleAction = input.actions.FindAction("Scuttle", throwIfNotFound: false);
+
+        if (_scuttleAction == null)
+            Debug.LogWarning(
+                $"[{name}] 입력에 'Scuttle' 액션이 없다. InputSystem_Actions에 Button으로 " +
+                "추가하고 J를 바인딩해라. 없으면 자침이 영영 안 켜진다.", this);
     }
 
     private void Update()
@@ -1641,6 +1741,50 @@ public partial class Ship : Thing
 
         Boosting = cutsceneBoost || pilotBoost
             || (_boostAction != null && _boostAction.IsPressed());
+
+        //자침 불가능 판정도 몇개 넣어보고 싶음
+        // 막힌 동안은 타이머를 0으로 되돌린다. 예전 early return은 누른 채로 조종을 잃으면
+        // 그 값을 그대로 들고 있어서, 되찾는 순간 남은 시간 없이 바로 터졌다.
+        if(PilotHasControl && IsCombatEffective
+            && _scuttleAction != null && _scuttleAction.IsPressed())
+        {
+            if(_selfDestructTimer <= 0.01f)
+            {
+            DialogueManager.current?.Spawn(
+                $"경고, <color=red>{Action_SelfDestructTime:0}초 후 자침하겠습니다.</color>",
+                "전술",
+                duration: 4f,
+                intensity: 1.2f,
+                style: "damage",
+                interrupt: true);
+            }
+
+            _selfDestructTimer += Time.deltaTime;
+
+            if(_selfDestructTimer >= Action_SelfDestructTime)
+            {
+                SelfDestruct();
+            }
+        }
+        else
+        {
+            _selfDestructTimer = 0f;
+        }
+    }
+
+    public void SelfDestruct()
+    {
+        if (IsPlayerControlled)
+        {
+            DialogueManager.current?.Spawn(
+                "자침합니다. <color=yellow>I'll be back...</color>",
+                "전술",
+                duration: 4f,
+                intensity: 1.2f,
+                style: "damage",
+                interrupt: true);
+            DetonateReactor();
+        }
     }
 
     /// <summary>
