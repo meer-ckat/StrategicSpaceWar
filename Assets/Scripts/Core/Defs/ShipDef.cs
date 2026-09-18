@@ -90,6 +90,16 @@ public class Placement
 }
 
 /// <summary>
+/// 전선 하나. 점은 칸 좌표(정수 = 칸 중심, row 아래로)라 Placement의 col/row와 같은 공간이다.
+/// 두 끝은 기기(원자로·포탑) 칸 중심에 놓는다. 다른 전선의 꼭짓점과 같은 자리면 거기서 이어진다.
+/// </summary>
+[Serializable]
+public class Wire
+{
+    public List<Vector2> points = new();
+}
+
+/// <summary>
 /// 배 한 척의 설계도 전부. 배치 리스트 **그리고** 배 자체의 수치.
 ///
 /// ThingDef와 정확히 같은 트릭 위에 있다: 같은 원문을 두 번 읽는다. 한 번은 이 헤더 클래스로
@@ -161,7 +171,10 @@ public class ShipDef
     [NonSerialized] public string source;
 
     private static readonly string[] HeaderKeys =
-        { "defName", "basedOn", "placements", "hullSkin", "rearLost" };
+        { "defName", "basedOn", "placements", "hullSkin", "rearLost", "wires" };
+
+    /// <summary>전력망. 설계의 일부라 rearLost와 달리 손상 저장에서도 그대로 남는다 - 끊김은 판에서 파생된다.</summary>
+    public List<Wire> wires = new();
 
     /// <summary>
     /// 후면이 사라진 칸. **런 중에만 생기는 상태라 설계도에는 없다.**
@@ -234,9 +247,50 @@ public class ShipDef
     /// </summary>
     public static void ClearCache() => _cache.Clear();
 
+    /// <summary>
+    /// 파일이 없는 설계도. <see cref="DerelictGen"/>이 로딩 때 구운 난파선이 여기 산다 -
+    /// StreamingAssets에 변종 수십 개를 쓰지 않는 이유다.
+    ///
+    /// **<see cref="ClearCache"/>가 이걸 안 비운다.** 파일 캐시를 버리는 것은 "디스크가
+    /// 바뀌었다"는 뜻이고 이쪽은 디스크에서 온 것이 아니다. 대가: Reload를 눌러도 난파선은
+    /// 옛 원본으로 구운 것이 남는다 - 플레이를 다시 시작해야 반영된다.
+    /// </summary>
+    private static readonly Dictionary<string, ShipDef> _registered = new();
+
+    /// <summary>파일이거나 Register된 것. 난파선은 파일이 없으므로 File.Exists로 걸러내면 전부 빠진다.</summary>
+    public static bool Exists(string defName)
+        => !string.IsNullOrEmpty(defName) && (_registered.ContainsKey(defName) || File.Exists(PathOf(defName)));
+
+    public static void Register(ShipDef def)
+    {
+        if (def != null && !string.IsNullOrEmpty(def.defName))
+            _registered[def.defName] = def;
+    }
+
+    /// <summary>
+    /// placements만 담은 JSON 배열. <see cref="RunState"/>의 손상 저장과
+    /// <see cref="DerelictGen"/>이 같이 쓴다 - 두 벌로 두면 대괄호 찾기가 갈라진다.
+    ///
+    /// 껍데기 클래스를 쓰는 이유: ShipDef를 통째로 직렬화하면 배열이 둘이라
+    /// (placements, rearLost) "첫 [ 부터 마지막 ] 까지"가 두 배열을 한 덩어리로 집어온다.
+    /// </summary>
+    public static string PlacementsArrayJson(List<Placement> plates)
+    {
+        string json = JsonUtility.ToJson(new PlacementList { placements = plates });
+        int start = json.IndexOf('[');
+        int end = json.LastIndexOf(']');
+
+        return start < 0 || end <= start ? null : json.Substring(start, end - start + 1);
+    }
+
+    [Serializable] private class PlacementList { public List<Placement> placements; }
+
     public static ShipDef Load(string defName, bool checkSkin = true)
     {
         using var _ = _mLoad.Auto();
+
+        if (_registered.TryGetValue(defName, out ShipDef made))
+            return made;
 
         // **저작 중에는 캐시를 안 쓴다.** ShipPainter는 읽은 설계도를 직접 편집하므로,
         // 그 인스턴스를 캐시가 들고 있으면 편집이 다음 소환에 새어 나간다. 플레이 중에는

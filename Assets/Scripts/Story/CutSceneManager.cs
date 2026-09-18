@@ -27,9 +27,6 @@ public class CutSceneManager
         /// </summary>
         private readonly bool _owned;
 
-        /// <summary>빌린 배에서 잠시 꺼 둔 입력. 돌려줄 때 다시 켠다.</summary>
-        private readonly Behaviour _sleepingInput;
-
         public GameObject Root => ship != null ? ship.gameObject : null;
 
         /// <summary>
@@ -51,17 +48,8 @@ public class CutSceneManager
             if (borrowed == null)
                 return;
 
-            // PlayerInput은 새 InputSystem 어셈블리라 여기서 이름으로 찾는다 - 이 파일이
-            // 그 패키지를 직접 참조하지 않아도 되고, 없는 배(적함)에서는 조용히 넘어간다.
-            foreach (Behaviour behaviour in borrowed.GetComponents<Behaviour>())
-            {
-                if (behaviour != null && behaviour.GetType().Name == "PlayerInput" && behaviour.enabled)
-                {
-                    behaviour.enabled = false;
-                    _sleepingInput = behaviour;
-                    break;
-                }
-            }
+            SetPlayerInput(borrowed, false);
+            Debug.LogWarning("Disabled");
 
             ai = borrowed.GetComponent<ShipAi>();
 
@@ -223,10 +211,29 @@ public class CutSceneManager
                 ship.pilotBoost = false;   // AI가 마지막 틱에 켠 부스터가 사람 손에 남지 않게
             }
 
-            if (_sleepingInput != null)
-                _sleepingInput.enabled = true;
+            SetPlayerInput(ship, true);
+            Debug.Log("Enabled");
         }
+
+        /// <summary>
+        /// PlayerInput은 새 InputSystem 어셈블리라 이름으로 찾는다 - 이 파일이 그 패키지를
+        /// 직접 참조하지 않아도 되고, 없는 배(적함)에서는 조용히 넘어간다.
+        ///
+        /// **끈 컴포넌트를 기억해 두지 않는다.** 그러면 "빌릴 때 이미 꺼져 있었다"는 경우에
+        /// 돌려줄 것이 null이 되어 조종간이 영영 안 돌아온다 - 증상은 "배가 안 움직인다"
+        /// 하나뿐이라 원인이 컷신이라는 것 자체가 안 보인다. 지금 붙어 있는 것을 그때 켠다.
+        /// </summary>
     }
+
+    public static void SetPlayerInput(Ship ship, bool on)
+        {
+            if (ship == null)
+                return;
+
+            foreach (Behaviour behaviour in ship.GetComponents<Behaviour>())
+                if (behaviour != null && behaviour.GetType().Name == "PlayerInput")
+                    behaviour.enabled = on;
+        }
 
     private static readonly Dictionary<string, CutScene_ShipObj> _ships = new();
 
@@ -259,7 +266,7 @@ public class CutSceneManager
         // **파일부터 본다.** 없으면 Ship.Awake가 판 없는 배를 짓고, 그 배는 화면에
         // 아무것도 안 그리면서 목록에는 들어간다 - 증상이 "안 나온다" 하나뿐이라
         // 연출이 틀린 건지 설계도 이름이 틀린 건지 안 갈린다. Campaign.Spawn과 같은 검사다.
-        if (!System.IO.File.Exists(ShipDef.PathOf(shipDefName)))
+        if (!ShipDef.Exists(shipDefName))
         {
             Debug.LogError($"[CutScene] '{shipDefName}' 설계도가 없다. '{cutSceneObjName}'을 안 띄운다.");
             return null;
@@ -290,7 +297,9 @@ public class CutSceneManager
         Clear();
 
         if (Campaign.current != null)
+        {
             Campaign.current.StartRun();
+        }
     }
 
     /// <summary>

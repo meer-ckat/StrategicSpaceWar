@@ -121,6 +121,25 @@ public sealed class Campaign : TickBehaviour
     /// <summary>들판에서 자리를 세우는 거리(m). 항해 줌 폭 2.5 km와 센서 1.2 km보다 넉넉히 - 태어나는 것이 보이면 안 된다.</summary>
     public float spawnDistance = 5000f;
 
+    /// <summary>
+    /// 배경 실물(<see cref="SpawnDef.scenery"/>)만 쓰는 짧은 반경(m). 배와 갈라 둔 이유가
+    /// 산수다: 500 m 간격에 5 km 반경이면 원 안에 314개가 들어와 판 28,000장이 된다
+    /// (구축함 45척). 1.5 km면 서른 개 안쪽이라 지금 밀도와 같다. 배는 오는 것이 보여야
+    /// 하지만 운석은 코앞에서 나타나도 된다 - 안 움직이니까.
+    /// </summary>
+    public float scenerySpawnDistance = 1500f;
+
+    /// <summary>
+    /// 이 거리를 넘긴 배경 실물은 지우고 자리를 <see cref="_farSpawns"/>로 되돌린다.
+    /// **소환 반경보다 넓어야 한다** - 같으면 경계에서 세우고 지우기를 매 틱 반복한다.
+    /// 항해 줌 폭이 2.5 km(반폭 1.25 km)라 2 km면 화면 밖에서 사라진다. 이 값이 상주 수를
+    /// 정한다: 반경 2 km 안에 50개, 판 4,500장이다.
+    /// </summary>
+    public float sceneryDropDistance = 2000f;
+
+    /// <summary>세운 배경 실물과 그 자리. 회수할 때 자리를 다시 넣으려면 짝을 들고 있어야 한다.</summary>
+    private readonly List<(GameObject go, SpawnDef def)> _streamed = new();
+
     private int _spawnWait;
 
     /// <summary>
@@ -513,6 +532,14 @@ public sealed class Campaign : TickBehaviour
         if (_def == null || _runStarted)
             return;
 
+        // **선택 화면이 열려 있으면 아직이다.** Start만 이걸 봤는데, 컷신 쪽 길
+        // (EndAndStartRun)은 sceneLoaded 구독 순서에 따라 선택 화면이 열리기 **전**에
+        // 돌 수 있다 - 그러면 틱이 풀린 채로 1구역이 선택 화면 뒤에서 굴러간다
+        // (증상: 배를 고르고 있는데 대본 90초 경고가 뜨고 전투가 끝나 있다).
+        // 확정은 반드시 씬 리로드라, 여기서 거절해도 다음 Start가 연다.
+        if (ShipSelectScreen.IsOpen)
+            return;
+
         _runStarted = true;
 
         // 씬에 손으로 놓아둔 적은 캠페인의 것이 아니다. 남겨두면 1구역이 실제로 무엇인지가
@@ -549,11 +576,13 @@ public sealed class Campaign : TickBehaviour
         switch (_phase)
         {
             case Phase.Fighting:
+                ReturnHelm();
                 WakeDormant();
                 ReachGate();
                 WatchRefitSpot();
                 // 소환이 전투 판정보다 먼저. 이번 틱에 뜬 배가 같은 틱의 목표 판정에 들어간다.
                 DrainSpawnQueue();
+                RecycleScenery();
                 SpawnWanderer();
                 SpawnHunter();
                 SpawnPatrols();
@@ -604,6 +633,26 @@ public sealed class Campaign : TickBehaviour
                 Enter(slide: false);
                 break;
         }
+    }
+
+    /// <summary>
+    /// 대본이 끝났는데 조종간이 아직 컷신에 있으면 돌려준다.
+    ///
+    /// 대본의 마지막 줄(endCut)에만 맡기면 그 줄이 안 도는 길마다 배가 영영 안 움직인다 -
+    /// 스킵으로 줄을 건너뛰거나, 큐 하나가 예외를 던져 코루틴이 죽거나, 새 대본에서
+    /// endCut을 빠뜨리거나. 여기는 틱이 도는 자리(Fighting)뿐이라 워프·정비가 빌린
+    /// 조종간(둘 다 틱이 멎어 있다)은 안 건드린다.
+    /// </summary>
+    private static void ReturnHelm()
+    {
+        if (!CutSceneManager.ControlsPlayer)
+            return;
+
+        if (ScriptManager.current != null && ScriptManager.current.IsBusy)
+            return;
+
+        Debug.LogWarning("[Campaign] 대본이 끝났는데 조종간이 컷신에 남아 있다. 돌려준다 - 대본에 endCut이 빠졌을 수 있다.");
+        CutSceneManager.Remove("player");
     }
 
     /// <summary>구역 대본의 engage cue. 대본이 아직 돌아도 이 틱부터 소환이 시작된다.</summary>
@@ -670,9 +719,17 @@ public sealed class Campaign : TickBehaviour
         // 들판은 한 번에 넷. 하나씩이면 50척에 12초라, 부스터로 달리는 플레이어가 아직 안 태어난 자리에 닿는다.
         int burst = Current != null && Current.Open ? 4 : 1;
 
-        if (_farSpawns.Count > 0)
+        // **거리 목록이 큐를 굶기면 안 된다.** 배경 실물이 500 m 격자라 _farSpawns는 구역이
+        // 끝날 때까지 비지 않는다 - 예전처럼 여기서 return하면 손대본 구역의 적이 영영
+        // 안 나온다. 사거리 안에 아무것도 없었을 때만 큐로 내려간다.
+        if (_farSpawns.Count > 0 && SpawnNear(4) > 0)
         {
-            SpawnNear(burst);
+            _spawnWait = Mathf.Max(1, entryStaggerTicks);
+            return;
+        }
+
+        if (_toSpawn.Count == 0)
+        {
             _spawnWait = Mathf.Max(1, entryStaggerTicks);
             return;
         }
@@ -682,7 +739,13 @@ public sealed class Campaign : TickBehaviour
         {
             SpawnDef next = _toSpawn.Dequeue();
             // 들판의 적은 틱에 걸쳐 태어나도 잠든 채다 - 멀어서 안 보이고, 깨는 것은 거리다.
-            Spawn(next, dormant: Current != null && Current.Open && !next.hulk);
+            //
+            // **잔해·운석만 판을 나눠 심는다.** 메인 운석밭은 여기로 오는데 buildSeconds가 0이라
+            // 운석 하나가 90장을 한 프레임에 세웠다 - 거리로 꺼내는 들판 쪽(SpawnNear)은 이미
+            // farBuildSeconds를 준다. 배에까지 주면 대본이 부른 적이 3초에 걸쳐 자라난다.
+            Spawn(next,
+                dormant: Current != null && Current.Open && !next.hulk,
+                buildSeconds: next.hulk ? farBuildSeconds : 0f);
         }
         }
         while ((entryStaggerTicks <= 0 || --burst > 0) && _toSpawn.Count > 0);
@@ -690,28 +753,128 @@ public sealed class Campaign : TickBehaviour
         _spawnWait = Mathf.Max(1, entryStaggerTicks);
     }
 
-    /// <summary>플레이어 <see cref="spawnDistance"/> 안에 든 자리를 최대 burst개 세운다. 뒤에서부터 훑어 제거가 O(1)이다.</summary>
-    private void SpawnNear(int burst)
+    /// <summary>
+    /// 플레이어 <see cref="spawnDistance"/>(배경 실물은 <see cref="scenerySpawnDistance"/>)
+    /// 안에 든 자리를 최대 burst개 세우고 **세운 수를 돌려준다** - 부르는 쪽이 "사거리 안에
+    /// 아무것도 없었다"를 알아야 큐로 내려갈 수 있다. 뒤에서부터 훑어 제거가 O(1)이다.
+    /// </summary>
+    private int SpawnNear(int burst)
     {
         Ship player = PlayerShip();
 
         if (player == null)
-            return;
+            return 0;
 
         Vector2 eye = player.transform.position;
-        float reach = spawnDistance * spawnDistance;
+        float ships = spawnDistance * spawnDistance;
+        float scenery = scenerySpawnDistance * scenerySpawnDistance;
+        int made = 0;
 
         for (int i = _farSpawns.Count - 1; i >= 0 && burst > 0; i--)
         {
             SpawnDef spawn = _farSpawns[i];
 
-            if ((new Vector2(spawn.x, spawn.y) - eye).sqrMagnitude > reach)
+            if ((new Vector2(spawn.x, spawn.y) - eye).sqrMagnitude
+                > (spawn.scenery ? scenery : ships))
                 continue;
 
             _farSpawns.RemoveAt(i);
+
+            GameObject before = _spawned.Count > 0 ? _spawned[^1] : null;
+
             Spawn(spawn, dormant: !spawn.hulk, buildSeconds: farBuildSeconds);
+
+            // Spawn은 hulk에 대해 null을 돌려주므로(목록에만 담는다) 새로 담긴 것을 뒤에서
+            // 집는다. 배경 실물만 짝으로 들고 있으면 되고, 그 짝이 회수의 유일한 근거다.
+            if (spawn.scenery && _spawned.Count > 0 && _spawned[^1] != before)
+                _streamed.Add((_spawned[^1], spawn));
+
             burst--;
+            made++;
         }
+
+        return made;
+    }
+
+    /// <summary>
+    /// 멀어진 배경 실물을 지우고 그 자리를 목록에 되돌린다. **500 m 격자가 성립하는 근거가
+    /// 이 함수다** - 회수가 없으면 60 km를 건너는 동안 14,400개가 전부 쌓인다.
+    ///
+    /// 자리(좌표)를 되돌리므로 되돌아가면 같은 운석이 같은 자리에 다시 선다 - 격자가
+    /// 결정론이라 기억할 상태가 없다.
+    ///
+    /// **건드린 것은 회수하지 않는다.** 쏴서 부순 운석이 한 바퀴 돌고 오니 멀쩡한 것은
+    /// "결과를 안고 끝까지 간다"가 깨지는 자리다. 판이 하나라도 줄었으면 추적만 그만두고
+    /// 오브젝트는 그 자리에 남긴다 - 쌓이는 것은 플레이어가 실제로 쏜 것뿐이라 탄약이
+    /// 상한이다.
+    /// </summary>
+    private void RecycleScenery()
+    {
+        Ship player = PlayerShip();
+
+        if (player == null || _streamed.Count == 0)
+            return;
+
+        Vector2 eye = player.transform.position;
+        float drop = sceneryDropDistance * sceneryDropDistance;
+        int budget = SceneryRecyclePerTick;
+
+        for (int i = _streamed.Count - 1; i >= 0 && budget > 0; i--)
+        {
+            (GameObject go, SpawnDef def) = _streamed[i];
+
+            if (go == null)
+            {
+                _streamed.RemoveAt(i);
+                continue;
+            }
+
+            if (((Vector2)go.transform.position - eye).sqrMagnitude <= drop)
+                continue;
+
+            _streamed.RemoveAt(i);
+            budget--;
+
+            // 판이 줄었으면 손댄 것이다. 짝만 놓고 오브젝트는 남긴다.
+            if (!go.TryGetComponent(out HullStructure hull) || hull.AliveCount < IntactPlates(def.ship))
+                continue;
+
+            // 뜯겨 나간 조각은 이 오브젝트가 아니라 별개의 Hulk다 - 그건 위 판 수 검사에서
+            // 이미 "손댄 것"으로 걸러진다.
+            _spawned.Remove(go);
+            Destroy(go);
+            _farSpawns.Add(def);
+        }
+    }
+
+    /// <summary>한 틱에 회수하는 최대 개수. 소환 burst와 같은 이유로 상한이 있다.</summary>
+    private const int SceneryRecyclePerTick = 4;
+
+    /// <summary>
+    /// 멀쩡한 이 설계도의 판 수. <see cref="ShipDef.Bbox"/>와 같은 술어로 세야 한다 -
+    /// 갈라지면 한 번도 안 맞은 운석이 "손댄 것"으로 읽혀 회수가 통째로 죽고, 증상은
+    /// 에러가 아니라 "오래 날면 느려진다"다.
+    /// </summary>
+    private static readonly Dictionary<string, int> _intactPlates = new();
+
+    private static int IntactPlates(string shipName)
+    {
+        if (_intactPlates.TryGetValue(shipName, out int cached))
+            return cached;
+
+        ShipDef def = ShipDef.Load(shipName);
+        int plates = 0;
+
+        if (def != null)
+        {
+            foreach (Placement p in def.placements)
+            {
+                if (ShipBuilder.StampsGrid(DefDatabase.Get(p.def), out _))
+                    plates++;
+            }
+        }
+
+        return _intactPlates[shipName] = plates;
     }
 
     /// <summary>
@@ -1105,6 +1268,7 @@ public sealed class Campaign : TickBehaviour
 
         _toSpawn.Clear();
         _farSpawns.Clear();
+        _streamed.Clear();
         _wingQueue.Clear();
         _dormant.Clear();
         _targets.Clear();
@@ -1201,10 +1365,12 @@ public sealed class Campaign : TickBehaviour
         {
             if (spawn.Side == Ship.Team.Ally && !spawn.hulk)
                 _wingQueue.Enqueue(spawn);
-            else if (preSpawn && !sector.Open)
+            // 배경 실물은 구역 종류와 무관하게 거리로 꺼낸다. 500 m 격자라 큐에 넣으면
+            // 메인 100 km에서 40,000개를 순서대로 다 세운다.
+            else if (spawn.scenery || sector.Open)
+                _farSpawns.Add(spawn);
+            else if (preSpawn)
                 Spawn(spawn, dormant: !spawn.hulk);   // 시설은 원래 거기 있던 것이라 잘 것이 없다
-            else if (sector.Open)
-                _farSpawns.Add(spawn);   // 들판은 거리로 꺼낸다
             else
                 _toSpawn.Enqueue(spawn);
         }
@@ -1220,8 +1386,12 @@ public sealed class Campaign : TickBehaviour
         if (sector.Field && !sector.Open)
         {
             foreach (SpawnDef rock in OpenSectorGen.Rocks(sector, _sector))
-                _toSpawn.Enqueue(rock);
+                _farSpawns.Add(rock);
         }
+
+        // 들판 전체를 500 m 격자로 채운다. 덩어리 운석은 그 위의 웃돈이다.
+        foreach (SpawnDef prop in OpenSectorGen.Scenery(sector, _sector))
+            _farSpawns.Add(prop);
 
         _spawnWait = 1;   // 풀리면 다음 틱에 첫 척
         _holdForScript = !preSpawn;
@@ -1394,6 +1564,7 @@ public sealed class Campaign : TickBehaviour
         _targets.Clear();
         _toSpawn.Clear();
         _farSpawns.Clear();
+        _streamed.Clear();
         _wingQueue.Clear();
         _dormant.Clear();
     }
@@ -1577,7 +1748,8 @@ public sealed class Campaign : TickBehaviour
         if (!battle.Won)
         {
             _toSpawn.Clear();
-        _farSpawns.Clear();
+            _farSpawns.Clear();
+            _streamed.Clear();
             _battle = null;
             _phase = Phase.Done;
 
@@ -2416,7 +2588,7 @@ public sealed class Campaign : TickBehaviour
         if (string.IsNullOrEmpty(spawn.ship))
             return null;
 
-        if (!File.Exists(ShipDef.PathOf(spawn.ship)))
+        if (!ShipDef.Exists(spawn.ship))
         {
             Debug.LogError($"[Campaign] '{spawn.ship}' 설계도가 없다. 건너뛴다.");
             return null;

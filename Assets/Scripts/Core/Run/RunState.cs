@@ -623,7 +623,6 @@ public static class RunState
     // 배열 하나만 담은 껍데기. ToJson이 `{"placements":[...]}`를 내주므로 대괄호를 찾는
     // 트릭이 명확해진다. ShipDef를 통째로 직렬화하면 배열이 둘이라(placements, rearLost)
     // "첫 [ 부터 마지막 ] 까지"가 두 배열을 한 덩어리로 집어온다.
-    [System.Serializable] private class PlacementList { public List<Placement> placements; }
     [System.Serializable] private class CellList { public List<Vector2Int> rearLost; }
 
     private static string ArrayOf(string json)
@@ -643,8 +642,7 @@ public static class RunState
     /// </summary>
     private static string Merge(string designRaw, ShipDef damaged)
     {
-        string placements = ArrayOf(
-            JsonUtility.ToJson(new PlacementList { placements = damaged.placements }));
+        string placements = ShipDef.PlacementsArrayJson(damaged.placements);
 
         if (placements == null)
             return null;

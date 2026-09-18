@@ -150,7 +150,7 @@ public class Hangar : CriticalModule
         if (string.IsNullOrEmpty(shipDefName))
             return null;
 
-        if (!File.Exists(ShipDef.PathOf(shipDefName)))
+        if (!ShipDef.Exists(shipDefName))
         {
             Debug.LogError($"[Campaign] '{shipDefName}' 설계도가 없다. 건너뛴다.");
             return null;

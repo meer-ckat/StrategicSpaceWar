@@ -16,7 +16,7 @@ using UnityEngine.InputSystem;
 public sealed class PlayerSpawner : MonoBehaviour
 {
     [Header("함선")]
-    [SerializeField] private string defaultShip = "V2";
+    [SerializeField] private string defaultShip = "scout";
     [SerializeField] private Vector2 spawnAt = new(39.3f, -4.4f);
     [SerializeField] private Ship.Team team = Ship.Team.Ally;
 
@@ -51,8 +51,24 @@ public sealed class PlayerSpawner : MonoBehaviour
         go.SetActive(true);
 
         // 액션 맵은 켠 뒤에 고른다 - defaultActionMap은 OnEnable에서 이미 읽힌 값이라 늦다.
-        if (!string.IsNullOrEmpty(actionMap) && input.actions.FindActionMap(actionMap, throwIfNotFound: false) != null)
-            input.SwitchCurrentActionMap(actionMap);
+        //Debug.LogAssertion(!string.IsNullOrEmpty(actionMap) && input.actions.FindActionMap(actionMap, throwIfNotFound: false) != null);
+        input.notificationBehavior = PlayerNotifications.SendMessages;
+        //input.SwitchCurrentActionMap(actionMap);
+
+        //문제가 뭐냐면 FindActionMap이 작동을 안함. 이유는 모르겠음. 그래서 이름 걍 하드코딩해서 가져오는 존나 병신같은 방법으로 해결하겠음.
+        //이게 사람의 위대함이다 우매한 fable 녀석
+        foreach(var a in input.actions.actionMaps)
+        {
+            if(a.name == "Player")
+            {
+                input.defaultActionMap = "Player";
+                input.currentActionMap = a.Clone();
+                Debug.Log("Find Player. " + "current action map is " + a + " but i used cloned so " + input.currentActionMap);
+                break;
+            }
+            Debug.Log(a.name);
+        }
+        Debug.Assert(input.currentActionMap != null);
 
         if (camera != null)
             input.camera = camera;

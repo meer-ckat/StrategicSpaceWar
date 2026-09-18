@@ -191,7 +191,11 @@ public static class OpenSectorGen
     /// <remarks>v5: 자재(노획)를 크레딧(급여)으로. Progress의 키가 materials에서 credits로 바뀌어
     /// 옛 저장은 돈이 조용히 0이 된다 - 버리는 쪽이 낫다.</remarks>
     /// <remarks>v6: 출구 둘이 덩어리 중심이 됐다 - 전투(또는 잔해밭)가 우회가 아니라 경로다.</remarks>
-    public const int Version = 6;
+    /// <remarks>v7: 풀의 "derelict"가 와일드카드가 됐다(<see cref="DerelictGen"/>). 뽑기 하나가
+    /// 늘어서 그 뒤의 흐름이 전부 밀린다.</remarks>
+    /// <remarks>v8: 운석 밀도. 밭당 4~8 -> 8~14, 메인 밭 3~4 -> 5~7.</remarks>
+    /// <remarks>v9: 들판 전체에 <see cref="ScenerySpacing"/>(500 m) 균등 격자. 덩어리는 그 위의 웃돈이다.</remarks>
+    public const int Version = 9;
 
     /// <summary>장 사이 소구역 수(깊이). 갈림길은 각 깊이에서 <see cref="Lanes"/>갈래.</summary>
     public const int LegsPerChapter = 2;
@@ -465,6 +469,59 @@ public static class OpenSectorGen
         return rocks;
     }
 
+    /// <summary>
+    /// 들판 전체에 <see cref="ScenerySpacing"/> 간격으로 깔리는 실물.
+    ///
+    /// **덩어리와 다른 규칙이다.** 덩어리(<see cref="RockField"/>)는 밀도 지도가 "여기가
+    /// 빽빽하다"고 정하는 자리고, 이쪽은 "우주가 어디서도 비지 않는다"라 균등 격자다.
+    /// 칸 안에서 흔드는 것은 줄이 보이면 들판이 아니라 벽지가 되기 때문이다.
+    ///
+    /// **수를 세지 말고 간격을 보라** - 60 km 들판이면 14,400개, 100 km 메인이면 40,000개다.
+    /// 전부 SpawnDef 하나(약 100 B)일 뿐이고 실제로 서는 것은 Campaign이 거리로 꺼낸
+    /// 서른 개 안쪽이다. 지나간 것은 목록으로 돌아간다(<c>Campaign.RecycleScenery</c>) -
+    /// 그 회수가 없으면 60 km를 건너는 동안 14,400개가 전부 쌓인다.
+    /// </summary>
+    public static List<SpawnDef> Scenery(SectorDef sector, int chapter)
+    {
+        var into = new List<SpawnDef>();
+
+        if (sector == null || !sector.Field)
+            return into;
+
+        var rng = new DeterministicRng(Ballistics.Hash(RunState.Seed, chapter, ScenerySalt));
+        rng.NextUInt();
+        rng.NextUInt();
+
+        Rect bounds = sector.FieldBounds;
+        float jitter = ScenerySpacing * 0.4f;
+
+        for (float x = bounds.xMin + ScenerySpacing * 0.5f; x < bounds.xMax; x += ScenerySpacing)
+        {
+            for (float y = bounds.yMin + ScenerySpacing * 0.5f; y < bounds.yMax; y += ScenerySpacing)
+            {
+                Vector2 at = new(x + rng.Range(-jitter, jitter), y + rng.Range(-jitter, jitter));
+
+                // 도착점은 비워 둔다. 워프 도착은 언제나 원점이라(불변식) 거기 실물이 서면
+                // 나오는 순간이 충각이다.
+                if (at.sqrMagnitude < ArrivalClear * ArrivalClear)
+                    continue;
+
+                into.Add(new SpawnDef
+                {
+                    ship = Rock,
+                    team = "Neutral",
+                    hulk = true,
+                    scenery = true,
+                    x = at.x,
+                    y = at.y,
+                    facing = rng.Next01() < 0.5f ? -1f : 1f,
+                });
+            }
+        }
+
+        return into;
+    }
+
     private static void RockField(List<SpawnDef> into, Vector2 centre, ref DeterministicRng rng, float scale = 1f)
     {
         int rocks = Mathf.RoundToInt(rng.Range(MinRocksPerCluster, MaxRocksPerCluster + 0.999f) * scale);
@@ -511,11 +568,17 @@ public static class OpenSectorGen
     private const float DensityWavelength = 40000f; // 첫 겹 파장. 들판 한 변의 2/3
     private const int MinSitesPerCluster = 3;
     private const int MaxSitesPerCluster = 4;
-    private const int MinMainRockFields = 3;       // 메인 100 km. 밭 하나 = 운석 4~8 = TraceWorld에 배 4~8척
-    private const int MaxMainRockFields = 4;
+    private const int MinMainRockFields = 5;       // 메인 100 km. 밭 하나 = 운석 8~14 = TraceWorld에 배 8~14척
+    private const int MaxMainRockFields = 7;
     private const int RockSalt = 0x524F434B;       // "ROCK". Make의 시드와 겹치지 않게
-    private const int MinRocksPerCluster = 4;
-    private const int MaxRocksPerCluster = 8;
+    /// <summary>실물 하나 사이(m). **이 숫자가 곧 환경 밀도다** - 오너 손잡이 하나다.</summary>
+    public const float ScenerySpacing = 500f;
+    private const float ArrivalClear = 600f;       // 도착점 둘레는 비운다. 나오는 순간 충각이면 안 된다
+    private const int ScenerySalt = 0x53434E52;    // "SCNR"
+    // 밭 하나가 반경 1950 m(ClusterRadius x 1.3)에 앉으므로 수가 곧 밀도다 - 반경은 그대로
+    // 두고 수만 올린다. 반경을 조이면 운석끼리 겹쳐서 밭이 아니라 덩어리 하나로 보인다.
+    private const int MinRocksPerCluster = 8;
+    private const int MaxRocksPerCluster = 14;
     public const string Rock = "asteroid";
     private const int PlaceTries = 20;
 
@@ -573,7 +636,10 @@ public static class OpenSectorGen
 
         for (int i = 0; i < count; i++)
         {
-            string ship = t.pool[(int)rng.Range(0, t.pool.Length - 0.001f)];
+            // 풀의 "derelict"는 한 척이 아니라 와일드카드다 - 로딩 때 실제 설계도를 부숴
+            // 만든 난파선 중 하나로 바뀐다. 변종 수십 개를 풀 JSON에 손으로 적지 않는 길.
+            string ship = DerelictGen.PickName(
+                t.pool[(int)rng.Range(0, t.pool.Length - 0.001f)], ref rng);
 
             sector.spawns.Add(new SpawnDef
             {
