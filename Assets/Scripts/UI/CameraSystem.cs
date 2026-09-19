@@ -60,7 +60,14 @@ public class CameraSystem : MonoBehaviour
             return;
         }
 
-        _pauseWas = false;
+        // 정지에서 풀리는 프레임. Aim은 위치가 하드락이라 그냥 두면 사람이 끌어다 놓은 자리에서 배로
+        // 순간이동한다 - 컷신 복귀와 같은 되돌림 lerp를 짧게 탄다. 시작점은 배 기준 오프셋이라 배가 움직여도 따라간다.
+        if (_pauseWas)
+        {
+            _pauseWas = false;
+            if (myType == TrackingType.Aim && A != null)
+                BeginReturn(Ballistics.PauseCameraReturnSeconds);
+        }
 
         switch(myType)
         {
@@ -191,6 +198,7 @@ public class CameraSystem : MonoBehaviour
     private float _cutsceneZoomVelocity;
     private float _cutsceneSize;
     private const float ReturnDuration = 3f;
+    private float _returnDuration = ReturnDuration;
     private float _returnRemaining;
     private Vector2 _returnOffset;
     private float _returnSize;
@@ -281,12 +289,17 @@ public class CameraSystem : MonoBehaviour
         _instance.ratio = _instance._savedRatio;
         _instance._returnRemaining = 0f;
         if (blend && _instance.myType == TrackingType.Aim && _instance.A != null)
-        {
-            _instance._returnOffset = (Vector2)(_instance.transform.position - _instance.A.position);
-            _instance._returnSize = _instance.cam.orthographicSize;
-            _instance._returnRemaining = ReturnDuration;
-            _instance.zoomVelocity = 0f;
-        }
+            _instance.BeginReturn(ReturnDuration);
+    }
+
+    /// <summary>지금 자리·줌에서 Aim의 자기 자리로 seconds 동안 돌아온다.</summary>
+    private void BeginReturn(float seconds)
+    {
+        _returnOffset = (Vector2)(transform.position - A.position);
+        _returnSize = cam.orthographicSize;
+        _returnDuration = seconds;
+        _returnRemaining = seconds;
+        zoomVelocity = 0f;
     }
 
     void Following()
@@ -477,7 +490,7 @@ public class CameraSystem : MonoBehaviour
         if (_returnRemaining > 0f)
         {
             _returnRemaining = Mathf.Max(0f, _returnRemaining - Time.unscaledDeltaTime);
-            float t = 1f - _returnRemaining / ReturnDuration;
+            float t = 1f - _returnRemaining / _returnDuration;
             t = t * t * (3f - 2f * t);
             Vector2 position = Vector2.Lerp((Vector2)A.position + _returnOffset, newPosition, t);
             transform.position = new Vector3(position.x, position.y, transform.position.z);

@@ -604,6 +604,7 @@ public static partial class Ballistics
     public const float SchematicGridAlpha = 0.18f; // 1 m 격자선
     public const float ReadoutBackAlpha = 1f;      // 라벨 뒤판
     public const float SchematicBlendSeconds = 0.5f; // 들어가고 나오는 전환(건조 와이어프레임 쓸기)
+    public const float PauseCameraReturnSeconds = 0.8f; // 정지 해제 뒤 카메라가 배로 돌아오는 시간. 0이면 순간이동
     public const float PauseZoomMin = 3f;          // 반높이 m. 3이면 1 m 칸이 화면 1/6 - 서브셀이 보인다
     public const float PauseZoomMax = 40f;
     public const float PauseCameraMargin = 10f;    // 정지 카메라가 플레이어 배 격자 밖으로 나갈 수 있는 거리
