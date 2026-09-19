@@ -2391,10 +2391,13 @@ public sealed class ShipPainter : EditorWindow
         var mark = new Color(0.4f, 0.9f, 1f);
         DrawWire(_wireInProgress, mark);
 
-        // 마지막 점에서 커서까지 미리보기.
+        // 마지막 점에서 커서까지 미리보기. 판 없는 칸을 지나면 빨강.
         if (_brushIsWire && clip.Contains(Event.current.mousePosition))
-            Line(GridToScreen(_wireInProgress[_wireInProgress.Count - 1]),
-                 GridToScreen(WireSnap(Event.current.mousePosition)), new Color(0.4f, 0.9f, 1f, 0.5f));
+        {
+            Vector2 last = _wireInProgress[_wireInProgress.Count - 1], next = WireSnap(Event.current.mousePosition);
+            Line(GridToScreen(last), GridToScreen(next),
+                 WireOnPlates(last, next) ? new Color(0.4f, 0.9f, 1f, 0.5f) : new Color(1f, 0.3f, 0.25f, 0.7f));
+        }
     }
 
     private void DrawWire(List<Vector2> w, Color c)
@@ -2431,6 +2434,13 @@ public sealed class ShipPainter : EditorWindow
         if (_wireInProgress.Count > 0 && p == _wireInProgress[_wireInProgress.Count - 1])
             return;
 
+        Vector2 from = _wireInProgress.Count > 0 ? _wireInProgress[_wireInProgress.Count - 1] : p;
+        if (!WireOnPlates(from, p))
+        {
+            _status = "판 없는 칸을 지난다 - 전선은 판 위로만 간다.";
+            return;
+        }
+
         _wireInProgress.Add(p);
 
         if (onDevice && _wireInProgress.Count >= 2)
@@ -2439,6 +2449,24 @@ public sealed class ShipPainter : EditorWindow
             _status = onDevice
                 ? $"({cell.x},{cell.y})에서 전선 시작."
                 : $"전선 점 {_wireInProgress.Count}. 기기를 클릭하거나 Enter로 끝낸다.";
+    }
+
+    /// <summary>
+    /// 전선은 판 위로만 간다. 런타임 래스터(Ship.RasterizeWires)는 판 없는 샘플을 조용히 건너뛰므로,
+    /// 여기서 안 막으면 허공을 잇는 전선이 저장된다. 같은 눈금(floor)으로 같은 점을 본다.
+    /// </summary>
+    private bool WireOnPlates(Vector2 a, Vector2 b)
+    {
+        int n = Mathf.Max(1, Mathf.CeilToInt((b - a).magnitude / (WireStep * 0.5f)));
+
+        for (int k = 0; k <= n; k++)
+        {
+            Vector2 p = Vector2.Lerp(a, b, (float)k / n);
+            if (!_plates.ContainsKey(new Vector2Int(Mathf.FloorToInt(p.x), Mathf.FloorToInt(p.y))))
+                return false;
+        }
+
+        return true;
     }
 
     private void CommitWire()
