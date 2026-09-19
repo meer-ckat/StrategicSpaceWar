@@ -2437,7 +2437,7 @@ public sealed class ShipPainter : EditorWindow
         Vector2 from = _wireInProgress.Count > 0 ? _wireInProgress[_wireInProgress.Count - 1] : p;
         if (!WireOnPlates(from, p))
         {
-            _status = "판 없는 칸을 지난다 - 전선은 판 위로만 간다.";
+            _status = "판도 실내도 기기도 아닌 칸을 지난다 - 전선 불가.";
             return;
         }
 
@@ -2452,8 +2452,9 @@ public sealed class ShipPainter : EditorWindow
     }
 
     /// <summary>
-    /// 전선은 판 위로만 간다. 런타임 래스터(Ship.RasterizeWires)는 판 없는 샘플을 조용히 건너뛰므로,
-    /// 여기서 안 막으면 허공을 잇는 전선이 저장된다. 같은 눈금(floor)으로 같은 점을 본다.
+    /// 전선이 지날 수 있는 자리: 판, 후면이 깔리는 실내 칸(<see cref="_interiorCache"/>), 기기 상자 안
+    /// (포는 선체 밖에 걸려 있고 원자로는 3×3 가운데가 비어 있다). 런타임 래스터(Ship.RasterizeWires)는
+    /// 판 없는 샘플을 조용히 건너뛰므로 여기서 안 막으면 허공을 잇는 전선이 저장된다. 같은 눈금(floor).
     /// </summary>
     private bool WireOnPlates(Vector2 a, Vector2 b)
     {
@@ -2462,11 +2463,44 @@ public sealed class ShipPainter : EditorWindow
         for (int k = 0; k <= n; k++)
         {
             Vector2 p = Vector2.Lerp(a, b, (float)k / n);
-            if (!_plates.ContainsKey(new Vector2Int(Mathf.FloorToInt(p.x), Mathf.FloorToInt(p.y))))
-                return false;
+            var cell = new Vector2Int(Mathf.FloorToInt(p.x), Mathf.FloorToInt(p.y));
+
+            if (_plates.ContainsKey(cell) || _interiorCache.Contains(cell) || InsideDevice(p))
+                continue;
+
+            return false;
         }
 
         return true;
+    }
+
+    /// <summary>격자 연속 좌표 → 배 좌표(칸 중심 = CellToShip, y 뒤집힘). 기기 상자 폴리곤과 같은 좌표계.</summary>
+    private bool InsideDevice(Vector2 grid)
+    {
+        var ship = new Vector2(grid.x - 0.5f, -(grid.y - 0.5f));
+
+        foreach (KeyValuePair<Vector2Int, Placed> pair in _modules)
+        {
+            Placed m = pair.Value;
+            if (!IsDevice(m.def)) continue;
+
+            Vector2[] poly = ModulePlacement.ModulePolygon(pair.Key, m.def, m.rot, m.size, m.offset, out _, out _);
+            if (InsidePolygon(ship, poly)) return true;
+        }
+
+        return false;
+    }
+
+    private static bool InsidePolygon(Vector2 p, Vector2[] poly)
+    {
+        bool inside = false;
+        for (int i = 0, j = poly.Length - 1; i < poly.Length; j = i++)
+        {
+            if ((poly[i].y > p.y) != (poly[j].y > p.y) &&
+                p.x < (poly[j].x - poly[i].x) * (p.y - poly[i].y) / (poly[j].y - poly[i].y) + poly[i].x)
+                inside = !inside;
+        }
+        return inside;
     }
 
     private void CommitWire()
