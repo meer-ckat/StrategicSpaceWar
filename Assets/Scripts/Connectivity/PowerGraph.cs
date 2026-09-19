@@ -22,6 +22,7 @@ public sealed class PowerGraph
     public int[] ea = new int[16], eb = new int[16], ewire = new int[16], eseg = new int[16];   // 간선 → (전선, 구간)
     public float[] er = new float[16];
     public bool[] ealive = new bool[16];
+    public bool[] efault = new bool[16];     // 접지 사고 노드로 가는 반쪽 간선. 생사는 SegmentIntact가 아니라 단락 여부로 읽는다
     public float[] ei = new float[16];       // 간선 전류(부호 없음). 트리 밖 간선은 0
 
     // 풀이 스크래치. 노드·간선 수가 자랄 때만 다시 잡는다.
@@ -45,11 +46,11 @@ public sealed class PowerGraph
         return n;
     }
 
-    public int AddEdge(int a, int b, float r, int wire = 0, int seg = 0, bool alive = true)
+    public int AddEdge(int a, int b, float r, int wire = 0, int seg = 0, bool alive = true, bool fault = false)
     {
         if (edgeCount == ea.Length) GrowEdges();
         int e = edgeCount++;
-        ea[e] = a; eb[e] = b; er[e] = r; ewire[e] = wire; eseg[e] = seg; ealive[e] = alive; ei[e] = 0f;
+        ea[e] = a; eb[e] = b; er[e] = r; ewire[e] = wire; eseg[e] = seg; ealive[e] = alive; ei[e] = 0f; efault[e] = fault;
         return e;
     }
 
@@ -159,6 +160,6 @@ public sealed class PowerGraph
         int c = ea.Length * 2;
         System.Array.Resize(ref ea, c); System.Array.Resize(ref eb, c); System.Array.Resize(ref er, c);
         System.Array.Resize(ref ewire, c); System.Array.Resize(ref eseg, c); System.Array.Resize(ref ealive, c);
-        System.Array.Resize(ref ei, c);
+        System.Array.Resize(ref ei, c); System.Array.Resize(ref efault, c);
     }
 }

@@ -593,6 +593,7 @@ public static partial class Ballistics
     public const float PowerNominal = 320f;        // 소비자가 정상으로 보는 전압(L-N)
     public const float PowerBrownout = 0.5f;       // 이 비율 밑이면 NO POWER. 사이는 저하
     public const float WireOhmPerMetre = 0.002f;   // 케이블 저항
+    public const float WireFaultOhms = 0.001f;     // 관통된 구간의 선체 접지 저항. 단락은 특수 케이스가 아니라 이 저항이다
     public const float WireHeatCapacity = 400f;    // J/K per m
     public const float WireCoolPerSecond = 0.05f;  // 초당 (T-주변)×이만큼 식는다
     public const float WireBurnKelvin = 400f;      // 이 온도를 넘으면 그 구간이 탄다 = 끊긴다

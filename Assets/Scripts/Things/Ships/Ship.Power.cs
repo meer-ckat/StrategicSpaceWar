@@ -99,7 +99,7 @@ public partial class Ship
             if (_grid.ewire[e] != wire || _grid.eseg[e] != seg) continue;
             r.amps = _grid.ei[e];
             float v = Mathf.Max(_grid.v[_grid.ea[e]], _grid.v[_grid.eb[e]]);
-            if (_grid.ealive[e]) r.state = v >= Ballistics.PowerNominal * Ballistics.PowerBrownout ? WireState.Live : WireState.Dark;
+            if (_grid.ealive[e] && !_grid.efault[e]) r.state = v >= Ballistics.PowerNominal * Ballistics.PowerBrownout ? WireState.Live : WireState.Dark;
             break;
         }
 
@@ -233,7 +233,7 @@ public partial class Ship
                 seg = s,
                 a = run.local[s],
                 b = run.local[s + 1],
-                state = !_grid.ealive[e] ? WireState.Cut : v >= live ? WireState.Live : WireState.Dark,
+                state = !_grid.ealive[e] || _grid.efault[e] ? WireState.Cut : v >= live ? WireState.Live : WireState.Dark,
                 amps = _grid.ei[e],
                 kelvin = run.temp[s],
                 ohms = _grid.er[e],
@@ -374,6 +374,11 @@ public partial class Ship
         return DesignMap.Inside(c) && ShipGrid.Solid(DesignMap.cells[c.x, c.y]);
     }
 
+    private int _shortedSegments;   // 0에서 시작 - 첫 풀이의 기기 서명 재빌드가 이미 사고 노드를 놓는다
+
+    /// <summary>단락 = 판 위에서 관통당한 구간. 탄 것·판이 사라진 것·잔해로 떠난 것은 열린 회로다 - 붙을 선체가 없다.</summary>
+    private bool Shorted(WireRun run, int s) => !run.burned[s] && !run.holed[s] && Cause(run, s) == CutCause.Breached;
+
     public bool BreakerTripped(int wire) => wire >= 0 && wire < _wires.Count && _wires[wire].tripped;
 
     /// <summary>사람이 올린다. 과부하 원인이 그대로면 다시 내려간다 - 그것이 이 결정의 값이다.</summary>
@@ -422,11 +427,25 @@ public partial class Ship
             RebuildPowerNet();
         }
 
+        // 단락 구간 수가 바뀌면 사고 노드를 다시 놓아야 한다 - 노드는 재빌드에서만 생긴다.
+        int shorted = 0;
+        for (int w = 0; w < _wires.Count; w++)
+            for (int s = 0; s < _wires[w].length.Length; s++)
+                if (Shorted(_wires[w], s)) shorted++;
+
+        if (shorted != _shortedSegments)
+        {
+            _shortedSegments = shorted;
+            RebuildPowerNet();
+        }
+
         int cut = 0;
         for (int e = 0; e < _grid.edgeCount; e++)
         {
-            _grid.ealive[e] = SegmentIntact(_wires[_grid.ewire[e]], _grid.eseg[e]);
-            if (!_grid.ealive[e]) cut++;
+            WireRun run = _wires[_grid.ewire[e]];
+            int s = _grid.eseg[e];
+            _grid.ealive[e] = _grid.efault[e] ? Shorted(run, s) && !run.tripped : SegmentIntact(run, s);
+            if (!_grid.ealive[e] || _grid.efault[e]) cut++;
         }
 
         // M3: 포탑 모터. 도는 중이면 (Ra, 역기전력 ke·ω), 서 있으면 열린 회로(전류 0). 기동 순간이 전류 최대다.
@@ -519,7 +538,20 @@ public partial class Ship
                 if (p > 0 && prev != node)
                 {
                     int s = p - 1;
-                    _grid.AddEdge(prev, node, run.length[s] * Ballistics.WireOhmPerMetre, w, s, SegmentIntact(run, s));
+                    float r = run.length[s] * Ballistics.WireOhmPerMetre;
+
+                    // 관통된 구간은 끊긴 것이 아니라 **눌려서 선체에 붙은** 것이다 - 가운데에 접지 사고 노드
+                    // (부하 WireFaultOhms)를 놓고 양쪽을 반씩 잇는다. 전류는 그 노드를 지나 계속 갈 수도 있지만
+                    // 1 mΩ이 다 삼킨다. 차단기가 없으면 원자로에서 여기까지의 구간이 전부 타고(HeatWires), 원자로
+                    // 단자 전압이 바닥이라 배 전체가 그 몇 초 동안 정전이다. 있으면 그 전선만 내려간다.
+                    if (Shorted(run, s))
+                    {
+                        int fault = _grid.AddNode(PowerGraph.Kind.Load, 0f, Ballistics.WireFaultOhms, _map.ToCell(run.local[s]));
+                        _grid.AddEdge(prev, fault, r * 0.5f, w, s, true, fault: true);
+                        _grid.AddEdge(fault, node, r * 0.5f, w, s, true, fault: true);
+                    }
+                    else
+                        _grid.AddEdge(prev, node, r, w, s, SegmentIntact(run, s));
                 }
 
                 prev = node;

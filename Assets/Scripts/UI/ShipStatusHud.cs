@@ -475,7 +475,7 @@ public sealed class ShipStatusHud : MonoBehaviour
                 Ship.CutCause.Holed => "끊김 · 판이 없는 자리",
                 Ship.CutCause.PlateGone => "끊김 · 판 소실",
                 Ship.CutCause.PlateLeft => "끊김 · 판이 잔해로 떠남",
-                Ship.CutCause.Breached => "끊김 · 판 관통",
+                Ship.CutCause.Breached => "단락 · 관통으로 눌려 선체에 붙음",
                 Ship.CutCause.Tripped => "차단기 내려감 · 다시 클릭하면 올린다",
                 _ => "끊김",
             },
