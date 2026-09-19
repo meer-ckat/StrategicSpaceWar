@@ -169,3 +169,6 @@ Packages/packages-lock.json linguist-generated
 
 # Exceptions for .asset files such as lightning pre-baking
 LightingData.asset     binary
+
+# README images: stay in git proper so GitHub can render them without LFS bandwidth
+Docs/img/*.png -filter -diff -merge -text
