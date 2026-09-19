@@ -537,6 +537,13 @@ public partial class Ship : Thing
         // 근처라 마치 그럴듯해 보인다.
         ShipDef blueprint = string.IsNullOrEmpty(shipDefName) ? null : ShipDef.Load(shipDefName);
         ShipDef design = RunShipFor(blueprint);
+
+        // 전선은 손상이 아니라 설계다. 손상 저장본(run-ship.json)은 저장 순간의 설계도 raw를 통째로 들고
+        // 있어서 그 뒤 페인터에서 고친 전력망이 플레이어 배에만 안 들어왔다 - 배치·후면만 저장본을 믿고
+        // 전선은 언제나 설계도(basedOn)에서 읽는다.
+        if (blueprint != null && design != null && design != blueprint)
+            design.wires = blueprint.wires;
+
         _design = design;
 
         // 인스펙터에 남아 있던 목록은 곧 지울 자식을 가리킨다.
