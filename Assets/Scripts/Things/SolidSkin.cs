@@ -77,6 +77,7 @@ public sealed class SolidSkin : MonoBehaviour
     private IDamageable _damageable;
     private Color _base = Color.white;
     private float _painted = -1f;
+    private float _fade;
 
     /// <summary>
     /// 런타임에 만든 자식(포탑의 터렛 같은 것)을 def 없이 설정한다. **켜기 전에 부른다** -
@@ -178,8 +179,15 @@ public sealed class SolidSkin : MonoBehaviour
             Repaint();
 
         // 바뀔 때만 네이티브를 만진다.
-        // 회로도에서는 모듈 그림이 전부 빠지고 SchematicView의 상자가 대신 선다.
-        bool show = (!_interior || RoomView.Showing) && !PauseControl.Schematic;
+        // 회로도에서는 모듈 그림이 전부 빠지고 SchematicView의 상자가 대신 선다 - 전환 중엔 blend만큼 사라진다.
+        float fade = Mathf.SmoothStep(0f, 1f, PauseControl.Blend);
+        if (!Mathf.Approximately(fade, _fade))
+        {
+            _fade = fade;
+            Repaint();
+        }
+
+        bool show = (!_interior || RoomView.Showing) && !(PauseControl.Schematic && fade >= 1f);
 
         if (show != _shown)
         {
@@ -194,7 +202,9 @@ public sealed class SolidSkin : MonoBehaviour
 
         _painted = health;
         // 죽은 색을 따로 받지 않는다. 같은 색을 태운 것이라 끝까지 같은 재료로 읽힌다.
-        _renderer.color = Color.Lerp(_base * 0.2f, _base, health);
+        Color c = Color.Lerp(_base * 0.2f, _base, health);
+        c.a *= 1f - _fade;
+        _renderer.color = c;
     }
 
     /// <summary>

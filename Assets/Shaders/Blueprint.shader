@@ -11,6 +11,7 @@ Shader "SUPERRADIANCE/Blueprint"
         _GridAlpha("Grid Alpha", Float) = 0.18
         _Front("Build Front", Float) = 1000000
         _Band("Front Band (m)", Float) = 3
+        _Fade("Fade", Float) = 1
         _ShipPos("Ship Pos", Vector) = (0, 0, 0, 0)
         _ShipRot("Ship Rot (cos, sin)", Vector) = (1, 0, 0, 0)
     }
@@ -45,6 +46,7 @@ Shader "SUPERRADIANCE/Blueprint"
             float _GridAlpha;
             float _Front;
             float _Band;
+            float _Fade;
             float4 _ShipPos;
             float4 _ShipRot;
             CBUFFER_END
@@ -91,7 +93,7 @@ Shader "SUPERRADIANCE/Blueprint"
                 float edge = saturate(Grid(i.world, 1.0) * _GridAlpha + Grid(i.world, 10.0) * _GridAlpha * 1.5);
                 half3 rgb = lerp(_Void.rgb, _Steel.rgb, edge);
 
-                return half4(rgb, _Dim * mask);
+                return half4(rgb, _Dim * mask * _Fade);
             }
             ENDHLSL
         }

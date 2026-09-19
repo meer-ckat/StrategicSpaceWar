@@ -130,6 +130,36 @@ public sealed class PauseControl : MonoBehaviour
         if (_skins.Count == 0) { min = 0f; max = 0f; }
     }
 
+    // 전선이 지나야 하는 축 구간. 판 bbox만 쓰면 화면 귀퉁이 배경이 첫 프레임에 덮이고 마지막 프레임에
+    // 걷혀 전환이 끊겨 보인다 - 화면 네 귀도 같은 축(플레이어 로컬 x+y)에 올려 합친다. 시간은 판 구간
+    // 기준으로 튜닝된 속도를 지키되 두 배까지만 늘린다.
+    private void SweepRange(out float lo, out float hi, out float seconds)
+    {
+        CollectSkins(out float min, out float max);
+        float shipSpan = Mathf.Max(1f, max - min);
+
+        Ship player = GameManager.Player();
+        Camera cam = Camera.main;
+        if (player != null && cam != null)
+        {
+            float h = cam.orthographicSize * 1.3f, w = h * cam.aspect;   // 덮개 쿼드와 같은 여유
+            Vector2 c = cam.transform.position;
+            for (int i = 0; i < 4; i++)
+            {
+                Vector2 corner = c + new Vector2((i & 1) == 0 ? -w : w, (i & 2) == 0 ? -h : h);
+                Vector2 local = player.transform.InverseTransformPoint(corner);
+                float axis = local.x + local.y;
+                if (axis < min) min = axis;
+                if (axis > max) max = axis;
+            }
+        }
+
+        lo = min - ConstructionFx.Band * 2f;
+        hi = max + ConstructionFx.Band * 2f;
+        seconds = Mathf.Clamp(Ballistics.SchematicBlendSeconds * (hi - lo) / shipSpan,
+            Ballistics.SchematicBlendSeconds, Ballistics.SchematicBlendSeconds * 2f);
+    }
+
     private void SetFront(float front)
     {
         Front = front;
@@ -148,11 +178,10 @@ public sealed class PauseControl : MonoBehaviour
     /// <summary>들어간다: 판이 위쪽 대각선부터 와이어프레임이 되고 덮개가 차오른다. 시뮬은 첫 프레임부터 멎어 있다.</summary>
     private IEnumerator Enter()
     {
-        CollectSkins(out float min, out float max);
         SetWire(Palette.Steel.WithAlpha(Ballistics.SchematicEdgeAlpha));
-        float lo = min - ConstructionFx.Band * 2f, hi = max + ConstructionFx.Band * 2f;
+        SweepRange(out float lo, out float hi, out float seconds);
 
-        for (float t = Blend; t < 1f; t += Time.unscaledDeltaTime / Ballistics.SchematicBlendSeconds)
+        for (float t = Blend; t < 1f; t += Time.unscaledDeltaTime / seconds)
         {
             Blend = t;
             SetFront(Mathf.Lerp(hi, lo, t));
@@ -167,10 +196,9 @@ public sealed class PauseControl : MonoBehaviour
     /// <summary>나온다: 시뮬은 즉시 돈다. 그림만 건조 공개(Reveal)와 같은 방향으로 돌아온다.</summary>
     private IEnumerator Exit()
     {
-        CollectSkins(out float min, out float max);
-        float lo = min - ConstructionFx.Band * 2f, hi = max + ConstructionFx.Band * 2f;
+        SweepRange(out float lo, out float hi, out float seconds);
 
-        for (float t = 1f - Blend; t < 1f; t += Time.unscaledDeltaTime / Ballistics.SchematicBlendSeconds)
+        for (float t = 1f - Blend; t < 1f; t += Time.unscaledDeltaTime / seconds)
         {
             Blend = 1f - t;
             SetFront(Mathf.Lerp(lo, hi, t));

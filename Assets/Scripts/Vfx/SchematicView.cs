@@ -21,6 +21,7 @@ public sealed class SchematicView : MonoBehaviour
     private static readonly int GridAlphaId = Shader.PropertyToID("_GridAlpha");
     private static readonly int FrontId = Shader.PropertyToID("_Front");
     private static readonly int BandId = Shader.PropertyToID("_Band");
+    private static readonly int FadeId = Shader.PropertyToID("_Fade");
     private static readonly int ShipPosId = Shader.PropertyToID("_ShipPos");
     private static readonly int ShipRotId = Shader.PropertyToID("_ShipRot");
 
@@ -160,6 +161,7 @@ public sealed class SchematicView : MonoBehaviour
         _props.SetFloat(GridAlphaId, Ballistics.SchematicGridAlpha);
         _props.SetFloat(FrontId, Mathf.Clamp(PauseControl.Front, -1e5f, 1e5f));
         _props.SetFloat(BandId, ConstructionFx.Band * 2f);
+        _props.SetFloat(FadeId, Mathf.SmoothStep(0f, 1f, blend));   // 쓸기 위에 페이드 - 전선 하나로는 뚝 끊긴다
         _props.SetVector(ShipPosId, new Vector4(pos.x, pos.y, 0f, 0f));
         _props.SetVector(ShipRotId, new Vector4(Mathf.Cos(rad), Mathf.Sin(rad), 0f, 0f));
         _cover.SetPropertyBlock(_props);
