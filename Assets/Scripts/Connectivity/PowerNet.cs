@@ -7,6 +7,17 @@ using UnityEngine;
 /// </summary>
 public static class PowerNet
 {
+    /// <summary>
+    /// M3 회차 (표 21번). 부하가 역기전력을 가진다 - 모터 k는 i = (v[k] - eLoad[k]) / rLoad[k].
+    /// eLoad[k] = 0이면 위의 Solve와 같아야 한다. 두 패스·할당 없음은 그대로.
+    /// 힌트는 순서대로 하나씩: (1) 노턴 등가 (2) "가지 밑 = 컨덕턴스 + 주입 전류" 한 쌍 (3) 뒤로 패스에서
+    /// 주입 전류도 부모로 접는다. 지금은 스텁 - eLoad를 버린다. 테스트 6·7·8·9 중 e ≠ 0인 것이 빨갛다.
+    /// </summary>
+    public static void Solve(float emf, int[] parent, float[] rBranch, float[] rLoad, float[] eLoad, float[] v, float[] i, int n = -1)
+    {
+        Solve(emf, parent, rBranch, rLoad, v, i, n);
+    }
+
     // 표 20번. 뒤로 한 번(잎→뿌리, 합성 컨덕턴스), 앞으로 한 번(뿌리→잎, 전압 강하). 반복 없음 -
     // 전류를 되먹이는 스윕은 단락(1 mΩ)에서 발산한다(수축률 = rBranch/rLoad ≫ 1).
     public static void Solve(float emf, int[] parent, float[] rBranch, float[] rLoad, float[] v, float[] i, int n = -1)

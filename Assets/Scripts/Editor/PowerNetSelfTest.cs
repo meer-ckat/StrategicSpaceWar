@@ -86,6 +86,67 @@ public static class PowerNetSelfTest
             Near(v[2], E, "무부하: 강하 없음");
         }
 
+        // ---- M3: 모터 = 역기전력을 가진 부하. i = (v - e) / r. 전기기기: E = V - Ia·Ra ----
+
+        // 6) 모터 하나 (Ra 10, e 200). 직렬 한 바퀴: (E - e) / (Rs + 케이블 + Ra)
+        {
+            var parent = new[] { -1, 0 };
+            var rb = new[] { 0.1f, 0.2f };
+            var rl = new[] { 0f, 10f };
+            var el = new[] { 0f, 200f };
+            var v = new float[2]; var i = new float[2];
+            PowerNet.Solve(E, parent, rb, rl, el, v, i);
+
+            float I = (E - 200f) / (0.1f + 0.2f + 10f);
+            Near(i[1], I, "모터: 전류 = (E - e) / R합");
+            Near(v[1], 200f + I * 10f, "모터: 단자 전압 = e + I·Ra");
+            Near(v[0], E - I * 0.1f, "모터: 버스 전압");
+        }
+
+        // 7) 무부하 회전: e = E 이면 전류 0, 강하 없음 (역기전력이 전원과 맞선다)
+        {
+            var parent = new[] { -1, 0 };
+            var rb = new[] { 0.1f, 0.2f };
+            var rl = new[] { 0f, 10f };
+            var el = new[] { 0f, E };
+            var v = new float[2]; var i = new float[2];
+            PowerNet.Solve(E, parent, rb, rl, el, v, i);
+            Near(i[1], 0f, "무부하 회전: 전류 0");
+            Near(v[1], E, "무부하 회전: 단자 전압 = E");
+        }
+
+        // 8) 버스에 저항 부하(0.2/10)와 모터(0.2/10, e 200) 병렬. 버스 전압은 KCL로 손 계산:
+        //    (E - v0)/Rs = v0/10.2 + (v0 - 200)/10.2
+        {
+            var parent = new[] { -1, 0, 0 };
+            var rb = new[] { 0.1f, 0.2f, 0.2f };
+            var rl = new[] { 0f, 10f, 10f };
+            var el = new[] { 0f, 0f, 200f };
+            var v = new float[3]; var i = new float[3];
+            PowerNet.Solve(E, parent, rb, rl, el, v, i);
+
+            float v0 = (E * 10.2f + 0.1f * 200f) / (10.2f + 0.2f);
+            Near(v[0], v0, "병렬 모터: 버스 전압");
+            Near(i[1], v0 / 10.2f, "병렬 모터: 저항 부하 전류");
+            Near(i[2], (v0 - 200f) / 10.2f, "병렬 모터: 모터 전류");
+            Near(i[1] + i[2], i[0], "병렬 모터: 키르히호프");
+        }
+
+        // 9) 회생: e = 340 > 버스. 모터가 발전기가 되어 전류가 거꾸로 흐른다 - 부호가 답이다
+        {
+            var parent = new[] { -1, 0, 0 };
+            var rb = new[] { 0.1f, 0.2f, 0.2f };
+            var rl = new[] { 0f, 10f, 10f };
+            var el = new[] { 0f, 0f, 340f };
+            var v = new float[3]; var i = new float[3];
+            PowerNet.Solve(E, parent, rb, rl, el, v, i);
+
+            float v0 = (E * 10.2f + 0.1f * 340f) / (10.2f + 0.2f);
+            Near(v[0], v0, "회생: 버스 전압이 E에 더 가깝다");
+            Near(i[2], (v0 - 340f) / 10.2f, "회생: 모터 전류 음수");
+            Near(i[1] + i[2], i[0], "회생: 키르히호프");
+        }
+
         Debug.Log($"[PowerNet] {_pass}개 통과, {_fail}개 실패.");
     }
 
