@@ -178,7 +178,8 @@ public sealed class SolidSkin : MonoBehaviour
             Repaint();
 
         // 바뀔 때만 네이티브를 만진다.
-        bool show = !_interior || RoomView.Showing;
+        // 회로도에서는 모듈 그림이 전부 빠지고 SchematicView의 상자가 대신 선다.
+        bool show = (!_interior || RoomView.Showing) && !PauseControl.Schematic;
 
         if (show != _shown)
         {

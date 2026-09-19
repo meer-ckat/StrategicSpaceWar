@@ -360,6 +360,9 @@ public abstract class Armor : Thing
     /// </summary>
     public bool IsBreached(int subIndex) => _solid[subIndex] > 0f && _hp[subIndex] <= 0f;
 
+    /// <summary>살아 있는 서브셀 수. 검사 패널용.</summary>
+    public int AliveSubs => SubCount - _dead;
+
     /// <summary>구멍을 뚫은 그 명중에서 걸린다. 그래서 기압 계산이 서브셀을 훑을 일이 없다.</summary>
     public bool AnyBreached { get; private set; }
 
@@ -592,6 +595,29 @@ public abstract class Armor : Thing
     }
 
     private int _lastPenetrateSoundFrame = -1;
+
+    /// <summary>
+    /// 전선이 타서 서브셀 하나가 죽는다. <see cref="ApplyDamage"/>의 탄착 경로(관통 소리·파편·
+    /// RunLog 관통·붕괴)를 안 탄다 - 전기 사고를 피탄으로 기록하면 엔딩 판정이 거짓말을 한다.
+    /// 마스크·파공 캐시·적열만 같은 규칙으로 바꾼다.
+    /// </summary>
+    public void Burn(int subIndex)
+    {
+        if (_collapsed || subIndex < 0 || subIndex >= SubCount || _hp[subIndex] <= 0f)
+            return;
+
+        _hp[subIndex] = 0f;
+        _aliveMask &= ~(1UL << subIndex);
+        DamageVersion++;
+        DirtySubs |= 1UL << subIndex;
+        AddHeat(Ballistics.HeatFromDamage);
+
+        if (!AnyBreached)
+            Ship.BreachVersion++;
+
+        AnyBreached = true;
+        _dead++;
+    }
 
     public void ApplyDamage(int subIndex, float amount, float heatScale = 1f)
     {

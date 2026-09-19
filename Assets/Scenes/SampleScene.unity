@@ -1392,8 +1392,8 @@ MonoBehaviour:
   wakeStaggerTicks: 30
   refitCameraSize: 28
   spawnDistance: 5000
-  wandererMinTicks: 900
-  wandererMaxTicks: 1500
+  wandererMinTicks: 7200
+  wandererMaxTicks: 10800
   wandererDistance: 1400
   hunterDelayTicks: 5400
   hunterDistance: 8000

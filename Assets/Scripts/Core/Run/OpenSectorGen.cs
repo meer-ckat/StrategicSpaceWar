@@ -195,7 +195,9 @@ public static class OpenSectorGen
     /// 늘어서 그 뒤의 흐름이 전부 밀린다.</remarks>
     /// <remarks>v8: 운석 밀도. 밭당 4~8 -> 8~14, 메인 밭 3~4 -> 5~7.</remarks>
     /// <remarks>v9: 들판 전체에 <see cref="ScenerySpacing"/>(500 m) 균등 격자. 덩어리는 그 위의 웃돈이다.</remarks>
-    public const int Version = 9;
+    /// <remarks>v10: 밀도를 FTL 간격으로. 덩어리 15~25 -> 6~10, 자리 3~4 -> 1~2, 템플릿 함선 수 절반,
+    /// 떠돌이 15~25 s -> 120~180 s. 전투 사이에 승무원·전기를 만질 시간이 있어야 한다(오너 2026-09-19).</remarks>
+    public const int Version = 10;
 
     /// <summary>장 사이 소구역 수(깊이). 갈림길은 각 깊이에서 <see cref="Lanes"/>갈래.</summary>
     public const int LegsPerChapter = 2;
@@ -558,16 +560,16 @@ public static class OpenSectorGen
     private const float SideBias = 0.75f;          // 덩어리가 자기 쪽 성격을 따를 확률. 1이면 위/아래가 완전히 갈린다
     private const float QuietRockScale = 2f;       // 조용한 쪽 덩어리의 운석 배수
     private const int GateClusters = 2;          // 출구마다 하나. 출구는 덩어리 안에 있다
-    private const int MinClusters = 15;
-    private const int MaxClusters = 25;
+    private const int MinClusters = 6;
+    private const int MaxClusters = 10;
     private const float ClusterSpacing = 6000f;    // 덩어리 중심 사이
     private const float ClusterRadius = 1500f;     // 덩어리 안 자리가 앉는 반지름. 간격의 반보다 작아야 덩어리가 갈린다
     private const float SiteSpacing = 1200f;       // 덩어리 안 자리 사이. 센서 거리와 같다 - 한 자리에서 옆 자리가 보인다
     private const float CellSize = 1000f;          // 밀도 지도 칸. 60×60이면 3,600칸
     private const int DensityOctaves = 5;
     private const float DensityWavelength = 40000f; // 첫 겹 파장. 들판 한 변의 2/3
-    private const int MinSitesPerCluster = 3;
-    private const int MaxSitesPerCluster = 4;
+    private const int MinSitesPerCluster = 1;
+    private const int MaxSitesPerCluster = 2;
     private const int MinMainRockFields = 5;       // 메인 100 km. 밭 하나 = 운석 8~14 = TraceWorld에 배 8~14척
     private const int MaxMainRockFields = 7;
     private const int RockSalt = 0x524F434B;       // "ROCK". Make의 시드와 겹치지 않게

@@ -586,6 +586,28 @@ public static partial class Ballistics
     /// <summary>모듈끼리 겹쳐도 되는 넓이(m²). 겹친 둘은 한 탄에 같이 맞으므로 사실상 금지.</summary>
     public const float ModuleOverlapMax = 0.1f;
 
+    // ---- 전력망 (Docs/Electrical-Design.md §2.1) ----
+    public const float PowerNominal = 320f;        // 소비자가 정상으로 보는 전압(L-N)
+    public const float PowerBrownout = 0.5f;       // 이 비율 밑이면 NO POWER. 사이는 저하
+    public const float WireOhmPerMetre = 0.002f;   // 케이블 저항
+    public const float WireHeatCapacity = 400f;    // J/K per m
+    public const float WireCoolPerSecond = 0.05f;  // 초당 (T-주변)×이만큼 식는다
+    public const float WireBurnKelvin = 400f;      // 이 온도를 넘으면 그 구간이 탄다 = 끊긴다
+    public const int PowerInterval = 6;            // 틱. 10 Hz
+
+    // ---- 정지 회로도 (목업 2026-09-19에서 오너가 고른 값. 모드 B: 텍스처 끄고 선만) ----
+    public const float PauseDimAlpha = 1f;         // 덮개. 1이면 배경·텍스처가 완전히 사라진다
+    public const float SchematicEdgeAlpha = 0.37f; // 판 윤곽선
+    public const float SchematicRoomAlpha = 1f;    // 실내 채움(RoomView 색의 알파)
+    public const float WireViewWidth = 0.21f;      // m
+    public const int ReadoutFontSize = 15;         // 속보기 라벨 px (배율 밖)
+    public const float SchematicGridAlpha = 0.18f; // 1 m 격자선
+    public const float ReadoutBackAlpha = 1f;      // 라벨 뒤판
+    public const float SchematicBlendSeconds = 0.5f; // 들어가고 나오는 전환(건조 와이어프레임 쓸기)
+    public const float PauseZoomMin = 3f;          // 반높이 m. 3이면 1 m 칸이 화면 1/6 - 서브셀이 보인다
+    public const float PauseZoomMax = 40f;
+    public const float PauseCameraMargin = 10f;    // 정지 카메라가 플레이어 배 격자 밖으로 나갈 수 있는 거리
+
     /// <summary>
     /// 들판 출구에서 워프하는 데 드는 Δv(m/s). newship 만탱크(≈26,000 m/s)의 1/4쯤 - 들판 횡단이
     /// 1,000~2,000이라 이게 없으면 탱크가 항해 예산이 아니라 장식이다. 못 채우면 출항이 안 된다.

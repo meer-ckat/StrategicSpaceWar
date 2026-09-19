@@ -147,8 +147,8 @@ public sealed class Campaign : TickBehaviour
     /// 플레이어 진행 방향 센서 밖에서 태어난다. 속도와 무관하게 박자가 지켜지고, 가만히
     /// 있어도 순찰이 찾아온다. 적 접촉 중에는 안 보낸다(겹치면 전투가 안 끝난다).
     /// </summary>
-    public int wandererMinTicks = 900;
-    public int wandererMaxTicks = 1500;
+    public int wandererMinTicks = 7200;    // 120 s. FTL 간격 - 전투 사이에 배 속을 만질 시간
+    public int wandererMaxTicks = 10800;   // 180 s
     public float wandererDistance = 1800f;   // 항해 줌 폭 2.5 km의 반 밖. 태어나는 것이 보이면 안 된다
     private int _wandererWait;
 

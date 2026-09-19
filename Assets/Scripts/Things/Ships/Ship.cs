@@ -834,9 +834,10 @@ public partial class Ship : Thing
 
         // 설계에 전선이 있었는가. 없으면 HasPower 하나로 판정하던 예전 규칙 그대로다 -
         // _needsPower와 같은 질문이고, 전선 없는 배 스물두 척이 갑자기 무전력이 되면 안 된다.
-        _hasWiring = _design?.wires != null && _design.wires.Count > 0;
+        // 원자로 없는 설계에 전선만 있으면 전부 0 V가 된다 - 그 배는 _needsPower처럼 전기 밖이다.
+        _hasWiring = _design?.wires != null && _design.wires.Count > 0 && _needsPower;
         BuildWires(_design);
-        RebuildPowerNet();
+        SolvePower();
 
         // 질량을 판 수에서 뽑는다. 손으로 맞추면 설계를 바꿀 때마다 잊고, 세 척에 같은 값을
         // 적어두면 작은 배가 큰 배만큼 굼떠진다 - 정찰함이 빨라야 하는 이유가 이것이다.
@@ -920,7 +921,11 @@ public partial class Ship : Thing
 
         _mAtmosphere.Begin();
         if (dueForAtmosphere) Atmosphere();
-        if (dueForAtmosphere) RebuildPowerNet();
+
+        // 전기는 10 Hz. **위상을 안 가른다** - _atmosphereOffset은 InstanceID에서 오는데, 전선이 타는
+        // 틱이 판을 죽이고 그 틱이 파편 시드라 위상이 갈리면 재현이 안 된다. 풀이가 작아 몰려도 된다.
+        if (Core.TickManager.currentTick % Ballistics.PowerInterval == 0)
+            SolvePower();
         _mAtmosphere.End();
 
         _mWatch.Begin();
@@ -1005,6 +1010,9 @@ public partial class Ship : Thing
         }
         return crew;
     }
+
+    /// <summary>이 사람이 서 있는 방. 없으면(칸이 잔해로 떠났다) null. 검사 패널이 기압을 읽는다.</summary>
+    public Room RoomOf(Crewman c) => c == null ? null : RoomAt(rooms, _map, c.anchor);
 
     // ponytail: 선형 탐색. 승무원 ≤ 8, 10틱마다. 승무원이 매 틱 움직이면(M0 경로) 칸→방 사전으로.
     static Room RoomAt(List<Room> rooms, ShipGrid.Map map, Vector2Int anchor)
@@ -1179,7 +1187,7 @@ public partial class Ship : Thing
         ShipGrid.CarryAir(old, oldRooms, _map, rooms);
 
         _structure.Build(_map, breakawaySpeed);
-        RasterizeWires();
+        _powerDirty = true;   // 파단 뒤 기기 집합이 바뀐다. 래스터는 안 다시 한다 - Ship.Power.WireRun 주석
 
         // 문 -> 접한 방들. 틱마다 다시 뒤지지 않으려고 여기서 한 번만 만든다.
         foreach (Room room in rooms)

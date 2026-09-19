@@ -76,6 +76,9 @@ public static class RunLog
 
         /// <summary>구역을 이겼다. <c>what</c>은 <see cref="SectorEntered"/>와 같은 번호다.</summary>
         SectorCleared,
+
+        /// <summary>전선 구간이 끊겼다. <c>what</c>은 그 순간 전기를 잃은 포탑 수.</summary>
+        WireCut,
     }
 
     public readonly struct Entry
@@ -152,6 +155,12 @@ public static class RunLog
     /// 유폭. **함선을 인자로 안 받는다** - 잔해로 떨어져 나간 탄약고도 터지고, 그때는 위에
     /// Ship이 없다. 부모를 거슬러 찾아보고 없으면 중립으로 적는다.
     /// </summary>
+    public static void WireCut(Ship ship, int gunsLost)
+    {
+        if (ship != null)
+            Add(Kind.WireCut, gunsLost.ToString(), ship.team);
+    }
+
     public static void Detonated(Component module)
     {
         if (module == null)

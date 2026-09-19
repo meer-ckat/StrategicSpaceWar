@@ -2482,17 +2482,27 @@ public sealed class ShipPainter : EditorWindow
         return (p - (a + ab * t)).sqrMagnitude;
     }
 
-    /// <summary>끝점이 기기 칸 위거나 다른 전선의 꼭짓점과 같은 자리인가.</summary>
+    /// <summary>
+    /// 끝점이 기기 칸 **중심**이거나 다른 전선의 꼭짓점과 같은 자리인가. 런타임(Ship.Power)이 같은
+    /// 규칙이다 - 칸 위 아무 데나로 하면 경계에 걸친 점이 반올림 방향에 따라 붙었다 안 붙었다 한다.
+    /// 같은 자리는 허용오차로 본다 - 저장이 소수 4자리라 다시 읽은 점과 방금 찍은 점이 비트로는 다르다.
+    /// </summary>
     private bool WireEndAttached(Vector2 p, List<Vector2> self)
     {
+        const float eps = 1e-3f;
         var cell = new Vector2Int(Mathf.FloorToInt(p.x), Mathf.FloorToInt(p.y));
+        var centre = new Vector2(cell.x + 0.5f, cell.y + 0.5f);
 
-        if (_modules.TryGetValue(cell, out Placed m) && IsDevice(m.def))
+        if (_modules.TryGetValue(cell, out Placed m) && IsDevice(m.def) && (p - centre).sqrMagnitude <= eps * eps)
             return true;
 
         foreach (List<Vector2> w in _wires)
-            if (w != self && w.Contains(p))
-                return true;
+        {
+            if (w == self) continue;
+            foreach (Vector2 q in w)
+                if ((q - p).sqrMagnitude <= eps * eps)
+                    return true;
+        }
 
         return false;
     }

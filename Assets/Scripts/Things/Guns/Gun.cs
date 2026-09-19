@@ -150,6 +150,12 @@ public class Gun : Thing, IDamageable
     /// </summary>
     public float slewRate = 30f;
 
+    /// <summary>정격 소비 전력 W. 부하저항 = Vnom²/P. 전압이 내려가면 선회가 그만큼 느려진다.</summary>
+    public float powerWatts = 2000f;
+
+    /// <summary>전압비. 저전압이면 선회가 느려진다 - 증상 B(DRIVE DEGRADED)가 분기문 없이 여기서 나온다.</summary>
+    private float SlewScale => owner == null ? 1f : Mathf.Clamp01(owner.Voltage(this) / Ballistics.PowerNominal);
+
     public float fireArc = 2f;      // 도. 조준 오차가 이 안에 들어와야 쏜다
 
     /// <summary>
@@ -782,7 +788,7 @@ public class Gun : Thing, IDamageable
         // 어디를 겨눌 수 있느냐는 선체 기준이고, 얼마나 빨리 겨누느냐는 월드 기준이다.
         // 그 둘은 다른 질문이라 같은 좌표계일 이유가 없다.
         float have = _turret.eulerAngles.z;
-        float next = Mathf.MoveTowardsAngle(have, want, slewRate * dt);
+        float next = Mathf.MoveTowardsAngle(have, want, slewRate * SlewScale * dt);
 
         // **want를 자른 것만으로는 안 끝난다.** mount는 선체를 따라 매 틱 움직이는데
         // MoveTowardsAngle은 지난 틱의 have에서 출발한다 - 배가 slewRate보다 빨리 돌면

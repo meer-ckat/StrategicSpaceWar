@@ -198,9 +198,16 @@ namespace Core
         /// </summary>
         public static bool Paused;
 
+        /// <summary>
+        /// 플레이어의 정지(Space). <see cref="Paused"/>와 따로 두는 이유: 워프·병참 화면이 Paused를 세우고
+        /// 내리는데, 같은 플래그를 쓰면 그 사이에 누른 Space가 워프 중간에 시계를 풀어 버린다.
+        /// 둘 중 하나라도 서 있으면 멎는다.
+        /// </summary>
+        public static bool UserPaused;
+
         private void Update()
         {
-            if (Paused)
+            if (Paused || UserPaused)
             {
                 _accumulator = 0f;
                 return;

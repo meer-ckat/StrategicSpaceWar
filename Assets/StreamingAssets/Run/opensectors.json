@@ -6,8 +6,8 @@
       "kind": "Skirmish",
       "tier": 1,
       "label": "초계 접촉",
-      "minShips": 2,
-      "maxShips": 3,
+      "minShips": 1,
+      "maxShips": 2,
       "pool": [
         "scout",
         "dart",
@@ -23,8 +23,8 @@
       "kind": "Skirmish",
       "tier": 2,
       "label": "왕정군 순찰대",
-      "minShips": 2,
-      "maxShips": 4,
+      "minShips": 1,
+      "maxShips": 2,
       "pool": [
         "scout",
         "lancher",
@@ -41,8 +41,8 @@
       "kind": "Skirmish",
       "tier": 3,
       "label": "봉쇄 전대",
-      "minShips": 3,
-      "maxShips": 4,
+      "minShips": 2,
+      "maxShips": 3,
       "pool": [
         "frigate",
         "ChongDam_Mk67",
@@ -59,8 +59,8 @@
       "kind": "Elite",
       "tier": 2,
       "label": "정예 - 창기병",
-      "minShips": 2,
-      "maxShips": 2,
+      "minShips": 1,
+      "maxShips": 1,
       "pool": [
         "cruiser",
         "Pitbull_Leviathan"
@@ -75,8 +75,8 @@
       "kind": "Elite",
       "tier": 3,
       "label": "정예 - 항공전대",
-      "minShips": 2,
-      "maxShips": 3,
+      "minShips": 1,
+      "maxShips": 2,
       "pool": [
         "carrier",
         "frigate",
@@ -175,8 +175,8 @@
       "kind": "Skirmish",
       "tier": 1,
       "label": "충각 습격",
-      "minShips": 2,
-      "maxShips": 4,
+      "minShips": 1,
+      "maxShips": 2,
       "pool": [
         "dart",
         "fly",
@@ -192,8 +192,8 @@
       "kind": "Skirmish",
       "tier": 2,
       "label": "수송 선단",
-      "minShips": 3,
-      "maxShips": 4,
+      "minShips": 2,
+      "maxShips": 2,
       "pool": [
         "lancher",
         "scout",
@@ -209,8 +209,8 @@
       "kind": "Elite",
       "tier": 3,
       "label": "정예 - 포격전대",
-      "minShips": 2,
-      "maxShips": 2,
+      "minShips": 1,
+      "maxShips": 1,
       "pool": [
         "Pitbull_Leviathan",
         "Dachshund_Leviathan",

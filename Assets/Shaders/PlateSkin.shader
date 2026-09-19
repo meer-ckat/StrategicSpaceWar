@@ -32,6 +32,7 @@ Shader "SUPERRADIANCE/PlateSkin"
         _Heat("Heat", Float) = 0
         _Build("Build Axis(x) / Band(y)", Vector) = (0,1.5,0,0)
         _BuildFront("Build Front", Float) = 1000000000      // 판 축 < 이 값이면 장갑, 크면 와이어프레임. 기본 = 완성
+        _WireColor("Wire Color", Color) = (0.64, 1.248, 1.312, 1)   // 건조 = Telemetry x1.6(HDR). 정지 회로도는 Steel 0.37을 넣는다
 
         // **불투명 큐 실험용 스위치.** 기본값은 지금까지의 투명 설정 그대로다.
         // C#(ArmorSkin.ToggleOpaqueProbe)이 이 셋과 renderQueue를 함께 갈아끼워서
@@ -114,11 +115,11 @@ Shader "SUPERRADIANCE/PlateSkin"
                 float _Heat;
                 float4 _Build;
                 float _BuildFront;
+                half4 _WireColor;
             CBUFFER_END
 
             // 건조 와이어프레임 색과 전선 띠 색. Palette의 Telemetry·Radiance를 HDR로 - 라이팅 밖에서
             // 더하는 것이라 SpriteRenderer.color로는 못 보낸다(적열과 같은 규칙).
-            static const half3 WireColor = half3(0.40, 0.78, 0.82) * 1.6;
             static const half3 BandColor = half3(1.00, 0.78, 0.35) * 1.0;   // 적열과 같은 배율. 3배였을 때 화면을 태웠다
             static const float WireLine = 0.08;   // m. 48 PPU에서 4 px
 
@@ -233,7 +234,7 @@ Shader "SUPERRADIANCE/PlateSkin"
                     if (!OnEdge(local))
                         discard;
 
-                    return half4(WireColor, 1);
+                    return _WireColor;   // 알파도 그대로 - 회로도는 반투명 윤곽이다
                 }
                 const half4 mask = SAMPLE_TEXTURE2D(_MaskTex, sampler_MaskTex, input.uv);
                 const half3 normalTS = half3(0, 0, 1);

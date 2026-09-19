@@ -52,6 +52,16 @@ public class CameraSystem : MonoBehaviour
     // Update is called once per frame
     void LateUpdate()
     {
+        // 정지 중엔 사람이 카메라를 든다. 자동 줌·추적·흔들림은 그 자리에서 얼고, 풀리면 원래 SmoothDamp가 데려온다.
+        if (Core.TickManager.UserPaused)
+        {
+            PausedCamera();
+            transform.position = new Vector3(transform.position.x, transform.position.y, -10f - cam.orthographicSize);
+            return;
+        }
+
+        _pauseWas = false;
+
         switch(myType)
         {
             case TrackingType.Centering:
@@ -90,6 +100,85 @@ public class CameraSystem : MonoBehaviour
     //
     // 컷신이 A/B를 잠깐 갈아끼운다. 원래 값은 여기 두었다가 끝날 때 되돌린다 -
     // 인스펙터에 적힌 것이 진짜 주인이고, 컷신은 빌려 쓰는 쪽이다.
+
+    /// <summary>
+    /// 정지 카메라. 왼쪽 끌기 = 이동, 휠 = 커서 자리를 고정한 줌(반높이 PauseZoomMin~Max). 플레이어 배 격자
+    /// 둘레 PauseCameraMargin 안으로 묶는다 - 배를 잃어버리면 정지의 뜻이 없다. 클릭(끌지 않은 것)은 비워 둔다:
+    /// 승무원 명령(M0)이 그 자리다.
+    /// </summary>
+    private bool _pauseWas;
+    private Vector2 _pauseFrom;
+    private float _pauseFromSize;
+
+    private void PausedCamera()
+    {
+        Ship player = GameManager.Player();
+
+        // 들어가는 동안(Blend 0→1)은 배 중앙·맞춤 줌으로 먼저 정렬한다 - 블루프린트 전선과 같은 시계.
+        // 그 뒤에야 손을 받는다. 둘이 동시에 움직이면 정렬이 손을 이긴다.
+        if (!_pauseWas)
+        {
+            _pauseWas = true;
+            _pauseFrom = transform.position;
+            _pauseFromSize = cam.orthographicSize;
+        }
+
+        if (PauseControl.Blend < 1f && player != null && player.Map != null)
+        {
+            Frame(player, out Vector2 centre, out float size);
+            float t = Mathf.SmoothStep(0f, 1f, PauseControl.Blend);
+            Vector2 p = Vector2.Lerp(_pauseFrom, centre, t);
+            transform.position = new Vector3(p.x, p.y, transform.position.z);
+            cam.orthographicSize = Mathf.Lerp(_pauseFromSize, size, t);
+            return;
+        }
+
+        Mouse m = Mouse.current;
+        if (m == null) return;
+
+        Vector2 mouse = m.position.ReadValue();
+        float wheel = m.scroll.ReadValue().y;
+
+        if (Mathf.Abs(wheel) > 0.01f)
+        {
+            Vector2 before = cam.ScreenToWorldPoint(mouse);
+            cam.orthographicSize = Mathf.Clamp(
+                cam.orthographicSize * (wheel > 0f ? 0.85f : 1f / 0.85f), Ballistics.PauseZoomMin, Ballistics.PauseZoomMax);
+            Vector2 after = cam.ScreenToWorldPoint(mouse);
+            transform.position += (Vector3)(before - after);
+        }
+
+        if (m.leftButton.isPressed)
+        {
+            float unit = cam.orthographicSize * 2f / Screen.height;   // m / px
+            transform.position -= (Vector3)(m.delta.ReadValue() * unit);
+        }
+
+        if (player != null && player.Map != null)
+        {
+            float ext = Mathf.Max(player.Map.width, player.Map.height) * ShipGrid.CellSize * 0.5f + Ballistics.PauseCameraMargin;
+            Vector2 c = player.transform.position;
+            transform.position = new Vector3(
+                Mathf.Clamp(transform.position.x, c.x - ext, c.x + ext),
+                Mathf.Clamp(transform.position.y, c.y - ext, c.y + ext),
+                transform.position.z);
+        }
+    }
+
+    /// <summary>배 격자의 중앙(월드)과, 돌아간 채로도 통째로 들어가는 반높이. 여유 4 m.</summary>
+    private void Frame(Ship player, out Vector2 centre, out float size)
+    {
+        ShipGrid.Map map = player.Map;
+        Vector2 local = map.ToLocal(0, 0) + (map.ToLocal(map.width - 1, map.height - 1) - map.ToLocal(0, 0)) * 0.5f;
+        centre = player.transform.TransformPoint(local);
+
+        float w = map.width * ShipGrid.CellSize, h = map.height * ShipGrid.CellSize;
+        float rad = player.transform.eulerAngles.z * Mathf.Deg2Rad;
+        float c = Mathf.Abs(Mathf.Cos(rad)), s = Mathf.Abs(Mathf.Sin(rad));
+        float rw = w * c + h * s, rh = w * s + h * c;   // 돌린 상자의 축 정렬 폭·높이
+
+        size = Mathf.Clamp(Mathf.Max(rw / cam.aspect, rh) * 0.5f + 4f, Ballistics.PauseZoomMin, Ballistics.PauseZoomMax);
+    }
 
     private bool _cutsceneHeld;
     private TrackingType _savedType;

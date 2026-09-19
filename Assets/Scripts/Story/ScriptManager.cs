@@ -540,9 +540,13 @@ public class ScriptManager : MonoBehaviour
     /// 안 타서 못 넘긴다 - 그건 연출이 아니라 사실을 기다리는 것이다.
     /// 누른 프레임을 소비해야 한다: 안 그러면 한 번 누른 Space가 이어지는 줄 전부를 한 프레임에 삼킨다.
     /// </summary>
+    /// <summary>줄 사이 대기 중 - Space가 지금 "다음 줄"이다. PauseControl이 이걸 보고 정지를 안 건다.</summary>
+    public static bool Listening { get; private set; }
+
     private static IEnumerator WaitOrSkip(float seconds)
     {
         float until = Time.unscaledTime + seconds;
+        Listening = true;
 
         // 이번 프레임의 Space는 이 줄을 띄운 입력일 수 있다 - 한 프레임 건너뛰고 듣는다.
         yield return null;
@@ -551,10 +555,12 @@ public class ScriptManager : MonoBehaviour
         {
             if (UnityEngine.InputSystem.Keyboard.current != null
                 && UnityEngine.InputSystem.Keyboard.current.spaceKey.wasPressedThisFrame)
-                yield break;
+                break;
 
             yield return null;
         }
+
+        Listening = false;
     }
 
     private IEnumerator Run(DialogueScript script, string arg, bool viaSystem)

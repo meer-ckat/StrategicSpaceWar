@@ -39,6 +39,9 @@ public class CriticalModule : Thing, IDamageable
 
     public float PhaseVoltage => phases == 3 ? lineVoltage / 1.7320508f : lineVoltage;
 
+    /// <summary>내부저항 Ω. 단락 전류의 상한 = PhaseVoltage / 이것.</summary>
+    public float sourceResistance = 0.05f;
+
     /// <summary>터질 때 띄울 빛의 defName. 비우면 안 띄운다.</summary>
     public string flashDef = "Blast Flash";
 

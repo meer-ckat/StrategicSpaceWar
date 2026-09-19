@@ -28,6 +28,9 @@ public partial class Ship
     /// </summary>
     public int RepairPlates(int budget)
     {
+        // 정비는 탄 전선도 되돌린다. 전선만 따로 고치는 화면은 M6(야전수리)까지 없다.
+        RepairWires();
+
         if (budget <= 0)
             return 0;
 
@@ -204,6 +207,7 @@ public partial class Ship
             t.stableId = designCount + m.index;
 
         spawned.transform.SetParent(m.mount.transform, worldPositionStays: true);
+        _powerDirty = true;   // 기기 집합이 바뀌었다. 떼고 새로 세우면 개수가 같아 서명으로는 안 잡힌다
 
         switch (spawned)
         {
@@ -223,6 +227,8 @@ public partial class Ship
     /// </summary>
     private void Scrap(Thing thing)
     {
+        _powerDirty = true;
+
         switch (thing)
         {
             case Gun gun: shipGuns.Remove(gun); break;

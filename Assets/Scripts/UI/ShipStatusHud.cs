@@ -56,6 +56,7 @@ public sealed class ShipStatusHud : MonoBehaviour
     private const float AirframeHeight = 150f;
 
     private const float FlightWidth = 240f;
+    private const float PausedFlightScale = 0.7f;   // 정지 회로도에서 FLIGHT 패널 크기
     private const float FlightHeight = 164f;   // EMIT 행(2026-09-12) + SYS 행(2026-09-13)
 
     private const float WeaponWidth = 340f;
@@ -180,6 +181,13 @@ public sealed class ShipStatusHud : MonoBehaviour
             DrawGunAimVectors(ship, cam);
             DrawLeadMarkers(ship, cam);
             DrawLockMarkers(ship, cam);
+
+            // 정지 회로도: 시뮬이 들고 있는 값을 전부 그 자리에 적는다 - 기기 전압·전류, 뜨거운 구간, 승무원.
+            if (Core.TickManager.UserPaused && PauseControl.Blend >= 1f)
+            {
+                DrawInteriorReadouts(ship, cam);
+                DrawSelection(cam);
+            }
         }
 
         // 이 파일은 GUIManager를 거치지 않고 GUI.*를 직접 부른다 - 그 중앙 OnGUI가
@@ -195,11 +203,41 @@ public sealed class ShipStatusHud : MonoBehaviour
 
         // 소등 순서: 무장 -> 비행 -> 함체. 선체 그림이 마지막 숨이다.
         if (BeginSection(ship, 0)) DrawObjective();
+        DrawPausedBanner();
         if (BeginSection(ship, 0)) DrawHitGutter();
         if (BeginSection(ship, 0)) DrawContactPanel(ship);
-        if (BeginSection(ship, 2)) DrawAirframePanel(ship);
-        if (BeginSection(ship, 1)) DrawFlightPanel(ship);
-        if (BeginSection(ship, 0)) DrawWeaponPanel(ship);
+        // 정지 회로도에서는 AIRFRAME이 왼쪽으로, WEAPONS가 오른쪽으로 빠지고 FLIGHT는 작아진다 - 화면이 배의 것이다.
+        // 블루프린트 전선과 같은 시계(PauseControl.Blend)라 따로 타이머가 없다.
+        float tween = Mathf.SmoothStep(0f, 1f, PauseControl.Blend);
+        Matrix4x4 panels = GUI.matrix;
+
+        if (BeginSection(ship, 2))
+        {
+            GUI.matrix = panels * Matrix4x4.Translate(new Vector3(-(AirframeWidth + Margin) * tween, 0f, 0f));
+            DrawAirframePanel(ship);
+            GUI.matrix = panels;
+        }
+
+        if (BeginSection(ship, 1))
+        {
+            // 오른쪽 위 모서리를 축으로 줄인다 - 자리는 그대로, 크기만.
+            float k = Mathf.Lerp(1f, PausedFlightScale, tween);
+            var pivot = new Vector3(GUIManager.LogicalWidth - Margin, Margin, 0f);
+            GUI.matrix = panels * Matrix4x4.Translate(pivot) * Matrix4x4.Scale(new Vector3(k, k, 1f)) * Matrix4x4.Translate(-pivot);
+            DrawFlightPanel(ship);
+            GUI.matrix = panels;
+        }
+
+        if (BeginSection(ship, 0))
+        {
+            GUI.matrix = panels * Matrix4x4.Translate(new Vector3((WeaponWidth + Margin) * tween, 0f, 0f));
+            DrawWeaponPanel(ship);
+            GUI.matrix = panels;
+        }
+
+        // 정지 검사 패널. 소등과 무관 - 죽어가는 배일수록 읽어야 한다.
+        if (Core.TickManager.UserPaused && Inspect.Any)
+            DrawInspectPanel(ship);
 
         // 마지막이라 전부 위에 온다. 같은 OnGUI 안에서는 나중에 그린 것이 위다.
         if (BeginSection(ship, 0)) DrawScuttleWarning(ship);
@@ -296,6 +334,231 @@ public sealed class ShipStatusHud : MonoBehaviour
             color = Palette.Breach.WithAlpha(color.a);
 
         rect.position += _sectionShake;
+    }
+
+
+    // ------------------------------------------------------------
+    // INSPECT (정지 검사 - 림월드식. 클릭한 것 하나의 진짜 값 전부)
+    // ------------------------------------------------------------
+
+    private const float InspectWidth = 360f;
+    private static readonly List<(string label, string value, Color color)> _inspectRows = new();
+    private static string _inspectTitle = "";
+    private static Color _inspectTitleColor = Color.white;
+
+    private static void Row(string label, string value) => _inspectRows.Add((label, value, HudColor));
+    private static void Row(string label, string value, Color c) => _inspectRows.Add((label, value, c));
+
+    private static void DrawInspectPanel(Ship player)
+    {
+        _inspectRows.Clear();
+        _inspectTitle = "";
+        _inspectTitleColor = HudColor;
+
+        if (Inspect.Crew != null) FillCrew(Inspect.CrewShip, Inspect.Crew);
+        else if (Inspect.Wire is Inspect.WireSel w && w.ship != null) FillWire(w);
+        else if (Inspect.Thing != null) FillThing(Inspect.Thing);
+
+        if (_inspectRows.Count == 0)
+            return;
+
+        float height = HeaderHeight + RowHeight * _inspectRows.Count + Padding;
+        var panel = new Rect((GUIManager.LogicalWidth - InspectWidth) * 0.5f, GUIManager.LogicalHeight - height - Margin, InspectWidth, height);
+
+        DrawPanel(panel, "INSPECT");
+        DrawText(new Rect(panel.x + InspectWidth * 0.35f, panel.y + 3f, InspectWidth * 0.63f, HeaderHeight - 4f),
+            _inspectTitle, _inspectTitleColor, _rightStyle);
+
+        float x = panel.x + Padding, width = panel.width - Padding * 2f, y = panel.y + HeaderHeight;
+
+        foreach ((string label, string value, Color color) in _inspectRows)
+        {
+            DrawText(new Rect(x, y, width * 0.42f, RowHeight), label, DimColor, _leftStyle);
+            DrawText(new Rect(x + width * 0.42f, y, width * 0.58f, RowHeight), value, color, _rightStyle);
+            y += RowHeight;
+        }
+    }
+
+    private static void FillThing(Component thing)
+    {
+        Ship ship = thing.GetComponentInParent<Ship>();
+        string where = ship != null ? ship.SectionName(ship.transform.InverseTransformPoint(thing.transform.position)) : "";
+        bool wired = ship != null && ship.HasWiring;
+        float v = 0f, i = 0f;
+        bool hasPower = ship != null && ship.TryGetReadout(thing, out v, out i);
+
+        switch (thing)
+        {
+            case Gun g:
+                _inspectTitle = g.defName;
+                Row("상태", g.Neutralized ? "파괴" : g.Hold == Gun.HoldReason.None ? "사격 가능" : HoldLabel(g.Hold),
+                    g.Neutralized ? CriticalColor : g.Hold >= Gun.HoldReason.NoGunner ? CriticalColor : HudColor);
+                Row("내구", $"{g.Health01:P0}", g.Health01 < 0.5f ? WarnColor : HudColor);
+                if (wired)
+                {
+                    bool fed = v >= Ballistics.PowerNominal * Ballistics.PowerBrownout;
+                    Row("전압 · 전류", hasPower ? $"{v:0} V   {i:0.#} A" : "연결 없음", fed ? HudColor : CriticalColor);
+                    Row("선회", $"{g.slewRate * Mathf.Clamp01(v / Ballistics.PowerNominal):0}°/s  (정격 {g.slewRate:0})");
+                }
+                else Row("선회", $"{g.slewRate:0}°/s");
+                Row("정격", $"{g.powerWatts:0} W");
+                Row("발사", $"{g.roundsPerMinute:0} rpm · {g.muzzleSpeed:0} m/s");
+                Row("탄", string.IsNullOrEmpty(g.projectile) ? "-" : g.projectile);
+                if (g.traverse > 0f) Row("사각", $"±{g.traverse:0}°");
+                Row("위치", where);
+                break;
+
+            case CriticalModule c when c.providesPower:
+                _inspectTitle = c.defName;
+                _inspectTitleColor = Palette.Radiance;
+                Row("상태", c.Neutralized ? "유폭" : "정상", c.Neutralized ? CriticalColor : HudColor);
+                Row("내구", $"{c.Health01:P0}", c.Health01 < 0.5f ? WarnColor : HudColor);
+                Row("상전압", $"{c.PhaseVoltage:0} V  (선간 {c.lineVoltage:0} V, {c.phases}상)");
+                Row("내부저항", $"{c.sourceResistance * 1000f:0} mΩ");
+                if (wired) Row("출력", hasPower ? $"{i:0.#} A · {v * i / 1000f:0.0} kW" : "연결 없음");
+                Row("유폭 위력", $"{c.blastDamage:0}");
+                Row("위치", where);
+                break;
+
+            case CriticalModule c:
+                _inspectTitle = c.defName;
+                Row("상태", c.Neutralized ? "유폭" : "정상", c.Neutralized ? CriticalColor : HudColor);
+                Row("내구", $"{c.Health01:P0}", c.Health01 < 0.5f ? WarnColor : HudColor);
+                if (c.maxRounds > 0) Row("탄약", $"{c.Rounds:N0} / {c.maxRounds:N0} 칸", c.Rounds01 < 0.25f ? WarnColor : HudColor);
+                Row("유폭 위력", $"{c.blastDamage:0}");
+                Row("위치", where);
+                break;
+
+            case Engine e:
+                _inspectTitle = e.defName;
+                Row("내구", $"{e.Health01:P0}", e.Health01 < 0.5f ? WarnColor : HudColor);
+                Row("추력", $"{e.MaxPower:0} kN");
+                Row("위치", where);
+                break;
+
+            case Tank t:
+                _inspectTitle = t.defName;
+                Row("내구", $"{t.Health01:P0}", t.Health01 < 0.5f ? WarnColor : HudColor);
+                Row("추진제", $"{t.remaining:0} / {t.impulse:0} kN·s", t.impulse > 0f && t.remaining / t.impulse < 0.25f ? WarnColor : HudColor);
+                Row("위치", where);
+                break;
+
+            case Armor a:
+                _inspectTitle = a.defName;
+                Row("내구", $"{a.HealthFraction:P0}", a.HealthFraction < 0.5f ? WarnColor : HudColor);
+                Row("서브셀", $"{a.AliveSubs} / {Armor.SubCount}", a.AliveSubs < Armor.SubCount ? WarnColor : HudColor);
+                Row("밀폐", a.sealsRoom ? "방을 막는다" : "안 막는다 (Vent)");
+                Row("적열", $"{a.Heat:0.00}", a.Heat > 0.3f ? Palette.Heat : HudColor);
+                Row("위치", where);
+                break;
+
+            default:
+                if (thing is Thing th) { _inspectTitle = th.defName; Row("위치", where); }
+                break;
+        }
+    }
+
+    private static void FillWire(Inspect.WireSel sel)
+    {
+        Ship.WireSeg s = sel.ship.Segment(sel.wire, sel.seg);
+        _inspectTitle = $"전선 {sel.wire + 1} · 구간 {sel.seg + 1}";
+        _inspectTitleColor = Palette.Radiance;
+
+        string state = s.state switch
+        {
+            Ship.WireState.Live => "급전",
+            Ship.WireState.Dark => "살아 있음 · 0 V",
+            _ => s.cause switch
+            {
+                Ship.CutCause.Burned => "끊김 · 과열로 탐",
+                Ship.CutCause.Holed => "끊김 · 판이 없는 자리",
+                Ship.CutCause.PlateGone => "끊김 · 판 소실",
+                Ship.CutCause.PlateLeft => "끊김 · 판이 잔해로 떠남",
+                Ship.CutCause.Breached => "끊김 · 판 관통",
+                _ => "끊김",
+            },
+        };
+        Row("상태", state, s.state == Ship.WireState.Live ? HudColor : s.state == Ship.WireState.Dark ? Palette.Steel : CriticalColor);
+        Row("길이 · 저항", $"{(s.b - s.a).magnitude:0.0} m · {s.ohms * 1000f:0.0} mΩ");
+        Row("전류", $"{s.amps:0.#} A");
+        Row("온도", $"+{s.kelvin:0} K", s.kelvin > Ballistics.WireBurnKelvin * 0.5f ? Palette.Heat : HudColor);
+        Row("지나는 판", s.subs == 0 ? "없음 (공기 - 못 끊긴다)" : $"서브셀 {s.subs}개");
+    }
+
+    private static void FillCrew(Ship ship, Crewman c)
+    {
+        int idx = ship != null ? ship.crewmen.IndexOf(c) : -1;
+        _inspectTitle = $"승무원 {idx + 1}";
+        _inspectTitleColor = c.alive ? Palette.Signal : CriticalColor;
+        Row("상태", c.alive ? "생존" : "사망", c.alive ? HudColor : CriticalColor);
+
+        Room room = ship != null ? ship.RoomOf(c) : null;
+        Row("방 기압", room == null ? "방 없음" : $"{room.Pressure:0.00} atm",
+            room == null || room.Pressure < Ballistics.CrewMinPressure ? CriticalColor : HudColor);
+        if (ship != null) Row("위치", ship.SectionName((Vector2)c.anchor * ShipGrid.CellSize));
+    }
+
+    /// <summary>선택한 것의 테두리(TELEMETRY). 배율 밖 월드 좌표.</summary>
+    private static void DrawSelection(Camera cam)
+    {
+        if (Inspect.Crew != null && Inspect.CrewShip != null)
+        {
+            Vector2 p = WorldToGui(cam, Inspect.CrewShip.transform.TransformPoint((Vector2)Inspect.Crew.anchor * ShipGrid.CellSize));
+            Box(p - Vector2.one * 7f, p + Vector2.one * 7f);
+            return;
+        }
+
+        if (Inspect.Wire is Inspect.WireSel w && w.ship != null)
+        {
+            Ship.WireSeg s = w.ship.Segment(w.wire, w.seg);
+            DrawLine(WorldToGui(cam, w.ship.transform.TransformPoint(s.a)), WorldToGui(cam, w.ship.transform.TransformPoint(s.b)), Palette.Telemetry, 3f);
+            return;
+        }
+
+        Component t = Inspect.Thing;
+        if (t == null) return;
+
+        Vector2 size = Vector2.one, offset = Vector2.zero;
+        if (t.TryGetComponent(out BoxCollider2D col)) { size = col.size; offset = col.offset; }
+
+        Transform tr = t.transform;
+        Vector2 h = size * 0.5f;
+        Vector2 c0 = WorldToGui(cam, tr.TransformPoint(offset + new Vector2(-h.x, -h.y)));
+        Vector2 c1 = WorldToGui(cam, tr.TransformPoint(offset + new Vector2(h.x, -h.y)));
+        Vector2 c2 = WorldToGui(cam, tr.TransformPoint(offset + new Vector2(h.x, h.y)));
+        Vector2 c3 = WorldToGui(cam, tr.TransformPoint(offset + new Vector2(-h.x, h.y)));
+        DrawLine(c0, c1, Palette.Telemetry, 2f); DrawLine(c1, c2, Palette.Telemetry, 2f);
+        DrawLine(c2, c3, Palette.Telemetry, 2f); DrawLine(c3, c0, Palette.Telemetry, 2f);
+    }
+
+    private static void Box(Vector2 min, Vector2 max)
+    {
+        DrawLine(new Vector2(min.x, min.y), new Vector2(max.x, min.y), Palette.Telemetry, 2f);
+        DrawLine(new Vector2(max.x, min.y), new Vector2(max.x, max.y), Palette.Telemetry, 2f);
+        DrawLine(new Vector2(max.x, max.y), new Vector2(min.x, max.y), Palette.Telemetry, 2f);
+        DrawLine(new Vector2(min.x, max.y), new Vector2(min.x, min.y), Palette.Telemetry, 2f);
+    }
+
+    /// <summary>Space 정지. 목표 줄 바로 밑, 소등과 무관하게 - 멈춘 것은 죽어가는 배에서도 알아야 한다.</summary>
+    private static void DrawPausedBanner()
+    {
+        if (!Core.TickManager.UserPaused)
+            return;
+
+        EnsureStyles();
+
+        var rect = new Rect(
+            (GUIManager.LogicalWidth - ObjectiveWidth) * 0.5f,
+            Margin + ObjectiveHeight + 6f,
+            ObjectiveWidth,
+            ObjectiveHeight);
+
+        DrawRect(rect, PanelBg);
+        DrawRect(new Rect(rect.x, rect.y, rect.width, 1f), Palette.Telemetry);
+        DrawRect(new Rect(rect.x, rect.yMax - 1f, rect.width, 1f), Palette.Telemetry);
+        GUI.contentColor = Palette.Telemetry;
+        GUI.Label(rect, $"PAUSED  ·  {PauseControl.FocusLabel}  ·  TAB", _objectiveStyle);
+        GUI.contentColor = Color.white;
     }
 
 
@@ -1603,7 +1866,7 @@ public sealed class ShipStatusHud : MonoBehaviour
             GUIManager.LogicalWidth - FlightWidth - Margin,
             Margin,
             FlightWidth,
-            FlightHeight
+            FlightHeight + (ship.HasWiring ? RowHeight : 0f)   // 전선 있는 배는 GRID 줄이 하나 더
         );
 
         DrawPanel(panel, "FLIGHT");
@@ -1694,8 +1957,12 @@ public sealed class ShipStatusHud : MonoBehaviour
             float x = panel.x + Padding;
 
             DrawText(new Rect(x, y, width * 0.5f, RowHeight), "SYS", DimColor, _leftStyle);
-            DrawText(new Rect(x + width * 0.5f, y, width * 0.25f, RowHeight), "PWR",
-                ship.HasPower ? HudColor : CriticalColor, _rightStyle);
+            // 전선 있는 배는 버스 전압을 숫자로. 정격의 절반 밑이면 붉게, 사이는 경고색.
+            float bus = ship.BusVoltage;
+            DrawText(new Rect(x + width * 0.5f, y, width * 0.25f, RowHeight),
+                ship.HasWiring ? $"{bus:0}V" : "PWR",
+                !ship.HasPower || bus < Ballistics.PowerNominal * Ballistics.PowerBrownout ? CriticalColor
+                    : bus < Ballistics.PowerNominal * 0.9f ? WarnColor : HudColor, _rightStyle);
             // 승무원 모델이 없는 배(방 없음)는 숫자가 없다 - 죽을 수 없으니 라벨만.
             int total = ship.crewmen.Count;
             int alive = ship.AliveCrew;
@@ -1703,6 +1970,21 @@ public sealed class ShipStatusHud : MonoBehaviour
                 total == 0 ? "CREW" : $"CREW {alive}/{total}",
                 alive == total ? HudColor : alive > 0 ? WarnColor : CriticalColor, _rightStyle);
             y += RowHeight;
+
+            // 전력망. 전선 있는 배만. 끊긴 구간이 있으면 WIRE가, 못 먹는 포가 있으면 FED가 색을 바꾼다 -
+            // "포탑이 왜 안 도나"의 답이 두 숫자 사이에 있다. 전압은 SYS 줄에 이미 있다.
+            if (ship.HasWiring)
+            {
+                int wAlive = ship.WireSegmentsAlive, wTotal = ship.WireSegmentsTotal;
+                int fed = ship.GunsFed, guns = ship.GunsTotal;
+
+                DrawText(new Rect(x, y, width * 0.5f, RowHeight), $"GRID {ship.GridAmps:0}A", DimColor, _leftStyle);
+                DrawText(new Rect(x + width * 0.5f, y, width * 0.25f, RowHeight), $"WIRE {wAlive}/{wTotal}",
+                    wAlive == wTotal ? HudColor : wAlive > 0 ? WarnColor : CriticalColor, _rightStyle);
+                DrawText(new Rect(x + width * 0.75f, y, width * 0.25f, RowHeight), $"FED {fed}/{guns}",
+                    fed == guns ? HudColor : fed > 0 ? WarnColor : CriticalColor, _rightStyle);
+                y += RowHeight;
+            }
         }
     }
 
@@ -2189,6 +2471,91 @@ public sealed class ShipStatusHud : MonoBehaviour
         }
     }
 
+
+    private static readonly List<Ship.DeviceReadout> _devices = new();
+    private static readonly List<Ship.WireSeg> _segments = new();
+    private static GUIStyle _readoutStyle;
+
+    /// <summary>속보기 라벨. 뒤판을 깔아야 회로도 선 위에서도 읽힌다 - 목업에서 고른 값(15 px, 뒤판 알파 1).</summary>
+    private static void Readout(Vector2 at, string text, Color color)
+    {
+        _readoutStyle ??= new GUIStyle(GUI.skin.label)
+        {
+            fontSize = Ballistics.ReadoutFontSize,
+            alignment = TextAnchor.MiddleLeft,
+            clipping = TextClipping.Overflow,
+        };
+
+        Vector2 size = _readoutStyle.CalcSize(new GUIContent(text));
+        var rect = new Rect(at.x + 6f, at.y - size.y * 0.5f, size.x + 8f, size.y);
+
+        if (Ballistics.ReadoutBackAlpha > 0f)
+        {
+            GUI.color = Palette.Void.WithAlpha(Ballistics.ReadoutBackAlpha);
+            GUI.DrawTexture(rect, Texture2D.whiteTexture);
+            GUI.color = Color.white;
+        }
+
+        GUI.contentColor = color;
+        GUI.Label(new Rect(rect.x + 4f, rect.y, size.x, size.y), text, _readoutStyle);
+        GUI.contentColor = Color.white;
+    }
+
+    /// <summary>
+    /// 속보기(Tab) 라벨. 배율 행렬 밖(월드 좌표)이라 조준 정보와 같은 자리에서 그린다.
+    /// 기기: 전원은 `320V 62A`(RADIANCE), 부하는 `318V 6A`(급전이면 본문색, 아니면 BREACH).
+    /// 전선: 1 K 넘게 데워진 구간만 온도, 탄 구간은 BURNT, 구멍은 HOLE.
+    /// 승무원: 살아 있으면 SIGNAL 점, 죽었으면 BREACH 점. 자리는 칸 중심(anchor).
+    /// </summary>
+    private static void DrawInteriorReadouts(Ship ship, Camera cam)
+    {
+        EnsureStyles();
+        PauseControl.Layer focus = PauseControl.Focus;
+
+        if (ship.HasWiring && focus != PauseControl.Layer.Air)
+        {
+            ship.CollectDeviceReadouts(_devices);
+
+            for (int i = 0; i < _devices.Count; i++)
+            {
+                Ship.DeviceReadout d = _devices[i];
+                if (d.device == null) continue;
+
+                Vector2 p = WorldToGui(cam, d.device.transform.position);
+                bool source = d.kind == PowerGraph.Kind.Source;
+                bool fed = d.v >= Ballistics.PowerNominal * Ballistics.PowerBrownout;
+                Color c = source ? Palette.Radiance : fed ? HudColor : CriticalColor;
+
+                Readout(p, $"{d.v:0}V {d.i:0.#}A", c);
+            }
+
+            ship.CollectWireSegments(_segments);
+
+            for (int i = 0; i < _segments.Count; i++)
+            {
+                Ship.WireSeg s = _segments[i];
+                string note = s.holed ? "HOLE" : s.burned ? "BURNT" : s.kelvin >= 1f ? $"+{s.kelvin:0}K" : null;
+                if (note == null) continue;
+
+                Vector2 mid = WorldToGui(cam, ship.transform.TransformPoint((s.a + s.b) * 0.5f));
+                Color c = s.state == Ship.WireState.Cut ? CriticalColor : WarnColor;
+                Readout(mid, note, c);
+            }
+        }
+
+        // 승무원. 방이 없는 배는 0명이라 아무것도 안 그린다.
+        for (int i = 0; i < ship.crewmen.Count && focus != PauseControl.Layer.Power; i++)
+        {
+            Crewman m = ship.crewmen[i];
+            Vector3 world = ship.transform.TransformPoint((Vector2)m.anchor * ShipGrid.CellSize);
+            Vector2 p = WorldToGui(cam, world);
+            Color c = m.alive ? Palette.Signal : CriticalColor;
+
+            GUI.color = c;
+            GUI.DrawTexture(new Rect(p.x - 3f, p.y - 3f, 7f, 7f), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+        }
+    }
 
     private static void DrawGunAimVectors(
         Ship ship,

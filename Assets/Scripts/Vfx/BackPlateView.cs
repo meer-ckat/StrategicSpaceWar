@@ -268,7 +268,7 @@ public sealed class BackPlateView : MonoBehaviour
 
         UpdateHeat(overlay, structure);
 
-        overlay.renderer.enabled = _visible;
+        overlay.renderer.enabled = _visible && !PauseControl.Schematic;   // 회로도는 후면 그림을 안 보인다
 
         Follow(overlay.renderer.transform, structure.transform, overlay.localOffset);
 

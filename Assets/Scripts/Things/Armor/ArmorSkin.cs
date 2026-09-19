@@ -53,6 +53,10 @@ public sealed class ArmorSkin : MonoBehaviour
     private static readonly int HeatId = Shader.PropertyToID("_Heat");
     private static readonly int BuildId = Shader.PropertyToID("_Build");
     private static readonly int BuildFrontId = Shader.PropertyToID("_BuildFront");
+    private static readonly int WireColorId = Shader.PropertyToID("_WireColor");
+
+    /// <summary>건조 와이어프레임 색. Telemetry x1.6(HDR, Bloom이 문다). 정지 회로도는 다른 색을 넣고 나올 때 되돌린다.</summary>
+    public static readonly Color ConstructionWire = new(0.40f * 1.6f, 0.78f * 1.6f, 0.82f * 1.6f, 1f);
     private static readonly int SrcBlendId = Shader.PropertyToID("_SrcBlend");
     private static readonly int DstBlendId = Shader.PropertyToID("_DstBlend");
     private static readonly int ZWriteId = Shader.PropertyToID("_ZWrite");
@@ -275,6 +279,7 @@ public sealed class ArmorSkin : MonoBehaviour
         _props.SetTexture(DamageMaskId, _mask);
         _props.SetVector(BuildId, new Vector4(BuildAxis, ConstructionFx.Band, 0f, 0f));
         _props.SetFloat(BuildFrontId, _buildFront);
+        _props.SetColor(WireColorId, _wireColor);
 
         // erode 무늬 씨앗 - 결정론 규약 그대로 stableId, 씬 저작 배만 인스턴스 ID 폴백.
         Debug.Assert(_armor.stableId >= 0,
@@ -448,9 +453,21 @@ public sealed class ArmorSkin : MonoBehaviour
 
     /// <summary>건조 전선. 판 좌표 (x+y)가 이보다 작으면 실제 장갑, 크면 와이어프레임. 기본 +∞ = 완성.</summary>
     private float _buildFront = float.MaxValue;
+    private Color _wireColor = ConstructionWire;
 
     /// <summary>이 판의 전선 축 값. 판은 선체 직속 자식이라 localPosition이 곧 선체 좌표다.</summary>
     public float BuildAxis => transform.localPosition.x + transform.localPosition.y;
+
+    public void SetWireColor(Color colour)
+    {
+        _wireColor = colour;
+
+        if (_props == null || _renderer == null)
+            return;
+
+        _props.SetColor(WireColorId, colour);
+        _renderer.SetPropertyBlock(_props);
+    }
 
     public void SetBuildFront(float front)
     {

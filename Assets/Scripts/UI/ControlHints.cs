@@ -161,8 +161,12 @@ public sealed class ControlHints : MonoBehaviour
                 "부스터. 연료를 태운다.",
                 () => Keyboard.current != null && Keyboard.current.shiftKey.isPressed),
 
+            new Step(new[] { "SPACE" },
+                "정지. 회로도로 배 속을 읽는다. 휠 줌, 끌어서 이동.",
+                () => Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame),
+
             new Step(new[] { "TAB" },
-                "함내 기압도. 공기가 빠진 방은 승무원이 못 산다.",
+                "정지 중 층 전환 - 전부 · 전기 · 기압.",
                 () => Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame),
         };
 

@@ -44,8 +44,8 @@ public sealed class RoomView : MonoBehaviour
     /// <summary>초당 이만큼 기압이 빠지면 완전히 Vent 색. 0.2면 5초에 한 방이 빈다.</summary>
     private const float FullVentRate = 0.2f;
 
-    /// <summary>판 위에 그린다. 판은 기본값 0이다.</summary>
-    private const int SortingOrder = 100;
+    /// <summary>판 위에, 그리고 정지 회로도 덮개(SchematicView 150) 위에. 전선(156)·윤곽(154)은 그보다 위다.</summary>
+    private const int SortingOrder = 152;
 
     private sealed class Overlay
     {
@@ -55,6 +55,7 @@ public sealed class RoomView : MonoBehaviour
         public ShipGrid.Map map;        // 참조가 바뀌면 배가 다시 지어진 것이다
         public Vector2 localOffset;     // 격자 한가운데의 선체 기준 자리
         public float[] lastPressure;    // 방 번호별. 새는 속도를 여기서 뽑는다
+        public bool schematicWas;       // 회로도가 켜지고 꺼질 때 알파가 바뀌므로 다시 칠한다
 
         /// <summary>
         /// 방 번호별 이번 프레임의 색. **분출량이 색에 들어가는데 그 값은 기압 델타라
@@ -130,10 +131,8 @@ public sealed class RoomView : MonoBehaviour
 
     private void LateUpdate()
     {
-        if (Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame)
-            _visible = !_visible;
-
-        Showing = _visible;
+        // 방은 정지 회로도에서만 보인다(오너 2026-09-19). Tab은 정지 중 층 순환이라 PauseControl이 읽는다.
+        Showing = PauseControl.Schematic && PauseControl.Focus != PauseControl.Layer.Power;
 
 #if UNITY_EDITOR
         // 오른쪽 클릭한 방을 진공으로 만든다. **에디터 전용이다** - 빌드에 들어가면
@@ -326,7 +325,8 @@ public sealed class RoomView : MonoBehaviour
 
         // 오버레이는 껐다 켰다 하는 디버그 표시지만, 감압 분출은 월드에서 실제로 일어나는
         // 일의 그림이다. Tab으로 끄는 것은 앞엣것뿐이라 Paint는 항상 돈다.
-        overlay.renderer.enabled = _visible;
+        overlay.renderer.enabled = Showing;
+        overlay.renderer.color = new Color(1f, 1f, 1f, PauseControl.Blend);   // 전환과 같이 차오른다
 
         // 부모가 아니라 따라간다. 배가 돌면 오버레이도 같이 돈다.
         overlay.renderer.transform.SetPositionAndRotation(
@@ -341,7 +341,7 @@ public sealed class RoomView : MonoBehaviour
         // 먹였다. 여기서 또 손대면 두 번 뒤집힌다.
         overlay.renderer.transform.localScale = ship.transform.lossyScale;
 
-        Paint(ship, overlay, _visible);
+        Paint(ship, overlay, Showing);
         return true;
     }
 
@@ -417,6 +417,13 @@ public sealed class RoomView : MonoBehaviour
 
         overlay.wasVisible = draw;
 
+        bool schematic = PauseControl.Schematic;
+        if (overlay.schematicWas != schematic)
+        {
+            overlay.schematicWas = schematic;
+            overlay.dirty = true;
+        }
+
         for (int i = 0; i < ship.rooms.Count && i < overlay.lastPressure.Length; i++)
         {
             Room room = ship.rooms[i];
@@ -429,7 +436,9 @@ public sealed class RoomView : MonoBehaviour
 
             // 기압이 색을 정하고, 새는 중이면 그 위에 주황이 덮인다. 알파는 안 건드린다 -
             // 진공도 "진공이다"라는 정보라 끝까지 보여야 한다.
-            var packed = (Color32)Color.Lerp(Color.Lerp(Vacuum, Hold, pressure), Vent, venting);
+            Color tint = Color.Lerp(Color.Lerp(Vacuum, Hold, pressure), Vent, venting);
+            if (schematic) tint.a = Ballistics.SchematicRoomAlpha;   // 덮개 위라 반투명일 이유가 없다
+            var packed = (Color32)tint;
 
             // **색이 바뀐 것이 곧 다시 구울 이유다.** 기압을 직접 비교하지 않는 이유는
             // 색이 최종 답이기 때문이다 - 눈에 안 보이는 소수점 변화로 텍스처를 다시
