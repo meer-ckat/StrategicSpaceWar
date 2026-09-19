@@ -596,6 +596,12 @@ public static partial class Ballistics
     public const float WireHeatCapacity = 400f;    // J/K per m
     public const float WireCoolPerSecond = 0.05f;  // 초당 (T-주변)×이만큼 식는다
     public const float WireBurnKelvin = 400f;      // 이 온도를 넘으면 그 구간이 탄다 = 끊긴다
+
+    // ---- M4 차단기. 전선 하나에 하나, 정격은 전선 허용전류. 트립 = 그 전선 전부 alive false, 손상은 없다 - 리셋하면 돌아온다.
+    public const float BreakerAmps = 100f;         // 정격 A. m12 기동 6.3 A x 8 = 50 A는 통과, 단락(수 kA)은 즉시
+    public const float BreakerTripSeconds = 2f;    // 정격 2배에서 트립까지. I2t: ((I/Ir)^2 - 1)을 초로 적분해 3x이 값에 닿으면 트립
+    public const float BreakerInstantMul = 10f;    // 이 배수 이상이면 즉시(전자식). 단락 전용
+    public const float BreakerCoolPerSecond = 0.5f; // 정격 밑에서 누적 I2t가 초당 이만큼 빠진다
     public const int PowerInterval = 6;            // 틱. 10 Hz
     public const float TurretMotorTau = 0.25f;     // s. 포탑 모터가 목표 속도에 붙는 시정수. 기동 전류가 이만큼 지속된다
     public const float TurretMotorLoad = 0.3f;     // 정격 속도에서 마찰이 먹는 전류 비율. 기동 = 정격(Vnom/Ra), 회전 중 = 이만큼

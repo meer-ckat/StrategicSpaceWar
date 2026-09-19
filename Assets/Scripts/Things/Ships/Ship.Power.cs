@@ -28,7 +28,7 @@ public partial class Ship
     public enum WireState { Cut, Dark, Live }
 
     /// <summary>끊긴 이유. 검사 패널이 말로 바꾼다.</summary>
-    public enum CutCause { None, Burned, Holed, PlateGone, PlateLeft, Breached }
+    public enum CutCause { None, Burned, Holed, PlateGone, PlateLeft, Breached, Tripped }
 
     public struct WireSeg
     {
@@ -41,6 +41,8 @@ public partial class Ship
         public float ohms;
         public int subs;       // 지나는 (판, 서브셀) 수. 0이면 공기라 못 끊긴다
         public bool burned, holed;
+        public bool tripped;   // 이 전선의 차단기가 내려갔다 (전선 전체)
+        public float trip01;   // 트립까지 누적 I2t 비율
     }
 
     /// <summary>기기의 풀이 결과. 그래프에 없으면(전선 없는 설계·죽은 기기) false.</summary>
@@ -86,6 +88,8 @@ public partial class Ship
         r.kelvin = run.temp[seg];
         r.burned = run.burned[seg];
         r.holed = run.holed[seg];
+        r.tripped = run.tripped;
+        r.trip01 = Mathf.Clamp01(run.i2t / (Ballistics.BreakerTripSeconds * 3f));
         r.subs = run.subs[seg].Count;
         r.cause = Cause(run, seg);
         r.state = r.cause != CutCause.None ? WireState.Cut : WireState.Dark;
@@ -104,6 +108,7 @@ public partial class Ship
 
     private CutCause Cause(WireRun run, int s)
     {
+        if (run.tripped) return CutCause.Tripped;
         if (run.burned[s]) return CutCause.Burned;
         if (run.holed[s]) return CutCause.Holed;
 
@@ -129,6 +134,8 @@ public partial class Ship
         public float[] temp;      // 주변 대비 K
         public bool[] burned;     // 열로 탔다. 정비가 되돌린다
         public bool[] holed;      // 설계엔 판이 있는데 지을 때 없었다(손상 저장본의 구멍). 영구
+        public bool tripped;      // 차단기(M4). 전선 하나에 하나. 리셋은 사람이
+        public float i2t;         // 정격 초과분의 적분. BreakerTripSeconds x 3에 닿으면 트립
     }
 
     private readonly List<WireRun> _wires = new();
@@ -233,6 +240,8 @@ public partial class Ship
                 subs = run.subs[s].Count,
                 burned = run.burned[s],
                 holed = run.holed[s],
+                tripped = run.tripped,
+                trip01 = Mathf.Clamp01(run.i2t / (Ballistics.BreakerTripSeconds * 3f)),
             });
         }
     }
@@ -365,9 +374,20 @@ public partial class Ship
         return DesignMap.Inside(c) && ShipGrid.Solid(DesignMap.cells[c.x, c.y]);
     }
 
+    public bool BreakerTripped(int wire) => wire >= 0 && wire < _wires.Count && _wires[wire].tripped;
+
+    /// <summary>사람이 올린다. 과부하 원인이 그대로면 다시 내려간다 - 그것이 이 결정의 값이다.</summary>
+    public void ResetBreaker(int wire)
+    {
+        if (wire < 0 || wire >= _wires.Count) return;
+        _wires[wire].tripped = false;
+        _wires[wire].i2t = 0f;
+        PowerVersion++;
+    }
+
     private bool SegmentIntact(WireRun run, int s)
     {
-        if (run.burned[s] || run.holed[s]) return false;
+        if (run.tripped || run.burned[s] || run.holed[s]) return false;
 
         foreach ((Armor plate, int sub) in run.subs[s])
             if (plate == null || !StillAboard(plate, this) || plate.IsBreached(sub))
@@ -419,8 +439,17 @@ public partial class Ship
         }
 
         _grid.Solve();
-        HeatWires(TickManager.TickDeltaTime * Ballistics.PowerInterval);
+        float dt = TickManager.TickDeltaTime * Ballistics.PowerInterval;
+        HeatWires(dt);
+        int trips = TripBreakers(dt);
         PowerVersion++;
+
+        if (trips > 0)
+        {
+            RunLog.BreakerTrip(this, trips);
+            if (IsPlayerControlled)
+                HitReadout.Push(trips > 1 ? $"BREAKER TRIP x{trips}" : "BREAKER TRIP", incoming: true, minor: false);
+        }
 
         // 끊긴 구간이 늘었을 때만 기록한다 - 사건은 전이지 상태가 아니다(WatchForCritical과 같은 이유).
         // 첫 풀이(_cutSegments < 0)는 기준선이라 안 적는다: 손상 저장본의 구멍이 "방금 끊김"이 되면 안 된다.
@@ -514,6 +543,43 @@ public partial class Ship
     /// 조용히 죽인다(<see cref="Armor.Burn"/> - 관통 소리·파편·기록 없이). 단락이 왜 위험한가가
     /// 여기서 나온다: 6 kA × 0.02 Ω = 720 kW.
     /// </summary>
+    /// <summary>
+    /// 차단기(M4). 전선마다 제일 센 구간 전류를 정격과 견준다. 정격 위에서 ((I/Ir)^2 - 1)을 적분하고(열동),
+    /// BreakerInstantMul 배 이상이면 바로(전자). 트립은 손상이 아니라 상태다 - 전선은 멀쩡하고 사람이 올린다.
+    /// 반환: 이번 풀이에 내려간 수.
+    /// </summary>
+    private int TripBreakers(float dt)
+    {
+        int trips = 0;
+        float limit = Ballistics.BreakerTripSeconds * 3f;
+
+        for (int w = 0; w < _wires.Count; w++)
+        {
+            WireRun run = _wires[w];
+            if (run.tripped) continue;
+
+            float peak = 0f;
+            for (int e = 0; e < _grid.edgeCount; e++)
+                if (_grid.ewire[e] == w && _grid.ei[e] > peak) peak = _grid.ei[e];
+
+            float ratio = peak / Ballistics.BreakerAmps;
+
+            if (ratio >= Ballistics.BreakerInstantMul)
+                run.i2t = limit;
+            else if (ratio > 1f)
+                run.i2t += (ratio * ratio - 1f) * dt;
+            else
+                run.i2t = Mathf.Max(0f, run.i2t - Ballistics.BreakerCoolPerSecond * dt);
+
+            if (run.i2t < limit) continue;
+
+            run.tripped = true;
+            trips++;
+        }
+
+        return trips;
+    }
+
     private void HeatWires(float dt)
     {
         for (int e = 0; e < _grid.edgeCount; e++)

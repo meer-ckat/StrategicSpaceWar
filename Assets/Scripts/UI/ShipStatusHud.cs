@@ -476,10 +476,13 @@ public sealed class ShipStatusHud : MonoBehaviour
                 Ship.CutCause.PlateGone => "끊김 · 판 소실",
                 Ship.CutCause.PlateLeft => "끊김 · 판이 잔해로 떠남",
                 Ship.CutCause.Breached => "끊김 · 판 관통",
+                Ship.CutCause.Tripped => "차단기 내려감 · 다시 클릭하면 올린다",
                 _ => "끊김",
             },
         };
-        Row("상태", state, s.state == Ship.WireState.Live ? HudColor : s.state == Ship.WireState.Dark ? Palette.Steel : CriticalColor);
+        Row("상태", state, s.state == Ship.WireState.Live ? HudColor : s.state == Ship.WireState.Dark ? Palette.Steel : s.tripped ? Palette.Heat : CriticalColor);
+        Row("차단기", s.tripped ? $"TRIP  (정격 {Ballistics.BreakerAmps:0} A)" : $"정격 {Ballistics.BreakerAmps:0} A · 누적 {s.trip01:P0}",
+            s.tripped ? Palette.Heat : s.trip01 > 0f ? WarnColor : HudColor);
         Row("길이 · 저항", $"{(s.b - s.a).magnitude:0.0} m · {s.ohms * 1000f:0.0} mΩ");
         Row("전류", $"{s.amps:0.#} A");
         Row("온도", $"+{s.kelvin:0} K", s.kelvin > Ballistics.WireBurnKelvin * 0.5f ? Palette.Heat : HudColor);

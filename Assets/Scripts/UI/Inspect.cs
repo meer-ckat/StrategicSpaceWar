@@ -32,6 +32,7 @@ public static class Inspect
     /// <summary>월드 한 점에서 제일 그럴듯한 것 하나. 승무원 → 전선 → 모듈 → 판 순 - 작은 것이 먼저다.</summary>
     public static void Click(Vector2 world)
     {
+        WireSel? was = Wire;
         Clear();
 
         for (int i = 0; i < Ship.All.Count; i++)
@@ -59,6 +60,10 @@ public static class Inspect
             Vector2 local = ship.transform.InverseTransformPoint(world);
             if (ship.TryPickWire(local, Ballistics.WireViewWidth * 1.5f, out int wire, out int seg))
             {
+                // 트립된 전선을 골라 둔 채 한 번 더 클릭 = 차단기 올리기. 정지 화면의 유일한 명령이다.
+                if (was is WireSel w && w.ship == ship && w.wire == wire && ship.BreakerTripped(wire))
+                    ship.ResetBreaker(wire);
+
                 Wire = new WireSel(ship, wire, seg);
                 return;
             }
