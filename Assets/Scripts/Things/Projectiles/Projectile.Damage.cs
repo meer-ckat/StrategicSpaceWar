@@ -161,7 +161,12 @@ public abstract partial class Projectile
                 armor.TraceChannel(_surfaces.hitPoint, dir, depth, channel, out _, caliber * 0.001f);
             }
 
-            armor.ApplyDamageAlong(channel, share);
+            armor.ApplyDamageAlong(channel, share, out float overflow);
+
+            // 채널이 못 삼킨 몫은 이웃 판을 깨뜨린다. 남는 것이 거의 없는 소구경은 그대로, 305 mm는 주위가 같이 간다 -
+            // 크기가 곧 결과다. 잔여 속도(관통 뒤 계속 가는 것)와는 별개의 몫이라 두 번 세지 않는다.
+            if (overflow > 0f)
+                RamImpact.Crack(armor, overflow * Ballistics.OverkillConductFraction);
 
             // 앞판을 뚫었으면 그 자리 뒷벽까지 본다. 후면은 콜라이더가 없어서 위
             // 레이캐스트에 절대 안 잡히므로, 관통이 확정된 이 자리에서 직접 물어야 한다.

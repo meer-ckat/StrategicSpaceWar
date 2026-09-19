@@ -1195,6 +1195,22 @@ public static class RamImpact
     /// 앞엣것은 이어진 실물만 따라가므로 이미 뚫린 구멍에서 끊기고, 뒤엣것은 몸을 안 가리므로
     /// 맞댄 적함·잔해·운석에도 닿는다. 감쇠 공식은 같은 것을 쓴다.
     /// </summary>
+    /// <summary>
+    /// 판이 먹기로 한 에너지 중 채널이 못 삼킨 나머지 - 실물이면 금이 가고 깨지는 몫. 자기 몸의 이웃으로만,
+    /// 유폭과 같은 등방성 감쇠로 번진다(origin 자신은 이미 채널이 먹었으니 뺀다). 탄 축을 따라 길게 번지지
+    /// 않는 이유: 축 방향 깊이는 탄이 잔여 속도로 스스로 간다 - 여기서 또 주면 두 번 센다.
+    /// </summary>
+    public static void Crack(Armor origin, float damage)
+    {
+        if (origin == null || damage <= Ballistics.BlastFloor) return;
+
+        using var spallBatch = SpallResolver.DeferPump();
+
+        Conduct(origin, Vector2.up, damage,
+            Ballistics.BlastFalloff, Ballistics.BlastFalloff,
+            Mathf.Clamp01(Ballistics.BlastFloor / damage), Ballistics.BlastMaxPlates);
+    }
+
     public static void Detonate(Armor origin, float damage)
     {
         // 한 폭발이 구조 전도와 자유 공간에 낳는 파편도 같은 순간의 한 wave다.

@@ -52,6 +52,9 @@ public static partial class Ballistics
     /// 거의 전부를 쏟는다. "장갑이 안 닳는다"는 대개 이 숫자가 틀린 게 아니라 포가 너무 센 것이다.
     /// </summary>
     public const float DamageScale = 1e-4f;
+    /// <summary>채널 서브셀이 못 삼킨 판 몫 중 이웃으로 전도되는 비율(RamImpact.Crack, 등방성 BlastFalloff).
+    /// 1이면 305 mm(mk6에서 나머지 ~6,000)가 반경 3.3 m를 지운다. 0.25면 1.6 m - 8이웃이 죽고 2 m 고리가 상한다.</summary>
+    public const float OverkillConductFraction = 0.25f;
 
     /// <summary>
     /// 반동 배수. **1이 실제 운동량이다** - 탄 질량 x 포구속도가 그대로 배를 민다.

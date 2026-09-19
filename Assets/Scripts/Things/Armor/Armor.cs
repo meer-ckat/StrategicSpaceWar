@@ -325,11 +325,23 @@ public abstract class Armor : Thing
     /// 서브셀들에 나눠 담길 뿐이다.
     /// </summary>
     public void ApplyDamageAlong(float[] weights, float amount)
+        => ApplyDamageAlong(weights, amount, out _);
+
+    /// <summary>
+    /// 같은 일이되 채널 서브셀이 못 삼킨 나머지를 돌려준다. 서브셀 HP는 판의 1/36이라 주포 한 발의
+    /// 몫은 대부분 여기서 버려졌다 - 305 mm가 20 mm와 같은 두 레인 구멍만 남기던 이유. 그 나머지는
+    /// 호출자가 이웃으로 전도한다(RamImpact.Crack). 채널 안에서 이미 죽은 칸도 못 삼킨 것으로 센다.
+    /// </summary>
+    public void ApplyDamageAlong(float[] weights, float amount, out float overflow)
     {
+        overflow = 0f;
+
         for (int i = 0; i < SubCount; i++)
         {
-            if (weights[i] > 0f)
-                ApplyDamage(i, amount * weights[i]);
+            if (weights[i] <= 0f) continue;
+            float hit = amount * weights[i];
+            overflow += Mathf.Max(0f, hit - _hp[i]);
+            ApplyDamage(i, hit);
         }
     }
 
