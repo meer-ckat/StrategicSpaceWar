@@ -7,45 +7,48 @@ using UnityEngine;
 /// </summary>
 public static class PowerNet
 {
+    /// <summary>eLoad 없는 옛 서명. 전부 0으로 푼다.</summary>
+    public static void Solve(float emf, int[] parent, float[] rBranch, float[] rLoad, float[] v, float[] i, int n = -1)
+        => Solve(emf, parent, rBranch, rLoad, null, v, i, n);
+
     /// <summary>
-    /// M3 회차 (표 21번). 부하가 역기전력을 가진다 - 모터 k는 i = (v[k] - eLoad[k]) / rLoad[k].
-    /// eLoad[k] = 0이면 위의 Solve와 같아야 한다. 두 패스·할당 없음은 그대로.
-    /// 힌트는 순서대로 하나씩: (1) 노턴 등가 (2) "가지 밑 = 컨덕턴스 + 주입 전류" 한 쌍 (3) 뒤로 패스에서
-    /// 주입 전류도 부모로 접는다. 지금은 스텁 - eLoad를 버린다. 테스트 6·7·8·9 중 e ≠ 0인 것이 빨갛다.
+    /// 표 21번(M3). 부하 k는 역기전력 eLoad[k]를 가진다 - 모터: i = (v - e) / r. eLoad가 null이거나 0이면 저항 부하.
+    /// 노턴 등가로 두 패스 그대로다: 가지 밑 전체를 부모에서 본 (컨덕턴스 G, 주입 전류 J) 한 쌍으로 접는다.
+    /// 직렬 저항 R 너머로 접으면 G' = G/(1+GR), J' = J/(1+GR). 뒤로 패스는 G를 i[]에, J를 v[]에 임시로 둔다 -
+    /// 앞으로 패스가 k를 풀 때 v[parent]는 이미 전압이고 v[k]는 아직 J라 겹치지 않는다. 할당 없음.
     /// </summary>
     public static void Solve(float emf, int[] parent, float[] rBranch, float[] rLoad, float[] eLoad, float[] v, float[] i, int n = -1)
-    {
-        Solve(emf, parent, rBranch, rLoad, v, i, n);
-    }
-
-    // 표 20번. 뒤로 한 번(잎→뿌리, 합성 컨덕턴스), 앞으로 한 번(뿌리→잎, 전압 강하). 반복 없음 -
-    // 전류를 되먹이는 스윕은 단락(1 mΩ)에서 발산한다(수축률 = rBranch/rLoad ≫ 1).
-    public static void Solve(float emf, int[] parent, float[] rBranch, float[] rLoad, float[] v, float[] i, int n = -1)
     {
         if (n < 0) n = parent.Length;
         if (n == 0) return;
 
-        // 뒤로: i[k]를 임시로 "k 밑 전체가 부모에서 보이는 컨덕턴스"로 쓴다. 이래서 할당이 없다 -
-        // v[]를 쓰면 앞으로 패스에서 부모 전압을 읽을 때 컨덕턴스를 읽는다.
         for (int k = 0; k < n; k++)
-            i[k] = rLoad[k] > 0f ? 1f / rLoad[k] : 0f;
+        {
+            float g = rLoad[k] > 0f ? 1f / rLoad[k] : 0f;
+            i[k] = g;
+            v[k] = eLoad != null ? g * eLoad[k] : 0f;   // 부하의 노턴 전류원 J = g·e
+        }
 
         for (int k = n - 1; k >= 1; k--)
         {
-            if (i[k] <= 0f) continue;                 // 밑이 열려 있으면 이 가지엔 전류가 없다
-            i[parent[k]] += 1f / (rBranch[k] + 1f / i[k]);
+            float g = i[k];
+            if (g <= 0f) continue;                    // 밑이 열려 있으면 이 가지엔 전류가 없다
+            float fold = 1f / (1f + g * rBranch[k]);
+            i[parent[k]] += g * fold;
+            v[parent[k]] += v[k] * fold;
         }
 
-        // 앞으로: 뿌리 전압, 그리고 자식마다 (부모 전압 / 가지 밑 합성저항).
-        float g0 = i[0];
-        i[0] = g0 > 0f ? emf / (rBranch[0] + 1f / g0) : 0f;
-        v[0] = emf - i[0] * rBranch[0];
+        // 뿌리: 전원 emf, 내부저항 rBranch[0]. (emf - v0)/r0 = G0·v0 - J0.
+        float g0 = i[0], j0 = v[0], r0 = rBranch[0];
+        v[0] = (emf + j0 * r0) / (1f + g0 * r0);
+        i[0] = r0 > 0f ? (emf - v[0]) / r0 : g0 * v[0] - j0;
 
         for (int k = 1; k < n; k++)
         {
-            float g = i[k];
-            i[k] = g > 0f ? v[parent[k]] / (rBranch[k] + 1f / g) : 0f;
-            v[k] = v[parent[k]] - i[k] * rBranch[k];
+            float g = i[k], j = v[k];
+            float vp = v[parent[k]];
+            i[k] = (g * vp - j) / (1f + g * rBranch[k]);
+            v[k] = vp - i[k] * rBranch[k];
         }
     }
 }

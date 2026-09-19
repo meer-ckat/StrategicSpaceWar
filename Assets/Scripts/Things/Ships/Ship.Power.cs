@@ -409,6 +409,15 @@ public partial class Ship
             if (!_grid.ealive[e]) cut++;
         }
 
+        // M3: 포탑 모터. 도는 중이면 (Ra, 역기전력 ke·ω), 서 있으면 열린 회로(전류 0). 기동 순간이 전류 최대다.
+        for (int k = 0; k < shipGuns.Count; k++)
+        {
+            Gun g = shipGuns[k];
+            if (g == null || !_nodeOf.TryGetValue(g, out int n)) continue;
+            _grid.rInt[n] = g.MotorOn ? g.ArmatureOhms : 0f;
+            _grid.emf[n] = g.MotorOn ? g.BackEmf : 0f;
+        }
+
         _grid.Solve();
         HeatWires(TickManager.TickDeltaTime * Ballistics.PowerInterval);
         PowerVersion++;

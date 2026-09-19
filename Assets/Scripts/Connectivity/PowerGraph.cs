@@ -12,7 +12,7 @@ public sealed class PowerGraph
     public int nodeCount, edgeCount;
 
     public Kind[] kind = new Kind[16];
-    public float[] emf = new float[16];
+    public float[] emf = new float[16];      // Source: 기전력. Load: 역기전력(M3, 매 풀이 전에 Ship이 쓴다)
     public float[] rInt = new float[16];     // Source: 내부저항, Load: 부하저항
     public float[] v = new float[16];
     public float[] i = new float[16];        // 부모 간선으로 이 노드에 들어오는 전류. 뿌리는 전원이 내는 전류
@@ -27,7 +27,7 @@ public sealed class PowerGraph
     // 풀이 스크래치. 노드·간선 수가 자랄 때만 다시 잡는다.
     private int[] _head = new int[16], _next = new int[32], _adjEdge = new int[32];
     private int[] _order = new int[16], _local = new int[16], _parentEdge = new int[16], _parent = new int[16];
-    private float[] _rBranch = new float[16], _rLoad = new float[16], _sv = new float[16], _si = new float[16];
+    private float[] _rBranch = new float[16], _rLoad = new float[16], _eLoad = new float[16], _sv = new float[16], _si = new float[16];
     private bool[] _visited = new bool[16];
     private int _slots;
 
@@ -107,9 +107,10 @@ public sealed class PowerGraph
                 _parent[q] = q == 0 ? -1 : _local[ea[pe] == node ? eb[pe] : ea[pe]];
                 _rBranch[q] = q == 0 ? rInt[root] : er[pe];
                 _rLoad[q] = kind[node] == Kind.Load ? rInt[node] : 0f;
+                _eLoad[q] = kind[node] == Kind.Load ? emf[node] : 0f;
             }
 
-            PowerNet.Solve(emf[root], _parent, _rBranch, _rLoad, _sv, _si, count);
+            PowerNet.Solve(emf[root], _parent, _rBranch, _rLoad, _eLoad, _sv, _si, count);
 
             for (int q = 0; q < count; q++)
             {
@@ -135,7 +136,7 @@ public sealed class PowerGraph
         if (_head.Length < n)
         {
             _head = new int[n]; _order = new int[n]; _local = new int[n]; _parentEdge = new int[n]; _parent = new int[n];
-            _rBranch = new float[n]; _rLoad = new float[n]; _sv = new float[n]; _si = new float[n]; _visited = new bool[n];
+            _rBranch = new float[n]; _rLoad = new float[n]; _eLoad = new float[n]; _sv = new float[n]; _si = new float[n]; _visited = new bool[n];
         }
 
         if (_next.Length < m * 2)

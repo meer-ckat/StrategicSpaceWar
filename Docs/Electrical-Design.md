@@ -167,8 +167,9 @@ M3(모터·역기전력)는 Load 노드에 `ke·ω`를 역기전력으로 넣는
 |---|---|
 | `PowerNet.Solve(..., eLoad, ...)` | **회차(표 21번, 오너).** 부하 k의 전류 `i = (v[k] - eLoad[k]) / rLoad[k]`. 두 패스·할당 없음 유지. 테스트 6~9 (`Tools > Ship > Run PowerNet Tests`) |
 | `PowerGraph` | Load 노드에 `eLoad` 배열 하나 더. 재빌드 때만 잡는다 |
-| `Gun` | 모터 상태 `ω`(선회 각속도, 지금은 `slewRate`가 상수로 대신함). `ke = PowerNominal / slewRate(rad/s)` - 정격에서 무부하 속도가 곧 def의 slewRate라 def 키가 안 는다. `Ra = Vnom² / powerWatts`. 매 틱 `Ia = (v - ke·ω)/Ra`, 가속 = `kt·Ia - 마찰` |
-| 나오는 증상 | 정지한 포탑이 기동하는 순간 기동 전류(`v/Ra`, 6 A가 아니라 수십 A) → 전선 열 → 큰 포 여러 문이 동시에 선회하면 케이블이 탄다. 분기문 없음 |
+| `Gun` | 모터 상태 `Omega`(°/s)·`MotorOn`. `Ke = Vnom·(1 - TurretMotorLoad) / slewRate` - 정격 전압·정격 속도에서 역기전력이 70 % V라 나머지 30 %가 마찰 전류. `Ra = Vnom²/powerWatts`(AddDevice와 같은 식). 속도는 시정수 `TurretMotorTau`(0.25 s)로 `slewRate × V/Vnom`에 붙는다. Slew를 못 부른 틱만 관성으로 식는다 - 매 틱 깎으면 절반에서 멈춘다(실측 4.5/9) |
+| `Ship.SolvePower` | 풀기 전에 포탑마다 `rInt = MotorOn ? Ra : 0`, `emf = MotorOn ? Ke·ω : 0`. 서 있는 포탑은 열린 회로(0 A) |
+| 나오는 증상 | 기동 순간 전류 = 정격(`Vnom/Ra`, m12 6.3 A), 회전 중 30 %(1.9 A), 서면 0. 큰 포 여덟 문이 같이 기동하면 50 A가 한 번에 케이블을 지난다. 분기문 없음 |
 
 eLoad가 0이면 M2와 같다 - 그래서 기존 테스트 1~5가 회귀 검사다. 반복법은 안 쓴다(§1). 회생(e > v)은 막지 않는다 -
 전류 부호가 거꾸로 되는 것이 답이고, 원자로 쪽으로 밀려 들어가는 전류는 M5 버스 타이 전까지는 그냥 v[0]에 반영된다.

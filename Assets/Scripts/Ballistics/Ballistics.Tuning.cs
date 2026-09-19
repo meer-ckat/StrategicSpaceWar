@@ -594,6 +594,8 @@ public static partial class Ballistics
     public const float WireCoolPerSecond = 0.05f;  // 초당 (T-주변)×이만큼 식는다
     public const float WireBurnKelvin = 400f;      // 이 온도를 넘으면 그 구간이 탄다 = 끊긴다
     public const int PowerInterval = 6;            // 틱. 10 Hz
+    public const float TurretMotorTau = 0.25f;     // s. 포탑 모터가 목표 속도에 붙는 시정수. 기동 전류가 이만큼 지속된다
+    public const float TurretMotorLoad = 0.3f;     // 정격 속도에서 마찰이 먹는 전류 비율. 기동 = 정격(Vnom/Ra), 회전 중 = 이만큼
 
     // ---- 정지 회로도 (목업 2026-09-19에서 오너가 고른 값. 모드 B: 텍스처 끄고 선만) ----
     public const float PauseDimAlpha = 1f;         // 덮개. 1이면 배경·텍스처가 완전히 사라진다

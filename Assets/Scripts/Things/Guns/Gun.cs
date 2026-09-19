@@ -156,6 +156,22 @@ public class Gun : Thing, IDamageable
     /// <summary>전압비. 저전압이면 선회가 느려진다 - 증상 B(DRIVE DEGRADED)가 분기문 없이 여기서 나온다.</summary>
     private float SlewScale => owner == null ? 1f : Mathf.Clamp01(owner.Voltage(this) / Ballistics.PowerNominal);
 
+    // ---- M3 모터. 직류기 한 대: V = E + Ia·Ra, E = ke·ω. def 키는 안 는다 -
+    // 정격 전압에서 무부하 속도가 곧 slewRate라 ke가 거기서 나오고, Ra는 정격 소비에서 나온다(기동 = 정격 전류).
+    // 속도는 시정수 TurretMotorTau로 목표(V/ke)에 붙는다 - dω/dt = (kt/J·Ra)(V - ke·ω)를 그 한 상수로 접은 것.
+
+    /// <summary>V per (°/s). 정격 전압·정격 속도(slewRate)에서 역기전력이 (1 - TurretMotorLoad)·V - 나머지가 마찰을 돌리는 전류다.
+    /// 무부하 모터로 두면 정격 속도에서 전류 0이라 "돌고 있는 포탑"이 전기적으로 서 있는 것과 같아진다.</summary>
+    public float Ke => Ballistics.PowerNominal * (1f - Ballistics.TurretMotorLoad) / Mathf.Max(1f, slewRate);
+    /// <summary>전기자 저항 Ω. Ship.AddDevice의 Vnom²/P와 같은 식.</summary>
+    public float ArmatureOhms => powerWatts > 0f ? Ballistics.PowerNominal * Ballistics.PowerNominal / powerWatts : 0f;
+    /// <summary>지금 선회 각속도 °/s (부호 없음).</summary>
+    public float Omega { get; private set; }
+    /// <summary>이 틱에 모터가 돈다. Slew가 켜고 OnTick 머리가 끈다 - 정지 사유로 Slew를 못 부른 틱은 자동으로 꺼진다.</summary>
+    public bool MotorOn { get; private set; }
+    public float BackEmf => Ke * Omega;
+    private bool _slewed;
+
     public float fireArc = 2f;      // 도. 조준 오차가 이 안에 들어와야 쏜다
 
     /// <summary>
@@ -475,6 +491,11 @@ public class Gun : Thing, IDamageable
 
     public override void OnTick()
     {
+        // Slew를 못 부른 틱(정지 사유·표적 없음)에만 관성으로 식는다. 매 틱 깎고 Slew가 다시 올리면 절반에서 멈춘다.
+        MotorOn = false;
+        if (!_slewed) Omega = Mathf.MoveTowards(Omega, 0f, Omega * TickManager.TickDeltaTime / Ballistics.TurretMotorTau);
+        _slewed = false;
+
         if (Neutralized)
         {
             Hold = HoldReason.Destroyed;
@@ -788,7 +809,14 @@ public class Gun : Thing, IDamageable
         // 어디를 겨눌 수 있느냐는 선체 기준이고, 얼마나 빨리 겨누느냐는 월드 기준이다.
         // 그 둘은 다른 질문이라 같은 좌표계일 이유가 없다.
         float have = _turret.eulerAngles.z;
-        float next = Mathf.MoveTowardsAngle(have, want, slewRate * SlewScale * dt);
+
+        // 모터: 목표 속도 V/ke = slewRate × 전압비. 남은 각이 0이면 전원을 끊고(MotorOn false) 관성만 남는다.
+        float remaining = Mathf.Abs(Mathf.DeltaAngle(have, want));
+        _slewed = true;
+        MotorOn = remaining > 1e-3f;
+        float omegaWant = MotorOn ? slewRate * SlewScale : 0f;
+        Omega = Mathf.Lerp(Omega, omegaWant, 1f - Mathf.Exp(-dt / Ballistics.TurretMotorTau));
+        float next = Mathf.MoveTowardsAngle(have, want, Omega * dt);
 
         // **want를 자른 것만으로는 안 끝난다.** mount는 선체를 따라 매 틱 움직이는데
         // MoveTowardsAngle은 지난 틱의 have에서 출발한다 - 배가 slewRate보다 빨리 돌면

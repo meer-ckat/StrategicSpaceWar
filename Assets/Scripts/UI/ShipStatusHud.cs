@@ -398,7 +398,8 @@ public sealed class ShipStatusHud : MonoBehaviour
                 {
                     bool fed = v >= Ballistics.PowerNominal * Ballistics.PowerBrownout;
                     Row("전압 · 전류", hasPower ? $"{v:0} V   {i:0.#} A" : "연결 없음", fed ? HudColor : CriticalColor);
-                    Row("선회", $"{g.slewRate * Mathf.Clamp01(v / Ballistics.PowerNominal):0}°/s  (정격 {g.slewRate:0})");
+                    Row("선회", $"{g.Omega:0}°/s → {g.slewRate * Mathf.Clamp01(v / Ballistics.PowerNominal):0}  (정격 {g.slewRate:0})");
+                    Row("모터", g.MotorOn ? $"ON  E {g.BackEmf:0} V · Ra {g.ArmatureOhms:0.#} Ω" : $"OFF  Ra {g.ArmatureOhms:0.#} Ω");
                 }
                 else Row("선회", $"{g.slewRate:0}°/s");
                 Row("정격", $"{g.powerWatts:0} W");
