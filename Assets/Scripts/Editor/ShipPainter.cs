@@ -2465,7 +2465,7 @@ public sealed class ShipPainter : EditorWindow
             Vector2 p = Vector2.Lerp(a, b, (float)k / n);
             var cell = new Vector2Int(Mathf.FloorToInt(p.x), Mathf.FloorToInt(p.y));
 
-            if (_plates.ContainsKey(cell) || _interiorCache.Contains(cell) || InsideDevice(p))
+            if (_plates.ContainsKey(cell) || _interiorCache.Contains(cell) || InsideDevice(p, cell))
                 continue;
 
             return false;
@@ -2474,18 +2474,27 @@ public sealed class ShipPainter : EditorWindow
         return true;
     }
 
-    /// <summary>격자 연속 좌표 → 배 좌표(칸 중심 = CellToShip, y 뒤집힘). 기기 상자 폴리곤과 같은 좌표계.</summary>
-    private bool InsideDevice(Vector2 grid)
+    /// <summary>
+    /// 기기 칸 자체(런타임이 기기를 찾는 칸)이거나 기기 상자 폴리곤 안. 격자 연속 좌표 → 배 좌표는
+    /// 칸 중심 = CellToShip, y 뒤집힘. 상자 경계에 정확히 얹힌 샘플(1/12 m 눈금이 콜라이더 변과 겹친다)은
+    /// 반 서브셀만큼 중심 쪽으로 밀어 본다 - 안 그러면 아래쪽(row +) 기기만 변에서 걸려 위아래가 다르게 나온다.
+    /// </summary>
+    private bool InsideDevice(Vector2 grid, Vector2Int cell)
     {
+        if (_modules.TryGetValue(cell, out Placed at) && IsDevice(at.def))
+            return true;
+
         var ship = new Vector2(grid.x - 0.5f, -(grid.y - 0.5f));
+        const float slack = WireStep * 0.5f;
 
         foreach (KeyValuePair<Vector2Int, Placed> pair in _modules)
         {
             Placed m = pair.Value;
             if (!IsDevice(m.def)) continue;
 
-            Vector2[] poly = ModulePlacement.ModulePolygon(pair.Key, m.def, m.rot, m.size, m.offset, out _, out _);
-            if (InsidePolygon(ship, poly)) return true;
+            Vector2[] poly = ModulePlacement.ModulePolygon(pair.Key, m.def, m.rot, m.size, m.offset, out Vector2 centre, out _);
+            Vector2 nudged = ship + Vector2.ClampMagnitude(centre - ship, slack);
+            if (InsidePolygon(nudged, poly)) return true;
         }
 
         return false;
@@ -2932,6 +2941,9 @@ public sealed class ShipPainter : EditorWindow
         }
 
         // 그림 규격 검사는 끄고 연다. 안 맞는 건 상태줄로만 - 여기서 판을 고쳐 맞추는 것이니까.
+        // 플레이 중엔 ShipDef.Load가 캐시를 돌려준다 - 그 인스턴스를 여기서 편집하면 다음 소환에 새고,
+        // 방금 저장한 파일 대신 옛 설계도를 읽는다. 저작은 파일이 진실이다.
+        ShipDef.ClearCache();
         ShipDef def = ShipDef.Load(_shipName, checkSkin: false);
 
         if (def == null)
@@ -3022,6 +3034,7 @@ public sealed class ShipPainter : EditorWindow
         text = DefKeys.UpsertTopLevelValue(text, "wires", WiresJson()) ?? text;
 
         File.WriteAllText(path, text);
+        ShipDef.ClearCache();   // 플레이 중 저장 - 다음 소환이 방금 쓴 파일을 읽게
         AssetDatabase.Refresh();
 
         _status = $"{path}에 썼다. {Validate()}"
