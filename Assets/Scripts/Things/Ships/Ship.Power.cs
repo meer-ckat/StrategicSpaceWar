@@ -96,6 +96,10 @@ public partial class Ship
         r.cause = Cause(run, seg);
         r.state = r.cause != CutCause.None ? WireState.Cut : WireState.Dark;
 
+        // **간선 생사는 풀이에서만 갱신된다.** 정지 중에는 틱이 없어서 손으로 내린 차단기가 다음 풀이까지
+        // "급전"으로 남는다 - 클릭한 그 자리에서 색이 안 바뀐다. 차단기는 캐시 말고 전선에서 직접 읽는다.
+        if (run.tripped) return r;
+
         for (int e = 0; e < _grid.edgeCount; e++)
         {
             if (_grid.ewire[e] != wire || _grid.eseg[e] != seg) continue;
@@ -241,7 +245,7 @@ public partial class Ship
                 seg = s,
                 a = run.local[s],
                 b = run.local[s + 1],
-                state = !_grid.ealive[e] || _grid.efault[e] ? WireState.Cut : v >= live ? WireState.Live : WireState.Dark,
+                state = run.tripped || !_grid.ealive[e] || _grid.efault[e] ? WireState.Cut : v >= live ? WireState.Live : WireState.Dark,
                 amps = _grid.ei[e],
                 kelvin = run.temp[s],
                 ohms = _grid.er[e],
@@ -390,6 +394,15 @@ public partial class Ship
 
     public bool BreakerTripped(int wire) => wire >= 0 && wire < _wires.Count && _wires[wire].tripped;
 
+    /// <summary>배선판의 SCRAM. 기기 서명이 바뀌므로 다음 풀이가 그래프를 다시 세운다.</summary>
+    public void Scram(CriticalModule reactor, bool on)
+    {
+        if (reactor == null || reactor.Scrammed == on) return;
+        reactor.SetScram(on);
+        _powerDirty = true;
+        PowerVersion++;
+    }
+
     /// <summary>이 전원이 이번 풀이에서 섬을 몰았나. 아니면 역기전력 부하로 풀렸다는 뜻이다.</summary>
     public bool IsBusRoot(Component module) => module != null && _nodeOf.TryGetValue(module, out int n) && _grid.isRoot[n];
 
@@ -435,7 +448,7 @@ public partial class Ship
         for (int k = 0; k < shipCriticals.Count; k++)
         {
             CriticalModule c = shipCriticals[k];
-            if (c != null && c.providesPower && !c.Neutralized && StillAboard(c, this)) sig += 1000;
+            if (c != null && c.providesPower && !c.Neutralized && !c.Scrammed && StillAboard(c, this)) sig += 1000;
         }
         for (int k = 0; k < shipGuns.Count; k++)
         {
@@ -526,7 +539,7 @@ public partial class Ship
         for (int k = 0; k < shipCriticals.Count; k++)
         {
             CriticalModule c = shipCriticals[k];
-            if (c == null || !c.providesPower || c.Neutralized || !StillAboard(c, this)) continue;
+            if (c == null || !c.providesPower || c.Neutralized || c.Scrammed || !StillAboard(c, this)) continue;
             AddDevice(c, PowerGraph.Kind.Source, c.PhaseVoltage * Mathf.Lerp(Ballistics.ReactorDroopFloor, 1f, c.Health01), c.sourceResistance);
         }
 

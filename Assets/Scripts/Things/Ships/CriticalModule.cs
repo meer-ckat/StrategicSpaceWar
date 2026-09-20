@@ -70,6 +70,12 @@ public class CriticalModule : Thing, IDamageable
     // 없으면 배 한 척에 탄약고 셋만 있어도 한 발이 전부를 지운다.
     private static int _chain;
 
+    /// <summary>비상 정지. 전기적으로 아예 빠진다(Ship.RebuildPowerNet이 노드를 안 만든다) - 0 V 전원이 아니다.
+    /// 0 V로 두면 제일 약한 전원이 되어 역전류를 최대로 먹는다. 끄는 것과 처지는 것은 다른 상태다.</summary>
+    public bool Scrammed { get; private set; }
+
+    public void SetScram(bool on) => Scrammed = on;
+
     public bool Neutralized => _health <= 0f;
     public float Health01 => maxHealth > 0f ? _health / maxHealth : 0f;
 

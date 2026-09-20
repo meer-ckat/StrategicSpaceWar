@@ -237,7 +237,14 @@ public sealed class ShipStatusHud : MonoBehaviour
 
         // 정지 검사 패널. 소등과 무관 - 죽어가는 배일수록 읽어야 한다.
         if (Core.TickManager.UserPaused && Inspect.Any)
+        {
             DrawInspectPanel(ship);
+            DrawSwitchboard(ship);
+        }
+        else
+        {
+            _switches.Clear();
+        }
 
         // 마지막이라 전부 위에 온다. 같은 OnGUI 안에서는 나중에 그린 것이 위다.
         if (BeginSection(ship, 0)) DrawScuttleWarning(ship);
@@ -336,6 +343,158 @@ public sealed class ShipStatusHud : MonoBehaviour
         rect.position += _sectionShake;
     }
 
+
+    // ------------------------------------------------------------
+    // 배선판 (정지 중 왼쪽. INSPECT가 값을 읽는 자리라면 여기는 **손잡이**다)
+    // ------------------------------------------------------------
+
+    public enum SwitchId { None, Breaker, Scram }
+
+    private const float BoardWidth = 250f;
+    private const float SwitchHeight = 34f;
+
+    private static readonly List<(Rect rect, SwitchId id)> _switches = new();
+    private static readonly List<(string label, string value, Color color)> _boardRows = new();
+
+    /// <summary>
+    /// 화면 픽셀 -> 이 파일이 그리는 논리 좌표. 판정과 그리기가 **같은 변환**을 써야 한다 -
+    /// Event.current.mousePosition은 행렬을 타므로 호출 자리에 따라 값이 달라진다.
+    /// </summary>
+    private static Vector2 LogicalMouse()
+    {
+        UnityEngine.InputSystem.Mouse m = UnityEngine.InputSystem.Mouse.current;
+
+        if (m == null)
+            return new Vector2(-9999f, -9999f);
+
+        Vector2 p = m.position.ReadValue();
+        float s = Mathf.Max(0.01f, GUIManager.UiScale);
+
+        return new Vector2(p.x / s, (Screen.height - p.y) / s);
+    }
+
+    /// <summary>PauseControl이 세계를 고르기 전에 묻는다. 스위치를 먹었으면 true.</summary>
+    public static bool ClickSwitchboard(Vector2 screenPos)
+    {
+        Ship ship = GameManager.Player();
+
+        if (ship == null || _switches.Count == 0)
+            return false;
+
+        float s = Mathf.Max(0.01f, GUIManager.UiScale);
+        var at = new Vector2(screenPos.x / s, (Screen.height - screenPos.y) / s);
+
+        for (int i = 0; i < _switches.Count; i++)
+        {
+            if (!_switches[i].rect.Contains(at))
+                continue;
+
+            switch (_switches[i].id)
+            {
+                case SwitchId.Breaker when Inspect.Wire is Inspect.WireSel w && w.ship != null:
+                    if (w.ship.BreakerTripped(w.wire)) w.ship.ResetBreaker(w.wire);
+                    else w.ship.OpenBreaker(w.wire);
+                    break;
+
+                case SwitchId.Scram when Inspect.Thing is CriticalModule c:
+                    Ship owner = c.GetComponentInParent<Ship>();
+                    if (owner != null) owner.Scram(c, !c.Scrammed);
+                    break;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>고른 것에 딸린 손잡이. 전선이면 차단기, 원자로면 SCRAM. 없으면 판 자체를 안 그린다.</summary>
+    private static void DrawSwitchboard(Ship player)
+    {
+        _switches.Clear();
+        _boardRows.Clear();
+
+        string title = null;
+        SwitchId action = SwitchId.None;
+        string on = null, off = null;
+        bool thrown = false;
+
+        if (Inspect.Wire is Inspect.WireSel sel && sel.ship != null)
+        {
+            Ship.WireSeg w = sel.ship.Segment(sel.wire, sel.seg);
+            title = $"전선 {sel.wire + 1}";
+            action = SwitchId.Breaker;
+            on = "차단기 투입";
+            off = "차단기 개방";
+            thrown = w.tripped;
+
+            BoardRow("전류", $"{w.amps:0.#} A", Mathf.Abs(w.amps) >= Ballistics.WireArcAmps ? CriticalColor : HudColor);
+            BoardRow("정격", $"{Ballistics.BreakerAmps:0} A", HudColor);
+            BoardRow("누적", $"{w.trip01:P0}", w.trip01 > 0f ? WarnColor : DimColor);
+            BoardRow("온도", $"+{w.kelvin:0} K", w.kelvin > Ballistics.WireBurnKelvin * 0.5f ? Palette.Heat : HudColor);
+        }
+        else if (Inspect.Thing is CriticalModule reactor && reactor.providesPower)
+        {
+            title = reactor.defName;
+            action = SwitchId.Scram;
+            on = "재기동";
+            off = "S C R A M";
+            thrown = reactor.Scrammed;
+
+            float v = 0f, i = 0f;
+            bool fed = player != null && player.TryGetReadout(reactor, out v, out i);
+            bool root = player != null && player.IsBusRoot(reactor);
+
+            BoardRow("계통", reactor.Scrammed ? "정지" : !fed ? "분리됨" : root ? "모선 급전" : "병렬", reactor.Scrammed ? Palette.Heat : HudColor);
+            BoardRow("단자전압", fed && !reactor.Scrammed ? $"{v:0} V" : "0 V", HudColor);
+            BoardRow("전류", fed && !reactor.Scrammed ? (root || i <= 0f ? $"{Mathf.Abs(i):0.#} A" : $"역 {i:0.#} A") : "0 A",
+                fed && !root && i > 0f ? CriticalColor : HudColor);
+            BoardRow("노심", $"{reactor.Health01:P0}", reactor.Health01 < 0.5f ? CriticalColor : HudColor);
+        }
+
+        if (title == null)
+            return;
+
+        float height = HeaderHeight + RowHeight * _boardRows.Count + SwitchHeight + Padding * 2f;
+        var panel = new Rect(Margin, (GUIManager.LogicalHeight - height) * 0.5f, BoardWidth, height);
+
+        DrawPanel(panel, "배선판");
+        DrawText(new Rect(panel.x + BoardWidth * 0.35f, panel.y + 3f, BoardWidth * 0.63f - Padding, HeaderHeight - 4f),
+            title, Palette.Radiance, _rightStyle);
+
+        float x = panel.x + Padding, width = panel.width - Padding * 2f, y = panel.y + HeaderHeight;
+
+        foreach ((string label, string value, Color color) in _boardRows)
+        {
+            DrawText(new Rect(x, y, width * 0.45f, RowHeight), label, DimColor, _leftStyle);
+            DrawText(new Rect(x + width * 0.45f, y, width * 0.55f, RowHeight), value, color, _rightStyle);
+            y += RowHeight;
+        }
+
+        DrawSwitch(new Rect(x, y + Padding, width, SwitchHeight), thrown ? on : off, action, thrown);
+    }
+
+    private static void BoardRow(string label, string value, Color color) => _boardRows.Add((label, value, color));
+
+    /// <summary>
+    /// 실물 스위치 하나. 왼쪽 램프가 지금 상태고 글자는 **누르면 일어날 일**이다 - 둘이 같은 칸에 있으면
+    /// "지금 꺼짐"인지 "끄기"인지 영영 안 갈린다. 판정 rect는 그린 자리 그대로 쌓아 둔다.
+    /// </summary>
+    private static void DrawSwitch(Rect rect, string label, SwitchId id, bool thrown)
+    {
+        bool hover = rect.Contains(LogicalMouse());
+        Color lamp = thrown ? Palette.Breach : Palette.Signal;
+
+        DrawRect(rect, (hover ? Palette.Bulkhead : Palette.DeepSpace).WithAlpha(0.9f));
+        DrawRect(new Rect(rect.x, rect.y, rect.width, 1f), lamp.WithAlpha(hover ? 0.9f : 0.5f));
+        DrawRect(new Rect(rect.x, rect.yMax - 1f, rect.width, 1f), lamp.WithAlpha(hover ? 0.9f : 0.5f));
+        DrawRect(new Rect(rect.x + 8f, rect.y + rect.height * 0.5f - 5f, 10f, 10f), lamp);
+
+        DrawText(new Rect(rect.x + 26f, rect.y, rect.width - 34f, rect.height), label,
+            hover ? Palette.Hull : Palette.Hull.WithAlpha(0.8f), _leftStyle);
+
+        _switches.Add((rect, id));
+    }
 
     // ------------------------------------------------------------
     // INSPECT (정지 검사 - 림월드식. 클릭한 것 하나의 진짜 값 전부)
@@ -500,7 +659,7 @@ public sealed class ShipStatusHud : MonoBehaviour
         if (s.tripped && fault != null)
             Row("사고", fault, CriticalColor);
 
-        Row("차단기", s.tripped ? "OPEN · 다시 클릭하면 올린다" : "CLOSED · 다시 클릭하면 내린다", s.tripped ? Palette.Heat : HudColor);
+        Row("차단기", s.tripped ? "OPEN" : "CLOSED", s.tripped ? (s.manual ? Palette.Telemetry : Palette.Heat) : HudColor);
         Row("정격", $"{Ballistics.BreakerAmps:0} A · 누적 {s.trip01:P0}", s.trip01 > 0f ? WarnColor : HudColor);
         Row("길이 · 저항", $"{(s.b - s.a).magnitude:0.0} m · {s.ohms * 1000f:0.0} mΩ");
         Row("전류", $"{s.amps:0.#} A");

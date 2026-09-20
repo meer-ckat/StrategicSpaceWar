@@ -94,8 +94,14 @@ public sealed class PauseControl : MonoBehaviour
             Vector2 at = m.position.ReadValue();
             Camera cam = Camera.main;
 
-            if ((at - _pressAt).sqrMagnitude <= ClickSlop * ClickSlop && cam != null)
-                Inspect.Click(cam.ScreenToWorldPoint(at));
+            if ((at - _pressAt).sqrMagnitude > ClickSlop * ClickSlop || cam == null)
+                return;
+
+            // 배선판이 먼저 먹는다 - 스위치를 누른 클릭이 뒤의 세계까지 골라 선택이 풀리면 안 된다.
+            if (ShipStatusHud.ClickSwitchboard(at))
+                return;
+
+            Inspect.Click(cam.ScreenToWorldPoint(at));
         }
     }
 
