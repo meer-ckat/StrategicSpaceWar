@@ -400,7 +400,7 @@ public partial class Ship
         if (reactor == null || reactor.Scrammed == on) return;
         reactor.SetScram(on);
         _powerDirty = true;
-        PowerVersion++;
+        Repower();
     }
 
     /// <summary>이 전원이 이번 풀이에서 섬을 몰았나. 아니면 역기전력 부하로 풀렸다는 뜻이다.</summary>
@@ -413,7 +413,7 @@ public partial class Ship
         _wires[wire].tripped = false;
         _wires[wire].manual = false;
         _wires[wire].i2t = 0f;
-        PowerVersion++;
+        Repower();
     }
 
     /// <summary>사람이 내린다 = 버스 타이 개방(M5). 죽어가는 원자로를 버스에서 떼거나 단락 구간을 격리한다.</summary>
@@ -422,7 +422,7 @@ public partial class Ship
         if (wire < 0 || wire >= _wires.Count) return;
         _wires[wire].tripped = true;
         _wires[wire].manual = true;
-        PowerVersion++;
+        Repower();
     }
 
     private bool SegmentIntact(WireRun run, int s)
@@ -436,11 +436,14 @@ public partial class Ship
         return true;
     }
 
+    private int _cutNow;
+
     /// <summary>
-    /// PowerInterval 틱마다. 기기 집합이 바뀌었으면(원자로 생사·포탑 생사·파단·정비) 그래프를 다시 세우고,
-    /// 매번 간선 생사를 다시 읽고(관통은 BreachVersion에 첫 파공만 잡힌다), 풀고, 전선을 데운다.
+    /// 그래프를 지금 상태에 맞추고 푼다. **시간이 안 흐르는 계산만 한다** - 열·I²t·기록은 틱의 것이다.
+    /// 그래서 배선판이 이것만 따로 부를 수 있다: 정지 중에 스위치를 넘겨도 그 자리에서 전선 색과 전압이 바뀐다.
+    /// 안 그러면 다음 풀이까지 기다려야 하는데, 정지 중에는 그 다음이 영영 안 온다.
     /// </summary>
-    private void SolvePower()
+    public void Repower()
     {
         if (!_hasWiring || _map == null) return;
 
@@ -474,13 +477,13 @@ public partial class Ship
             RebuildPowerNet();
         }
 
-        int cut = 0;
+        _cutNow = 0;
         for (int e = 0; e < _grid.edgeCount; e++)
         {
             WireRun run = _wires[_grid.ewire[e]];
             int s = _grid.eseg[e];
             _grid.ealive[e] = _grid.efault[e] ? Shorted(run, s) && !run.tripped : SegmentIntact(run, s);
-            if (!_grid.ealive[e] || _grid.efault[e]) cut++;
+            if (!_grid.ealive[e] || _grid.efault[e]) _cutNow++;
         }
 
         // M3: 포탑 모터. 도는 중이면 (Ra, 역기전력 ke·ω), 서 있으면 열린 회로(전류 0). 기동 순간이 전류 최대다.
@@ -493,11 +496,21 @@ public partial class Ship
         }
 
         _grid.Solve();
+        PowerVersion++;
+    }
+
+    /// <summary>PowerInterval 틱마다. 풀고(<see cref="Repower"/>), 그 결과로 시간을 먹인다 - 역전류 손상·전선 열·차단기.</summary>
+    private void SolvePower()
+    {
+        if (!_hasWiring || _map == null) return;
+
+        Repower();
+
+        int cut = _cutNow;
         float dt = TickManager.TickDeltaTime * Ballistics.PowerInterval;
         int reverse = ReverseFeed(dt);
         HeatWires(dt);
         int trips = TripBreakers(dt);
-        PowerVersion++;
 
         if (trips > 0)
         {

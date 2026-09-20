@@ -242,3 +242,16 @@ SCRAM(그 전선은 남들에게 살아 있다)이나 차단기 개방(그 전�
 GUIManager 밖의 OnGUI이고 Repaint에서만 도므로 `GUI.Button`을 못 쓴다 - 그린 rect를 쌓아 두고 같은 변환
 (`화면 px / UiScale`, y 뒤집기)으로 판정한다. 호버도 같은 함수를 써야 한다: `Event.current.mousePosition`은
 GUI.matrix를 타서 부르는 자리마다 값이 다르다.
+
+### 10.2 스위치를 넘기면 그 자리에서 다시 푼다
+
+정지 중에는 틱이 없다 - `SolvePower`가 `PowerInterval`마다 도는 것이라, 배선판으로 차단기를 열거나 SCRAM을
+걸어도 **다음 풀이가 영영 안 와서** 전선 색·전압·전류가 넘기기 전 값으로 남았다. 결정의 결과를 못 보는
+결정은 결정이 아니다. 그래서 풀이를 둘로 갈랐다:
+
+- `Ship.Repower()` — 시간이 안 흐르는 계산만. 그래프 재빌드(기기 서명·단락 수) → 간선 생사 → 모터 (Ra, e) →
+  `_grid.Solve()` → `PowerVersion++`. 배선판의 세 스위치(`Scram`·`OpenBreaker`·`ResetBreaker`)가 직접 부른다.
+- `Ship.SolvePower()` — 틱 경로. `Repower()`를 부르고 그 결과에 **시간을 먹인다**: 역전류 손상·전선 열·I²t 차단기·기록.
+
+정지 중에 `SolvePower`를 부르면 멈춘 시간 동안 전선이 타고 차단기가 내려간다 - 그래서 시간을 먹이는 쪽은
+틱만 부른다. `Gun.Hold`도 틱이 적어 둔 값이라 WPN 패널은 전압을 직접 읽어 `NO POWER`를 덮어쓴다.

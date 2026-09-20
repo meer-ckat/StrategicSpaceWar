@@ -2379,6 +2379,10 @@ public sealed class ShipStatusHud : MonoBehaviour
                     ? "UNKNOWN"
                     : gun.projectile;
 
+            // **Hold는 틱이 적어 둔 값이다.** 정지 중에 배선판으로 전기를 끊으면 다음 틱이 영영 안 와서
+            // 포가 "장전 중"인 채로 남는다 - 전압은 지금 읽을 수 있으니 그쪽이 이긴다.
+            Gun.HoldReason hold = !ship.Powered(gun) ? Gun.HoldReason.NoPower : gun.Hold;
+
             int found = -1;
 
             for (int j = 0; j < _weapons.Count; j++)
@@ -2397,7 +2401,7 @@ public sealed class ShipStatusHud : MonoBehaviour
 
                 entry.guns++;
 
-                Merge(ref entry, gun.Hold);
+                Merge(ref entry, hold);
 
                 _weapons[found] = entry;
             }
@@ -2409,7 +2413,7 @@ public sealed class ShipStatusHud : MonoBehaviour
                     guns = 1
                 };
 
-                Merge(ref entry, gun.Hold);
+                Merge(ref entry, hold);
 
                 _weapons.Add(entry);
             }
