@@ -55,7 +55,7 @@ public sealed class ShipStatusHud : MonoBehaviour
     private const float AirframeWidth = 300f;
     private const float AirframeHeight = 150f;
 
-    private const float FlightWidth = 240f;
+    private const float FlightWidth = 276f;   // SYS·GRID 줄이 세 칸이라 240에서는 WIRE 119/130이 잘렸다
     private const float PausedFlightScale = 0.7f;   // 정지 회로도에서 FLIGHT 패널 크기
     private const float FlightHeight = 164f;   // EMIT 행(2026-09-12) + SYS 행(2026-09-13)
 
@@ -574,8 +574,8 @@ public sealed class ShipStatusHud : MonoBehaviour
                 Row("상태", c.Neutralized ? "유폭" : "정상", c.Neutralized ? CriticalColor : HudColor);
                 Row("내구", $"{c.Health01:P0}", c.Health01 < 0.5f ? WarnColor : HudColor);
                 float droop = Mathf.Lerp(Ballistics.ReactorDroopFloor, 1f, c.Health01);
-                Row("상전압", $"{c.PhaseVoltage * droop:0} V  (정격 {c.PhaseVoltage:0}, 선간 {c.lineVoltage:0} V, {c.phases}상)",
-                    droop < 0.99f ? WarnColor : HudColor);
+                Row("상전압", $"{c.PhaseVoltage * droop:0} / {c.PhaseVoltage:0} V", droop < 0.99f ? WarnColor : HudColor);
+                Row("선간 · 상", $"{c.lineVoltage:0} V · {c.phases}상");
                 Row("내부저항", $"{c.sourceResistance * 1000f:0} mΩ");
 
                 if (wired)
@@ -584,7 +584,7 @@ public sealed class ShipStatusHud : MonoBehaviour
                     bool root = ship != null && ship.IsBusRoot(c);
                     string load = !hasPower ? "연결 없음"
                         : root ? $"{i:0.#} A · {v * i / 1000f:0.0} kW"
-                        : i > 0f ? $"역전류 {i:0.#} A · {v * i / 1000f:0.0} kW 먹힘"
+                        : i > 0f ? $"역 {i:0} A · {v * i / 1000f:0} kW"
                         : $"병렬 {-i:0.#} A · {v * -i / 1000f:0.0} kW";
                     Row(root ? "출력" : "버스", load, hasPower && !root && i > 0f ? CriticalColor : HudColor);
                 }
@@ -642,7 +642,7 @@ public sealed class ShipStatusHud : MonoBehaviour
             Ship.CutCause.Holed => "판이 없는 자리",
             Ship.CutCause.PlateGone => "판 소실",
             Ship.CutCause.PlateLeft => "판이 잔해로 떠남",
-            Ship.CutCause.Breached => "단락 · 관통으로 눌려 선체에 붙음",
+            Ship.CutCause.Breached => "단락 · 선체에 붙음",
             _ => null,
         };
 
@@ -1557,7 +1557,9 @@ public sealed class ShipStatusHud : MonoBehaviour
         }
 
         GUI.color = DimColor;
-        GUI.Label(new Rect(textArea.x, textArea.yMax - RowHeight, textArea.width, RowHeight), "R  다시 보기      Space 길게  -  재시작", _leftStyle);
+        // 조작 안내는 바닥에 붙지만 목록이 길면 밀려난다 - 고정 y로 두면 탄종이 세 줄만 넘어도 겹친다.
+        GUI.Label(new Rect(textArea.x, Mathf.Max(textArea.yMax - RowHeight, y + Padding), textArea.width, RowHeight),
+                  "R  다시 보기      Space 길게  -  재시작", _leftStyle);
 
         // 재시작 게이지. 도착 카드(LogisticsScreen.ShowCard)와 같은 그림 - 위는 왼쪽에서, 아래는 오른쪽에서.
         // 누르는 동안만 보인다. 떼면 0으로 돌아가니 그림도 사라진다.
@@ -2138,17 +2140,17 @@ public sealed class ShipStatusHud : MonoBehaviour
             float width = panel.width - Padding * 2f;
             float x = panel.x + Padding;
 
-            DrawText(new Rect(x, y, width * 0.5f, RowHeight), "SYS", DimColor, _leftStyle);
-            // 전선 있는 배는 버스 전압을 숫자로. 정격의 절반 밑이면 붉게, 사이는 경고색.
+            DrawText(new Rect(x, y, width * 0.2f, RowHeight), "SYS", DimColor, _leftStyle);
+            // 전선 있는 배는 버스 전압·전류를 한 칸에. 둘은 같은 질문("지금 얼마나 흐르나")의 두 반쪽이다.
             float bus = ship.BusVoltage;
-            DrawText(new Rect(x + width * 0.5f, y, width * 0.25f, RowHeight),
-                ship.HasWiring ? $"{bus:0}V" : "PWR",
+            DrawText(new Rect(x + width * 0.2f, y, width * 0.4f, RowHeight),
+                ship.HasWiring ? $"{bus:0}V · {ship.GridAmps:0}A" : "PWR",
                 !ship.HasPower || bus < Ballistics.PowerNominal * Ballistics.PowerBrownout ? CriticalColor
                     : bus < Ballistics.PowerNominal * 0.9f ? WarnColor : HudColor, _rightStyle);
             // 승무원 모델이 없는 배(방 없음)는 숫자가 없다 - 죽을 수 없으니 라벨만.
             int total = ship.crewmen.Count;
             int alive = ship.AliveCrew;
-            DrawText(new Rect(x + width * 0.75f, y, width * 0.25f, RowHeight),
+            DrawText(new Rect(x + width * 0.6f, y, width * 0.4f, RowHeight),
                 total == 0 ? "CREW" : $"CREW {alive}/{total}",
                 alive == total ? HudColor : alive > 0 ? WarnColor : CriticalColor, _rightStyle);
             y += RowHeight;
@@ -2160,10 +2162,10 @@ public sealed class ShipStatusHud : MonoBehaviour
                 int wAlive = ship.WireSegmentsAlive, wTotal = ship.WireSegmentsTotal;
                 int fed = ship.GunsFed, guns = ship.GunsTotal;
 
-                DrawText(new Rect(x, y, width * 0.5f, RowHeight), $"GRID {ship.GridAmps:0}A", DimColor, _leftStyle);
-                DrawText(new Rect(x + width * 0.5f, y, width * 0.25f, RowHeight), $"WIRE {wAlive}/{wTotal}",
+                DrawText(new Rect(x, y, width * 0.2f, RowHeight), "GRID", DimColor, _leftStyle);
+                DrawText(new Rect(x + width * 0.2f, y, width * 0.4f, RowHeight), $"WIRE {wAlive}/{wTotal}",
                     wAlive == wTotal ? HudColor : wAlive > 0 ? WarnColor : CriticalColor, _rightStyle);
-                DrawText(new Rect(x + width * 0.75f, y, width * 0.25f, RowHeight), $"FED {fed}/{guns}",
+                DrawText(new Rect(x + width * 0.6f, y, width * 0.4f, RowHeight), $"FED {fed}/{guns}",
                     fed == guns ? HudColor : fed > 0 ? WarnColor : CriticalColor, _rightStyle);
                 y += RowHeight;
             }
@@ -3016,7 +3018,10 @@ public sealed class ShipStatusHud : MonoBehaviour
                 fontSize = 11,
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.MiddleLeft,
-                clipping = TextClipping.Clip
+                clipping = TextClipping.Clip,
+                // GUI.skin.label은 wordWrap이 켜져 있다. 한 줄짜리 칸에서 넘치면 **다음 줄로 흘러** 아래 행을
+                // 덮는다(증상: SYS 줄의 CREW가 GRID 줄 위로 내려앉는다). 넘치면 잘리는 쪽이 맞다.
+                wordWrap = false
             };
 
         _titleRightStyle =
@@ -3030,7 +3035,8 @@ public sealed class ShipStatusHud : MonoBehaviour
             {
                 fontSize = 13,
                 alignment = TextAnchor.MiddleLeft,
-                clipping = TextClipping.Clip
+                clipping = TextClipping.Clip,
+                wordWrap = false
             };
 
         _objectiveStyle =
