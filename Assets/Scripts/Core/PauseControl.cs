@@ -178,8 +178,8 @@ public sealed class PauseControl : MonoBehaviour
     /// <summary>들어간다: 판이 위쪽 대각선부터 와이어프레임이 되고 덮개가 차오른다. 시뮬은 첫 프레임부터 멎어 있다.</summary>
     private IEnumerator Enter()
     {
+        SweepRange(out float lo, out float hi, out float seconds);   // CollectSkins가 여기 - SetWire보다 먼저여야 _skins가 차 있다
         SetWire(Palette.Steel.WithAlpha(Ballistics.SchematicEdgeAlpha));
-        SweepRange(out float lo, out float hi, out float seconds);
 
         for (float t = Blend; t < 1f; t += Time.unscaledDeltaTime / seconds)
         {

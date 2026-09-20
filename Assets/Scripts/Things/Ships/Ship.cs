@@ -1177,6 +1177,12 @@ public partial class Ship : Thing
             return;
         }
 
+        // 문도 판이다(Ballistic Door = BallisticArmor + Door). Stamp는 문을 doorAt에만 넣는데 전선 래스터는
+        // armorAt만 보므로, 격벽 문을 지나는 전선이 "설계엔 판인데 없다"(holed)로 찍혔다.
+        foreach (KeyValuePair<Vector2Int, Door> pair in doorAt)
+            if (pair.Value != null && !armorAt.ContainsKey(pair.Key) && pair.Value.TryGetComponent(out Armor doorArmor))
+                armorAt[pair.Key] = doorArmor;
+
         // 선체 직속 자식으로 남은 모듈을 발밑 판에 매단다. **JSON 경로에는 이미 있던
         // 규칙이고 씬 경로에만 없었다** - ShipBuilder.Spawn은 mountCol/mountRow로 판 밑에
         // 넣는데, shipDefName이 빈 배(= export 원본)는 그 단계를 안 거친다. 매달리지 않은
