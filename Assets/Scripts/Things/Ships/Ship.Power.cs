@@ -28,7 +28,7 @@ public partial class Ship
     public enum WireState { Cut, Dark, Live }
 
     /// <summary>끊긴 이유. 검사 패널이 말로 바꾼다.</summary>
-    public enum CutCause { None, Burned, Holed, PlateGone, PlateLeft, Breached, Tripped }
+    public enum CutCause { None, Burned, Holed, PlateGone, PlateLeft, Breached }
 
     public struct WireSeg
     {
@@ -42,6 +42,7 @@ public partial class Ship
         public int subs;       // 지나는 (판, 서브셀) 수. 0이면 공기라 못 끊긴다
         public bool burned, holed;
         public bool tripped;   // 이 전선의 차단기가 내려갔다 (전선 전체)
+        public bool manual;    // 사람이 내렸다(버스 타이 개방). 스스로 내려간 것과 색·문구가 다르다
         public float trip01;   // 트립까지 누적 I2t 비율
     }
 
@@ -89,6 +90,7 @@ public partial class Ship
         r.burned = run.burned[seg];
         r.holed = run.holed[seg];
         r.tripped = run.tripped;
+        r.manual = run.manual;
         r.trip01 = Mathf.Clamp01(run.i2t / (Ballistics.BreakerTripSeconds * 3f));
         r.subs = run.subs[seg].Count;
         r.cause = Cause(run, seg);
@@ -106,9 +108,9 @@ public partial class Ship
         return r;
     }
 
+    /// <summary>고장 원인. 차단기는 여기 안 온다 - 사고가 그대로인 채로 올릴 수 있어야 하니 상태가 둘이다.</summary>
     private CutCause Cause(WireRun run, int s)
     {
-        if (run.tripped) return CutCause.Tripped;
         if (run.burned[s]) return CutCause.Burned;
         if (run.holed[s]) return CutCause.Holed;
 
@@ -135,6 +137,7 @@ public partial class Ship
         public bool[] burned;     // 열로 탔다. 정비가 되돌린다
         public bool[] holed;      // 설계엔 판이 있는데 지을 때 없었다(손상 저장본의 구멍). 영구
         public bool tripped;      // 차단기(M4). 전선 하나에 하나. 리셋은 사람이
+        public bool manual;       // 사람이 내렸다 = 버스 타이 개방(M5)
         public float i2t;         // 정격 초과분의 적분. BreakerTripSeconds x 3에 닿으면 트립
     }
 
@@ -173,9 +176,14 @@ public partial class Ship
     {
         get
         {
+            // 뿌리가 내는 전류에서, 다른 원자로로 **들어간** 전류를 뺀다 - 그것은 부하가 아니라 되먹임이다.
+            // 부호가 그대로 답이다: 같이 무는 원자로는 i가 음수라 더해지고, 먹히는 원자로는 양수라 빠진다.
             float sum = 0f;
             for (int k = 0; k < _grid.nodeCount; k++)
-                if (_grid.isRoot[k]) sum += _grid.i[k];   // 약한 전원의 i는 뿌리에 이미 들어 있다
+            {
+                if (_grid.kind[k] != PowerGraph.Kind.Source) continue;
+                sum += _grid.isRoot[k] ? _grid.i[k] : -_grid.i[k];
+            }
             return sum;
         }
     }
@@ -241,6 +249,7 @@ public partial class Ship
                 burned = run.burned[s],
                 holed = run.holed[s],
                 tripped = run.tripped,
+                manual = run.manual,
                 trip01 = Mathf.Clamp01(run.i2t / (Ballistics.BreakerTripSeconds * 3f)),
             });
         }
@@ -381,12 +390,25 @@ public partial class Ship
 
     public bool BreakerTripped(int wire) => wire >= 0 && wire < _wires.Count && _wires[wire].tripped;
 
+    /// <summary>이 전원이 이번 풀이에서 섬을 몰았나. 아니면 역기전력 부하로 풀렸다는 뜻이다.</summary>
+    public bool IsBusRoot(Component module) => module != null && _nodeOf.TryGetValue(module, out int n) && _grid.isRoot[n];
+
     /// <summary>사람이 올린다. 과부하 원인이 그대로면 다시 내려간다 - 그것이 이 결정의 값이다.</summary>
     public void ResetBreaker(int wire)
     {
         if (wire < 0 || wire >= _wires.Count) return;
         _wires[wire].tripped = false;
+        _wires[wire].manual = false;
         _wires[wire].i2t = 0f;
+        PowerVersion++;
+    }
+
+    /// <summary>사람이 내린다 = 버스 타이 개방(M5). 죽어가는 원자로를 버스에서 떼거나 단락 구간을 격리한다.</summary>
+    public void OpenBreaker(int wire)
+    {
+        if (wire < 0 || wire >= _wires.Count) return;
+        _wires[wire].tripped = true;
+        _wires[wire].manual = true;
         PowerVersion++;
     }
 
@@ -459,6 +481,7 @@ public partial class Ship
 
         _grid.Solve();
         float dt = TickManager.TickDeltaTime * Ballistics.PowerInterval;
+        int reverse = ReverseFeed(dt);
         HeatWires(dt);
         int trips = TripBreakers(dt);
         PowerVersion++;
@@ -469,6 +492,11 @@ public partial class Ship
             if (IsPlayerControlled)
                 HitReadout.Push(trips > 1 ? $"BREAKER TRIP x{trips}" : "BREAKER TRIP", incoming: true, minor: false);
         }
+
+        if (reverse > _reverseFed && IsPlayerControlled)
+            HitReadout.Push("REVERSE CURRENT", incoming: true, minor: false);
+
+        _reverseFed = reverse;
 
         // 끊긴 구간이 늘었을 때만 기록한다 - 사건은 전이지 상태가 아니다(WatchForCritical과 같은 이유).
         // 첫 풀이(_cutSegments < 0)는 기준선이라 안 적는다: 손상 저장본의 구멍이 "방금 끊김"이 되면 안 된다.
@@ -499,7 +527,7 @@ public partial class Ship
         {
             CriticalModule c = shipCriticals[k];
             if (c == null || !c.providesPower || c.Neutralized || !StillAboard(c, this)) continue;
-            AddDevice(c, PowerGraph.Kind.Source, c.PhaseVoltage, c.sourceResistance);
+            AddDevice(c, PowerGraph.Kind.Source, c.PhaseVoltage * Mathf.Lerp(Ballistics.ReactorDroopFloor, 1f, c.Health01), c.sourceResistance);
         }
 
         for (int k = 0; k < shipGuns.Count; k++)
@@ -575,6 +603,33 @@ public partial class Ship
     /// 조용히 죽인다(<see cref="Armor.Burn"/> - 관통 소리·파편·기록 없이). 단락이 왜 위험한가가
     /// 여기서 나온다: 6 kA × 0.02 Ω = 720 kW.
     /// </summary>
+    private int _reverseFed;
+
+    /// <summary>
+    /// 병렬 운전의 대가(M5). 뿌리가 아닌 원자로는 역기전력 부하라, 전압이 낮으면 전류가 그리로 **들어간다**.
+    /// 그 전류가 내부저항에서 내는 열이 곧 손상이고, 손상이 다시 전압을 낮춘다(ReactorDroopFloor) -
+    /// 가속하는 고리라서 그냥 두면 유폭까지 간다. 끊는 방법은 하나, 버스 타이를 여는 것이다.
+    /// </summary>
+    private int ReverseFeed(float dt)
+    {
+        int fed = 0;
+
+        // 뒤에서부터: TakeDamage가 유폭 -> 판 붕괴 -> 목록 제거까지 **동기로** 돌아온다.
+        for (int k = shipCriticals.Count - 1; k >= 0; k--)
+        {
+            if (k >= shipCriticals.Count) continue;
+
+            CriticalModule c = shipCriticals[k];
+            if (c == null || !c.providesPower || c.Neutralized) continue;
+            if (!_nodeOf.TryGetValue(c, out int n) || _grid.isRoot[n] || _grid.i[n] <= 0f) continue;
+
+            fed++;
+            c.TakeDamage(_grid.i[n] * _grid.i[n] * _grid.rInt[n] * dt * Ballistics.ReactorReverseDamageScale);
+        }
+
+        return fed;
+    }
+
     /// <summary>
     /// 차단기(M4). 전선마다 제일 센 구간 전류를 정격과 견준다. 정격 위에서 ((I/Ir)^2 - 1)을 적분하고(열동),
     /// BreakerInstantMul 배 이상이면 바로(전자). 트립은 손상이 아니라 상태다 - 전선은 멀쩡하고 사람이 올린다.
@@ -619,6 +674,12 @@ public partial class Ship
             WireRun run = _wires[_grid.ewire[e]];
             int s = _grid.eseg[e];
             float len = Mathf.Max(0.01f, run.length[s]);
+
+            // 파지직. 시각 전용이고 8틱에 한 번꼴로만 띄운다 - 결정론 시드는 틱과 간선 번호뿐이라 재현된다.
+            if (Mathf.Abs(_grid.ei[e]) >= Ballistics.WireArcAmps
+                && (Ballistics.Hash(0, TickManager.currentTick, e) & 7u) == 0u)
+                VfxOneShot.Play("BlastFlashSmall",
+                    transform.TransformPoint((run.local[s] + run.local[s + 1]) * 0.5f), 0.35f);
 
             float watts = _grid.ei[e] * _grid.ei[e] * _grid.er[e];
             float t = run.temp[s];

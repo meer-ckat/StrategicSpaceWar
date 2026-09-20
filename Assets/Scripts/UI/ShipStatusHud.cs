@@ -414,9 +414,21 @@ public sealed class ShipStatusHud : MonoBehaviour
                 _inspectTitleColor = Palette.Radiance;
                 Row("상태", c.Neutralized ? "유폭" : "정상", c.Neutralized ? CriticalColor : HudColor);
                 Row("내구", $"{c.Health01:P0}", c.Health01 < 0.5f ? WarnColor : HudColor);
-                Row("상전압", $"{c.PhaseVoltage:0} V  (선간 {c.lineVoltage:0} V, {c.phases}상)");
+                float droop = Mathf.Lerp(Ballistics.ReactorDroopFloor, 1f, c.Health01);
+                Row("상전압", $"{c.PhaseVoltage * droop:0} V  (정격 {c.PhaseVoltage:0}, 선간 {c.lineVoltage:0} V, {c.phases}상)",
+                    droop < 0.99f ? WarnColor : HudColor);
                 Row("내부저항", $"{c.sourceResistance * 1000f:0} mΩ");
-                if (wired) Row("출력", hasPower ? $"{i:0.#} A · {v * i / 1000f:0.0} kW" : "연결 없음");
+
+                if (wired)
+                {
+                    // 부호가 곧 역할이다. 뿌리는 자기가 다 내고, 나머지는 역기전력 부하라 음수면 같이 물고 양수면 먹힌다.
+                    bool root = ship != null && ship.IsBusRoot(c);
+                    string load = !hasPower ? "연결 없음"
+                        : root ? $"{i:0.#} A · {v * i / 1000f:0.0} kW"
+                        : i > 0f ? $"역전류 {i:0.#} A · {v * i / 1000f:0.0} kW 먹힘"
+                        : $"병렬 {-i:0.#} A · {v * -i / 1000f:0.0} kW";
+                    Row(root ? "출력" : "버스", load, hasPower && !root && i > 0f ? CriticalColor : HudColor);
+                }
                 Row("유폭 위력", $"{c.blastDamage:0}");
                 Row("위치", where);
                 break;
@@ -465,24 +477,31 @@ public sealed class ShipStatusHud : MonoBehaviour
         _inspectTitle = $"전선 {sel.wire + 1} · 구간 {sel.seg + 1}";
         _inspectTitleColor = Palette.Radiance;
 
-        string state = s.state switch
+        string fault = s.cause switch
         {
-            Ship.WireState.Live => "급전",
-            Ship.WireState.Dark => "살아 있음 · 0 V",
-            _ => s.cause switch
-            {
-                Ship.CutCause.Burned => "끊김 · 과열로 탐",
-                Ship.CutCause.Holed => "끊김 · 판이 없는 자리",
-                Ship.CutCause.PlateGone => "끊김 · 판 소실",
-                Ship.CutCause.PlateLeft => "끊김 · 판이 잔해로 떠남",
-                Ship.CutCause.Breached => "단락 · 관통으로 눌려 선체에 붙음",
-                Ship.CutCause.Tripped => "차단기 내려감 · 다시 클릭하면 올린다",
-                _ => "끊김",
-            },
+            Ship.CutCause.Burned => "과열로 탐",
+            Ship.CutCause.Holed => "판이 없는 자리",
+            Ship.CutCause.PlateGone => "판 소실",
+            Ship.CutCause.PlateLeft => "판이 잔해로 떠남",
+            Ship.CutCause.Breached => "단락 · 관통으로 눌려 선체에 붙음",
+            _ => null,
         };
-        Row("상태", state, s.state == Ship.WireState.Live ? HudColor : s.state == Ship.WireState.Dark ? Palette.Steel : s.tripped ? Palette.Heat : CriticalColor);
-        Row("차단기", s.tripped ? $"TRIP  (정격 {Ballistics.BreakerAmps:0} A)" : $"정격 {Ballistics.BreakerAmps:0} A · 누적 {s.trip01:P0}",
-            s.tripped ? Palette.Heat : s.trip01 > 0f ? WarnColor : HudColor);
+
+        string state = s.tripped ? (s.manual ? "수동 개방" : "차단기 내려감")
+            : fault != null ? $"끊김 · {fault}"
+            : s.state == Ship.WireState.Live ? "급전"
+            : "살아 있음 · 0 V";
+
+        Row("상태", state,
+            s.tripped ? (s.manual ? Palette.Telemetry : Palette.Heat)
+            : fault != null ? CriticalColor
+            : s.state == Ship.WireState.Live ? HudColor : Palette.Steel);
+
+        if (s.tripped && fault != null)
+            Row("사고", fault, CriticalColor);
+
+        Row("차단기", s.tripped ? "OPEN · 다시 클릭하면 올린다" : "CLOSED · 다시 클릭하면 내린다", s.tripped ? Palette.Heat : HudColor);
+        Row("정격", $"{Ballistics.BreakerAmps:0} A · 누적 {s.trip01:P0}", s.trip01 > 0f ? WarnColor : HudColor);
         Row("길이 · 저항", $"{(s.b - s.a).magnitude:0.0} m · {s.ohms * 1000f:0.0} mΩ");
         Row("전류", $"{s.amps:0.#} A");
         Row("온도", $"+{s.kelvin:0} K", s.kelvin > Ballistics.WireBurnKelvin * 0.5f ? Palette.Heat : HudColor);

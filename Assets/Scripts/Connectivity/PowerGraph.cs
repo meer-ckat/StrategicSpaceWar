@@ -16,7 +16,7 @@ public sealed class PowerGraph
     public float[] rInt = new float[16];     // Source: 내부저항, Load: 부하저항
     public float[] v = new float[16];
     public float[] i = new float[16];        // 부모 간선으로 이 노드에 들어오는 전류. 뿌리는 전원이 내는 전류
-    public bool[] isRoot = new bool[16];     // 이번 풀이에서 섬의 뿌리였던 전원. 약한 전원은 false - 그 i는 뿌리 i에 포함된다
+    public bool[] isRoot = new bool[16];     // 이번 풀이에서 섬의 뿌리였던 전원(emf 최대). 나머지 전원은 역기전력 부하라 자기 i를 갖는다
     public Vector2Int[] cell = new Vector2Int[16];
 
     public int[] ea = new int[16], eb = new int[16], ewire = new int[16], eseg = new int[16];   // 간선 → (전선, 구간)
@@ -56,7 +56,9 @@ public sealed class PowerGraph
 
     /// <summary>
     /// 섬마다: emf 제일 큰 미방문 전원을 뿌리로 BFS. 방문 순서가 곧 로컬 번호라 parent[k] &lt; k 가 공짜다.
-    /// 같은 섬의 다른 전원은 이번 풀이에서 Junction이다(버스 타이는 M5). 전원에 안 닿은 노드는 0 V.
+    /// **같은 섬의 다른 전원은 역기전력 부하다**(M5) - 모터와 똑같이 (rInt, emf) 쌍으로 넘긴다. 그래서 전압이 낮은
+    /// 원자로로 전류가 들어가고(역전류), 높으면 같이 문다(부하 분담). 분기문이 아니라 부호가 그 둘을 가른다.
+    /// 전원에 안 닿은 노드는 0 V.
     /// </summary>
     public void Solve()
     {
@@ -107,8 +109,8 @@ public sealed class PowerGraph
                 int pe = _parentEdge[q];
                 _parent[q] = q == 0 ? -1 : _local[ea[pe] == node ? eb[pe] : ea[pe]];
                 _rBranch[q] = q == 0 ? rInt[root] : er[pe];
-                _rLoad[q] = kind[node] == Kind.Load ? rInt[node] : 0f;
-                _eLoad[q] = kind[node] == Kind.Load ? emf[node] : 0f;
+                _rLoad[q] = q == 0 ? 0f : rInt[node];    // 뿌리 내부저항은 rBranch[0]이다. Junction은 rInt가 0이라 무부하
+                _eLoad[q] = q == 0 ? 0f : emf[node];     // Load면 모터 역기전력, Source면 그 원자로 기전력
             }
 
             PowerNet.Solve(emf[root], _parent, _rBranch, _rLoad, _eLoad, _sv, _si, count);

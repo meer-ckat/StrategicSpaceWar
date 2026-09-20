@@ -60,9 +60,13 @@ public static class Inspect
             Vector2 local = ship.transform.InverseTransformPoint(world);
             if (ship.TryPickWire(local, Ballistics.WireViewWidth * 1.5f, out int wire, out int seg))
             {
-                // 트립된 전선을 골라 둔 채 한 번 더 클릭 = 차단기 올리기. 정지 화면의 유일한 명령이다.
-                if (was is WireSel w && w.ship == ship && w.wire == wire && ship.BreakerTripped(wire))
-                    ship.ResetBreaker(wire);
+                // 고른 전선을 한 번 더 클릭 = 차단기 토글. 내려간 것은 올리고, 살아 있는 것은 내린다(버스 타이 개방).
+                // 정지 화면의 유일한 명령이다.
+                if (was is WireSel w && w.ship == ship && w.wire == wire)
+                {
+                    if (ship.BreakerTripped(wire)) ship.ResetBreaker(wire);
+                    else ship.OpenBreaker(wire);
+                }
 
                 Wire = new WireSel(ship, wire, seg);
                 return;

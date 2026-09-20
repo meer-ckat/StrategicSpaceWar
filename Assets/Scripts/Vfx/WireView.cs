@@ -98,7 +98,7 @@ public sealed class WireView : MonoBehaviour
             {
                 Ship.WireState.Live => Palette.Radiance,
                 Ship.WireState.Dark => Palette.Steel,
-                _ => s.tripped ? Palette.Heat : Palette.Breach,   // 트립은 손상이 아니다 - 다른 색
+                _ => s.tripped ? (s.manual ? Palette.Telemetry : Palette.Heat) : Palette.Breach,   // 내가 연 것 / 스스로 내려간 것 / 손상
             };
             lines.Line(s.a, s.b, w, c);
 

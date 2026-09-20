@@ -603,6 +603,14 @@ public static partial class Ballistics
     public const float BreakerTripSeconds = 2f;    // 정격 2배에서 트립까지. I2t: ((I/Ir)^2 - 1)을 초로 적분해 3x이 값에 닿으면 트립
     public const float BreakerInstantMul = 10f;    // 이 배수 이상이면 즉시(전자식). 단락 전용
     public const float BreakerCoolPerSecond = 0.5f; // 정격 밑에서 누적 I2t가 초당 이만큼 빠진다
+
+    // ---- M5 병렬 운전. 원자로 여럿이 한 버스에 붙으면 전압이 높은 쪽이 낮은 쪽을 부하로 만든다.
+    /// <summary>다 상한 원자로가 내는 전압 비율. 손상이 전압을 낮추고, 낮은 전압이 역전류를 부른다 - 노후화가 규칙에서 나온다.</summary>
+    public const float ReactorDroopFloor = 0.6f;
+    /// <summary>역전류가 내부저항에서 내는 열이 손상으로 가는 비율. 90 HP 원자로가 14 kW를 20초쯤 먹으면 죽는다.</summary>
+    public const float ReactorReverseDamageScale = 3e-4f;
+    /// <summary>이 전류를 넘는 구간은 불꽃이 튄다. 시각 전용 - 단락(수 kA)과 모터 기동(수십 A)을 가른다.</summary>
+    public const float WireArcAmps = 200f;
     public const int PowerInterval = 6;            // 틱. 10 Hz
     public const float TurretMotorTau = 0.25f;     // s. 포탑 모터가 목표 속도에 붙는 시정수. 기동 전류가 이만큼 지속된다
     public const float TurretMotorLoad = 0.3f;     // 정격 속도에서 마찰이 먹는 전류 비율. 기동 = 정격(Vnom/Ra), 회전 중 = 이만큼
