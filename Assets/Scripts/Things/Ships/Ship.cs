@@ -1046,6 +1046,16 @@ public partial class Ship : Thing
         {
             SoundManager.AudioShot("Critical", transform.position);
 
+            // 적함이 무력화된 순간 = 이긴 순간. 판 한 장 사라지는 것과 같은 무게로 지나가면 승리가 안 느껴진다.
+            Ship me = GameManager.Player();
+            if (me != null && me != this && team == Team.Enemy)
+            {
+                VfxOneShot.Play("Explosion", transform.position, 4f, 0.7f, 120f);
+                CameraSystem.Shake(Ballistics.ShakeOutKill);
+                CameraSystem.HitStop(Ballistics.HitStopKill);
+                HitReadout.Push("TARGET NEUTRALIZED", incoming: false, minor: false);
+            }
+
             // 런 기록도 여기서 적는다. **이 걸쇠가 이미 상태를 사건으로 바꿔 놓았기
             // 때문이다** - IsCombatEffective를 매 틱 읽으면 같은 죽음을 60번 적고,
             // 원자로를 수리해 되살아난 배의 수리 죽음까지 남는다.
@@ -1760,19 +1770,23 @@ public partial class Ship : Thing
             pilotBoost = false;
         }
 
+        // 지도 중엔 Shift도 손을 뗀 것으로 본다. pilotBoost만 0으로 덮고 이 줄을 두면 지도를 보는 동안
+        // 부스터가 계속 타서 연료와 방출(추적 열기)이 새고 배가 적에게 흘러갔다.
+        bool mapOpen = MapScreen.IsOpen && IsPlayerControlled;
         Boosting = cutsceneBoost || pilotBoost
-            || (_boostAction != null && _boostAction.IsPressed());
+            || (!mapOpen && _boostAction != null && _boostAction.IsPressed());
 
         //자침 불가능 판정도 몇개 넣어보고 싶음
         // 막힌 동안은 타이머를 0으로 되돌린다. 예전 early return은 누른 채로 조종을 잃으면
         // 그 값을 그대로 들고 있어서, 되찾는 순간 남은 시간 없이 바로 터졌다.
-        if(PilotHasControl && IsCombatEffective
+        // 지도 안의 J는 점프다. 막지 않으면 점프하려고 누른 J가 자침 타이머를 같이 돌린다.
+        if(PilotHasControl && IsCombatEffective && !MapScreen.IsOpen
             && _scuttleAction != null && _scuttleAction.IsPressed())
         {
             if(_selfDestructTimer <= 0.01f)
             {
             DialogueManager.current?.Spawn(
-                $"경고, <color=red>{Action_SelfDestructTime:0}초 후 자침하겠습니다.</color>",
+                $"경고, <color=red>{Action_SelfDestructTime:0}초 후 자침하겠습니다.</color>  <color=grey>(J를 떼면 취소)</color>",
                 "전술",
                 duration: 4f,
                 intensity: 1.2f,

@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using Core;
 
 /// <summary>
@@ -12,8 +12,6 @@ public abstract partial class Projectile
     /// 한 자리 작아야 한다 - 명중은 초당 여러 번 나는 일상이라, 같은 눈금이면 배 한 척이
     /// 사라지는 사건이 잔소리에 묻힌다. <see cref="SoundManager"/>의 음량표와 같은 이유다.
     /// </summary>
-    private const float HitShakeScale = 0.0015f;
-    private const float MaxHitShake = 0.45f;
 
     // CollectSurfaces의 _hits와 따로 쓴다. 같은 배열을 돌려쓰면 이번 충돌의 면 정보를
     // 아직 다 쓰기 전에 덮어쓰는 사고가 조용히 난다.
@@ -59,7 +57,16 @@ public abstract partial class Projectile
             if (!wasDead)
             {
                 HitReadout.Module(
-                    col.transform.name, target.Neutralized, col.attachedRigidbody, _ownerRigidbody);
+                    col.transform.name, target.Neutralized, col.attachedRigidbody, _ownerRigidbody, col.transform);
+
+                // 내 탄이 적 모듈을 죽인 순간. 약점을 쏴서 이긴다는 게임의 한 박자라 제일 세게 준다.
+                Ship me = GameManager.Player();
+                if (target.Neutralized && me != null && _ownerRigidbody == me.Rig && col.attachedRigidbody != me.Rig)
+                {
+                    VfxOneShot.Play("BlastFlashSmall", col.transform.position, 0.5f);
+                    CameraSystem.Shake(Ballistics.ShakeOutModule);
+                    CameraSystem.HitStop(Ballistics.HitStopModule);
+                }
             }
 
             // 놓고 간 에너지만큼 느려진다. 속도를 직접 깎지 않고 에너지에서 되돌리는 이유는,
@@ -177,7 +184,7 @@ public abstract partial class Projectile
 
         // 소리와 나란한 자리인데 한 발 늦다 - 뒷벽 판정이 위 루프 안에서 나서, 그 답까지
         // 들고 나서야 화면에 적을 문장 하나가 정해진다. 누가 플레이어인지는 저쪽 몫이다.
-        HitReadout.Hit(r.outcome, r.newState, rearHeld, targetBody, _ownerRigidbody);
+        HitReadout.Hit(r.outcome, r.newState, rearHeld, targetBody, _ownerRigidbody, transform);
 
         // 맞는 쪽 화면이 아무 반응도 안 했다. 쏘는 쪽은 반동이 이미 배를 밀지만, 내 배가
         // 맞는 것은 소리와 문장뿐이라 남의 일로 읽혔다. 크기를 armorDamage에서 뽑으므로
@@ -186,9 +193,18 @@ public abstract partial class Projectile
         {
             Ship player = GameManager.Player();
 
+            // 내가 맞힌 쪽. 소리와 글자만 있어서 내 탄이 뭘 했는지가 몸으로 안 왔다. 관통만 번쩍이고 흔든다 -
+            // 막힌 것까지 흔들면 소총 난사가 화면을 뒤흔들어 관통의 무게가 사라진다.
+            if (player != null && _ownerRigidbody == player.Rig && targetBody != player.Rig
+                && r.outcome == HitOutcome.Penetrated)
+            {
+                VfxOneShot.Play("BlastFlashSmall", _surfaces.hitPoint, 0.35f);
+                CameraSystem.Shake(Ballistics.ShakeOutPenetrate);
+            }
+
             if (player != null && player.Rig == targetBody)
             {
-                CameraSystem.Shake(Mathf.Min(MaxHitShake, r.armorDamage * HitShakeScale));
+                CameraSystem.Shake(Mathf.Min(Ballistics.ShakeInMax, r.armorDamage * Ballistics.ShakeInScale));
                 DeathXray.AddHit(_surfaces.hitPoint, r.outcome, ProjectileId, defName, generation > 0, r.penetrationBefore);
 
             }

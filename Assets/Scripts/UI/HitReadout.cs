@@ -27,6 +27,7 @@ public static class HitReadout
 
         /// <summary>내가 맞은 것인가. 아니면 내가 쏜 것이 맞은 것이다.</summary>
         public bool incoming;
+        public Transform hitArmorTransform;
 
         /// <summary>
         /// 결정적이지 않은 소식인가. 장갑이 세웠거나, 모듈을 긁기만 했거나.
@@ -55,11 +56,14 @@ public static class HitReadout
     /// </summary>
     public static void Hit(
         HitOutcome outcome, ShellState state, bool rearHeld,
-        Rigidbody2D target, Rigidbody2D shooter)
+        Rigidbody2D target, Rigidbody2D shooter, Transform hitT)
     {
         Ship player = GameManager.Player();
 
         if (player == null || player.Rig == null)
+            return;
+
+        if(hitT == null)
             return;
 
         Rigidbody2D me = player.Rig;
@@ -72,7 +76,7 @@ public static class HitReadout
         Push(
             Verdict(outcome, state, rearHeld),
             incoming,
-            outcome != HitOutcome.Penetrated || rearHeld);
+            outcome != HitOutcome.Penetrated || rearHeld, hitT);
     }
 
     /// <summary>
@@ -84,7 +88,7 @@ public static class HitReadout
     /// 대문자 변환은 그리는 쪽에서 한다 - 여기는 명중마다 도는 자리라 문자열을 만들면
     /// pd20(900 RPM)이 초당 열다섯 번 할당한다.
     /// </summary>
-    public static void Module(string name, bool killed, Rigidbody2D target, Rigidbody2D shooter)
+    public static void Module(string name, bool killed, Rigidbody2D target, Rigidbody2D shooter, Transform hitmT)
     {
         if (string.IsNullOrEmpty(name))
             return;
@@ -101,7 +105,7 @@ public static class HitReadout
             return;
 
         // 죽는 순간만 문자열을 만든다. 이미 죽은 모듈은 부르는 쪽이 걸러낸다.
-        Push(killed ? name + " OUT" : name, incoming, !killed);
+        Push(killed ? name + " OUT" : name, incoming, !killed, hitmT);
     }
 
     /// <summary>
@@ -109,7 +113,7 @@ public static class HitReadout
     /// 판 소실을 이미 걸쇠로 세고 있으니(RunLog.RoomBreached와 같은 자리) 여기는
     /// 문장 하나만 얹는다.
     /// </summary>
-    public static void RoomBreach() => Push("ROOM BREACHED", true, false);
+    public static void RoomBreach() => Push("파공 발생, Damage Control", true, false, null);
 
     /// <summary>
     /// 워썬더가 아이콘이 아니라 문장을 주는 이유가 이것이다 - 각도와 유효 RHA를 같이
@@ -122,9 +126,9 @@ public static class HitReadout
     /// </summary>
     private static string Verdict(HitOutcome outcome, ShellState state, bool rearHeld) => outcome switch
     {
-        HitOutcome.Penetrated => rearHeld ? "REAR ARMOR HELD" : "PENETRATION",
+        HitOutcome.Penetrated => rearHeld ? "* 하지만 버텨냈다." : "관통 했습니다.",
         HitOutcome.Ricochet => "RICOCHET",
-        _ => state == ShellState.Shattered ? "SHELL SHATTERED" : "NO PENETRATION",
+        _ => state == ShellState.Shattered ? "총알이 박살났습니다." : "관통 실패!",
     };
 
     /// <summary>
@@ -137,16 +141,18 @@ public static class HitReadout
     /// 때문이다 - 병합·밀기·상한이 이 파일에서 유일하게 틀릴 수 있는 부분인데,
     /// <see cref="Hit"/>는 씬의 플레이어 함선을 물어서 에디터에서 못 부른다.
     /// </summary>
-    public static void Push(string text, bool incoming, bool minor)
+    public static void Push(string text, bool incoming, bool minor, Transform hitT = null)
     {
         float now = Time.time;
 
         // 같은 판정이 이어지면 줄을 늘리지 않고 센다.
-        if (Count > 0 && _lines[0].text == text && _lines[0].incoming == incoming)
+        if (Count > 0 && _lines[0].text == text && _lines[0].incoming == incoming && _lines[0].hitArmorTransform == hitT)
         {
-            _lines[0].count++;
+            //만약 똑같은 인풋이라면
+            _lines[0].count++; //count만 추가
             _lines[0].text = text;
             _lines[0].time = now;
+            _lines[0].hitArmorTransform = hitT;
             return;
         }
 
@@ -160,6 +166,7 @@ public static class HitReadout
             minor = minor,
             count = 1,
             time = now,
+            hitArmorTransform = hitT
         };
 
         if (Count < Capacity)

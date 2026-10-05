@@ -49,6 +49,34 @@ public class CameraSystem : MonoBehaviour
             _instance._shake = Mathf.Max(_instance._shake, amount);
     }
 
+    // --- 히트스톱 ---
+    // 큰 사건(모듈 격파·적함 무력화)의 한 박자. 시간을 잠깐 거의 세운다. 틱은 Time.deltaTime을 쌓아서 돌기 때문에
+    // 느려질 뿐 틱 번호·순서는 그대로다 - 결정론을 안 건드린다. timeScale을 남(항로·정비 화면)이 쥐고 있으면 안 건다.
+    private static float _stopUntil;
+    private static bool _stopping;
+
+    public static void HitStop(float seconds)
+    {
+        if (Core.TickManager.Paused || Core.TickManager.UserPaused || (!_stopping && Time.timeScale != 1f))
+            return;
+        _stopUntil = Mathf.Max(_stopUntil, Time.unscaledTime + seconds);
+    }
+
+    void Update()
+    {
+        if (Time.unscaledTime < _stopUntil)
+        {
+            _stopping = true;
+            Time.timeScale = Ballistics.HitStopScale;
+        }
+        else if (_stopping)
+        {
+            _stopping = false;
+            if (Time.timeScale == Ballistics.HitStopScale)
+                Time.timeScale = 1f;
+        }
+    }
+
     // Update is called once per frame
     void LateUpdate()
     {
