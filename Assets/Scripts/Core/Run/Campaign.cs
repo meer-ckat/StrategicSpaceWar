@@ -35,7 +35,8 @@ public sealed class Campaign : TickBehaviour
     public float researchPerPlate = 0.5f;
 
     /// <summary>격파 급여. 적함 설계 판 1장당 크레딧 - 큰 배를 잡을수록 많이 받는다.</summary>
-    public float creditsPerPlate = 0.3f;   // destroyer 533판 = 160 CR. 1.5는 800 CR이라 한 척이 내 배 전체 재건비의 80%였다
+    public float creditsPerPlate = 0.1f;   // 기본급. 설계 판 수. destroyer 533판 = 53 CR - 어떻게 잡든 받는다
+    public float salvagePerPlate = 0.3f;   // 노획. 남은 판 수. 멀쩡히 잡은 destroyer면 +160, 반파면 절반
 
     /// <summary>
     /// 워프에서 빠져나온 속도(m/s). <see cref="slideTicks"/> 동안 제곱 곡선으로 0까지 줄어든다 -
@@ -408,7 +409,13 @@ public sealed class Campaign : TickBehaviour
     private Battle _battle;
 
     /// <summary>1구역이 아니다 = 워프로 왔다. 1구역은 프롤로그가 세운 자리에 그대로 선다.</summary>
-    private bool Warped => _sector > 0 || _leg >= 0;
+    private bool Warped => _sector > 0 || _leg >= 0 || _prologueWarp;
+
+    // 프롤로그가 워프로 1구역에 들어왔다. 그러면 1구역도 다른 구역처럼 원점에 서고 프롤로그 잔해를 걷는다.
+    // 재개(StartRun from Start)는 이걸 안 켜서 예전처럼 씬 자리에 선다.
+    private bool _prologueWarp;
+
+    public void WarpFromPrologue() => _prologueWarp = true;
 
     /// <summary>슬라이드가 미끄러지는 거리. <see cref="Slide"/>가 매 틱 주는 속도의 합과 같은 식이라 도착점이 정확하다.</summary>
     public float SlideDistance => SlideDistanceOf(entrySpeed, slideTicks);
@@ -462,6 +469,7 @@ public sealed class Campaign : TickBehaviour
         if (pendingLeg >= 0 && _def != null && _sector < _def.sectors.Count - 1)
         {
             _forkLeg = pendingLeg;
+            ChosenLane = RunState.PendingLane;   // 들판에서 이미 닿은 출구. 재개가 그 선택을 풀면 안 된다
             _fork = new SectorDef[OpenSectorGen.Lanes];
             int made = 0;
 
@@ -527,7 +535,8 @@ public sealed class Campaign : TickBehaviour
     /// 재개(구역 > 1)도 이 길이다. 타이틀 없이 Prepare와 Enter를 연달아 부른다 - 부팅
     /// 암전이 이미 덮고 있어서 순간이동이 안 보인다.
     /// </summary>
-    public void StartRun()
+    /// <param name="warpIn">프롤로그 끝(EndAndStartRun)이면 true - 워프 연출로 1구역에 들어간다.</param>
+    public void StartRun(bool warpIn = false)
     {
         if (_def == null || _runStarted)
             return;
@@ -556,6 +565,10 @@ public sealed class Campaign : TickBehaviour
             _wait = 1;
             return;
         }
+
+        // 연출이 Prepare → Enter를 부른다. 그 사이 틱은 연출이 세운다.
+        if (warpIn && LogisticsScreen.WarpIn(this))
+            return;
 
         // 재개는 슬라이드 없이. 부팅 암전 밑이라 워프 인 연출이 없는데 배만 800 m/s로 나오면 급발진으로 보인다.
         Prepare();
@@ -1106,6 +1119,20 @@ public sealed class Campaign : TickBehaviour
         return why.Length == 0;
     }
 
+    /// <summary>싸울 수 있는 적이 at 반경 안에 있나. 점프 착지 검사용. 잠든 적도 센다 - IsHostileTo는
+    /// 잠든 배를 빼지만(불변식), 잠든 매복 한가운데 착지하는 것이 바로 막을 일이다.</summary>
+    private static bool HostileNear(Ship player, Vector2 at, float radius)
+    {
+        for (int i = 0; i < Ship.All.Count; i++)
+        {
+            Ship s = Ship.All[i];
+            if (s != null && s != player && s.team == Ship.Team.Enemy && s.IsCombatEffective
+                && ((Vector2)s.transform.position - at).sqrMagnitude < radius * radius)
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>앵커로 점프. 검정 - 옮김 - 걷힘. 동료도 같은 만큼 옮긴다. 추격은 착지점을 듣는다.</summary>
     public void JumpTo(Vector2 anchor)
     {
@@ -1119,7 +1146,27 @@ public sealed class Campaign : TickBehaviour
     {
         Ship player = PlayerShip();
 
-        if (player == null || !player.Burn(jumpDeltaV))
+        // 착지점은 연료를 태우기 전에 정한다. 예전엔 앵커 앞 jumpStandoff에 무조건 놓아서 운석·잔해·잠든 적
+        // 위로 텔레포트할 수 있었다(겹치면 다음 틱 RamImpact). 막혔으면 뒤로 물러나며 찾고, 없으면 안 뛴다.
+        Vector2 at = player != null ? (Vector2)player.transform.position : Vector2.zero;
+        Vector2 dir = (anchor - at).normalized;
+        Vector2 land = Vector2.zero;
+        bool found = false;
+
+        for (int k = 0; k < 6 && player != null && !found; k++)
+        {
+            land = anchor - dir * (jumpStandoff + k * 250f);
+            found = player.SpotIsClear(land) && !HostileNear(player, land, 1500f);
+        }
+
+        if (!found)
+        {
+            if (player != null && player.IsPlayerControlled)
+                HitReadout.Push("JUMP ABORT  착지점 막힘", incoming: true, minor: false);
+            yield break;
+        }
+
+        if (!player.Burn(jumpDeltaV))
             yield break;
 
         _jumping = true;
@@ -1128,40 +1175,45 @@ public sealed class Campaign : TickBehaviour
         screen?.Fade(1f, jumpBlack);
         yield return new WaitForSecondsRealtime(jumpBlack + 0.05f);
 
-        Vector2 from = player.transform.position;
-        Vector2 dir = (anchor - from).normalized;
-        Vector2 land = anchor - dir * jumpStandoff;
-        Vector2 delta = land - from;
-
-        // 나와 동료. 리지드바디도 같이 - transform만 옮기면 다음 Simulate가 도로 끌어온다.
-        for (int i = 0; i < Ship.All.Count; i++)
+        // 이 블록엔 yield가 없어 한 번의 MoveNext 안에서 끝난다 - 예외가 나도 finally는 돈다.
+        // 없으면 틱이 영구히 멎는다.
+        try
         {
-            Ship s = Ship.All[i];
+            Vector2 from = player.transform.position;
+            Vector2 delta = land - from;
 
-            if (s == null || (s != player && (s.team != Ship.Team.Ally || s.dormant)))
-                continue;
-
-            Vector2 to = (Vector2)s.transform.position + delta;
-            s.transform.position = to;
-
-            if (s.Rig != null)
+            // 나와 동료. 리지드바디도 같이 - transform만 옮기면 다음 Simulate가 도로 끌어온다.
+            for (int i = 0; i < Ship.All.Count; i++)
             {
-                s.Rig.position = to;
-                s.Rig.linearVelocity *= 0.3f;   // 거품에서 나오면 느리다. 정지 거리를 다시 잰다
+                Ship s = Ship.All[i];
+
+                if (s == null || (s != player && (s.team != Ship.Team.Ally || s.dormant)))
+                    continue;
+
+                Vector2 to = (Vector2)s.transform.position + delta;
+                s.transform.position = to;
+
+                if (s.Rig != null)
+                {
+                    s.Rig.position = to;
+                    s.Rig.linearVelocity *= 0.3f;   // 거품에서 나오면 느리다. 정지 거리를 다시 잰다
+                }
             }
+
+            _loudTicks += jumpNoiseSeconds * 60;
+
+            // 점프는 시끄럽다. 추격이 착지점을 안다.
+            foreach (Rover r in Rovers)
+                if (r.hunter && r.route.Count > 0) r.route[0] = land;
+
+            Debug.Log($"[Campaign] 점프 {delta.magnitude / 1000f:0.0} km → 앵커 앞 {jumpStandoff:0} m. Δv -{jumpDeltaV:0}.");
         }
-
-        _loudTicks += jumpNoiseSeconds * 60;
-
-        // 점프는 시끄럽다. 추격이 착지점을 안다.
-        foreach (Rover r in Rovers)
-            if (r.hunter && r.route.Count > 0) r.route[0] = land;
-
-        Debug.Log($"[Campaign] 점프 {delta.magnitude / 1000f:0.0} km → 앵커 앞 {jumpStandoff:0} m. Δv -{jumpDeltaV:0}.");
-
-        TickManager.Paused = false;
-        screen?.Fade(0f, jumpBlack * 1.5f);
-        _jumping = false;
+        finally
+        {
+            TickManager.Paused = false;
+            screen?.Fade(0f, jumpBlack * 1.5f);
+            _jumping = false;
+        }
     }
 
     /// <summary>때가 된 잠든 적을 깨운다. 뇌를 붙이고 방아쇠를 푼다 - 그게 잠의 전부였다.</summary>
@@ -1409,7 +1461,7 @@ public sealed class Campaign : TickBehaviour
             _battle.boundless = true;
             _battle.peaceful = true;
             _battle.objective = () => _departed;
-            _battle.objectiveText = () => "출구로 간다  " + GateBrief(0) + "  ·  " + GateBrief(1);
+            _battle.objectiveText = () => "출구 하나를 골라 간다  " + GateBrief(0) + "  ·  " + GateBrief(1) + "  ·  M 지도";
         }
 
         // **def가 정한다. 이미 뜬 것을 세면 안 된다** - 대본 있는 장은 시차 소환이라 지금은
@@ -1429,7 +1481,13 @@ public sealed class Campaign : TickBehaviour
             _battle.objectiveText = () => "함대 집결 대기";
         }
         else
+        {
+            // 큐에 적이 남아 있으면 아직 안 온 것이다. 1구역은 컷신 적함을 "봤다"로 센 뒤 그 배가 치워지고
+            // 진짜 6척은 아직 큐에 있는 틈이 있어서, 들어가자마자 승리했다(로그 "승리. 기록 1줄").
+            Battle b = _battle;
+            _battle.objective = () => _toSpawn.Count == 0 && b.NoHostilesLeft();
             _battle.objectiveText = () => $"적 소탕  {HostilesAlive()}척";
+        }
 
         Debug.Log(
             $"[Campaign] {_sector + 1}구역 '{sector.name}' - {sector.spawns.Count}척, " +
@@ -1524,6 +1582,29 @@ public sealed class Campaign : TickBehaviour
         Debug.Log("[Campaign] 초복사 시설 절단. 런 클리어.");
         ScriptManager.current?.Play("run-cleared");
         _phase = Phase.Done;
+
+        // 저장은 대사보다 먼저 지운다 - 대사 도중에 앱을 꺼도 다음 실행이 엔딩으로 떨어지지 않는다.
+        RunState.Clear();
+        ShipSelectScreen.Forget();
+        StartCoroutine(ReturnToSelect());
+    }
+
+    // 실시간이다 - Prepare에서 불리면 틱이 멎어 있다.
+    private IEnumerator ReturnToSelect()
+    {
+        yield return new WaitForSecondsRealtime(1f);
+
+        float waited = 0f;
+
+        while (ScriptManager.current != null && ScriptManager.current.IsBusy && waited < 60f)
+        {
+            waited += Time.unscaledDeltaTime;
+            yield return null;
+        }
+
+        yield return new WaitForSecondsRealtime(2f);
+        UnityEngine.SceneManagement.SceneManager.LoadScene(
+            UnityEngine.SceneManagement.SceneManager.GetActiveScene().buildIndex);
     }
 
     /// <summary>
@@ -1769,12 +1850,22 @@ public sealed class Campaign : TickBehaviour
         {
             RunState.Credits += earned.credits;
             RunState.Research += earned.research;
+            RunState.Propellant += earned.propellant;
+            RunState.Munitions += earned.munitions;
 
             if (earned.credits > 0)
                 RunLog.Paid(earned.credits);
 
+            // 노획이 얼마였는지가 "어떻게 잡았나"의 성적표다. 안 보이면 정밀 사격이 보상받는다는 걸 아무도 모른다.
+            if (earned.salvage > 0 || earned.propellant > 0 || earned.munitions > 0)
+                DialogueManager.current?.Spawn(
+                    $"급여 {earned.credits - earned.salvage} CR  ·  노획 {earned.salvage} CR" +
+                    (earned.propellant > 0 ? $"  ·  PROP +{earned.propellant / 1000}k" : "") +
+                    (earned.munitions > 0 ? $"  ·  MUN +{earned.munitions}" : "  ·  <color=grey>탄약고 유폭 - 탄 노획 없음</color>"),
+                    "회계", duration: 6f, style: "system");
+
             Debug.Log(
-                $"[Campaign] 급여 CR +{earned.credits} RSCH +{earned.research} " +
+                $"[Campaign] 급여 CR +{earned.credits}(노획 {earned.salvage}) PROP +{earned.propellant} MUN +{earned.munitions} RSCH +{earned.research} " +
                 $"(누적 CR {RunState.Credits} RSCH {RunState.Research}).");
         }
 
@@ -1964,6 +2055,7 @@ public sealed class Campaign : TickBehaviour
             {
                 _visitedWrecks.Add(spot);
                 Debug.Log($"[Campaign] 잔해 확인 ({spot.x:0},{spot.y:0}).");
+                OperationArchive.Recover();
             }
         }
 
@@ -2379,7 +2471,7 @@ public sealed class Campaign : TickBehaviour
         if (made == 0)
             ToChapter(_refitHere);
         else
-            RunState.SetPendingFork(next, _refitHere);
+            RunState.SetPendingFork(next, _refitHere, ChosenLane);
     }
 
     // refit: 방금 깬 마지막 소구역이 정비 노드다. 갈림길이 없어 정비 플래그를 여기서 저장한다.
@@ -2449,33 +2541,34 @@ public sealed class Campaign : TickBehaviour
         public readonly int credits;
         public readonly int research;
 
-        public BountyResult(int credits, int research)
+        public readonly int salvage, propellant, munitions;   // salvage는 credits에 이미 들어 있다(표시용 몫)
+
+        public BountyResult(int credits, int research, int salvage = 0, int propellant = 0, int munitions = 0)
         {
             this.credits = credits;
             this.research = research;
+            this.salvage = salvage;
+            this.propellant = propellant;
+            this.munitions = munitions;
         }
 
-        public bool IsEmpty => credits <= 0 && research <= 0;
+        public bool IsEmpty => credits <= 0 && research <= 0 && propellant <= 0 && munitions <= 0;
     }
 
     /// <summary>
-    /// 이번 구역에서 번 돈. **노획이 아니라 급여다.**
+    /// 이번 구역에서 번 것. **급여 + 노획**(2026-09-28).
     ///
-    /// 예전에는 적함의 남은 판·안 터진 탱크·안 터진 탄약고를 세서 물자로 바꿨다. 두 가지가
-    /// 틀렸다. 하나는 게임 쪽 - 배를 죽이는 제일 흔한 방법이 탄약고 유폭이라 이기면 노획이
-    /// 0이었고, 알뜰히 부술수록 적게 받는 규칙은 승리를 벌준다. 다른 하나는 설정 쪽 -
-    /// 전차를 잡아서 변속기를 떼어 쓰는 일은 있어도 그 장갑판을 뜯어 내 전차 벽에 덧대지는
-    /// 않는다. 함선을 고치는 것은 베이스이고, 베이스는 돈을 받는다.
-    ///
-    /// 그래서 격파는 **설계 크기에 비례한 급여**다. 어떻게 죽였는지는 값에 안 들어간다 -
-    /// 판정하는 쪽이 전장이 아니라 회계라서 그렇다.
+    /// 급여만이던 때(설계 크기 비례, 어떻게 잡든 같은 값)는 전투 회피가 최적이었다 - 영구 손상을
+    /// 감수할 이유가 없었고, 약점을 쏘는 기술이 경제에 한 번도 안 닿았다. 그 전의 노획만이던 때는
+    /// 유폭으로 이기면 0이라 승리를 벌줬다. 그래서 둘을 겹친다: 급여는 바닥, 노획은 **멀쩡히 남은 만큼**.
+    /// 판은 떼어 판 값(CR)이지 내 배에 덧대는 판이 아니다 - 고치는 것은 여전히 베이스다.
     ///
     /// 시설(Hulk)은 대상이 아니고(거울 껍질을 부순다고 급여가 나오지 않는다), 동료
     /// (<see cref="_wingmen"/>)도 뺀다.
     /// </summary>
     private BountyResult Bounty()
     {
-        int credits = 0;
+        int credits = 0, salvage = 0, propellant = 0, munitions = 0;
         float research = 0f;
 
         foreach (GameObject wreck in _spawned)
@@ -2522,9 +2615,20 @@ public sealed class Campaign : TickBehaviour
 
             credits += Mathf.RoundToInt(designPlates * creditsPerPlate);
             research += designPlates * researchPerPlate;
+
+            // 노획(GDD §9.1 "부수면 못 건진다"). 기본급 위에 얹는다 - 유폭으로 이겨도 0은 아니지만 덜 받는다.
+            // 떨어져 나간 조각은 이 배가 아니라 따로 떠도는 Hulk라 안 센다. 판은 떼어 판 값, 연료·탄은 실물 그대로.
+            int strip = Mathf.RoundToInt(structure.AliveCount * salvagePerPlate);
+            credits += strip;
+            salvage += strip;
+            munitions += ship.Rounds;
+
+            foreach (Tank tank in ship.shipTanks)
+                if (tank != null && !tank.Neutralized && Ship.StillAboard(tank, ship))
+                    propellant += Mathf.RoundToInt(tank.remaining);
         }
 
-        return new BountyResult(credits, Mathf.RoundToInt(research));
+        return new BountyResult(credits, Mathf.RoundToInt(research), salvage, propellant, munitions);
     }
 
     /// <summary>

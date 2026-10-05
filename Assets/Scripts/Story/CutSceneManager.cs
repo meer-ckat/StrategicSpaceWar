@@ -298,7 +298,7 @@ public class CutSceneManager
 
         if (Campaign.current != null)
         {
-            Campaign.current.StartRun();
+            Campaign.current.StartRun(warpIn: true);
         }
     }
 

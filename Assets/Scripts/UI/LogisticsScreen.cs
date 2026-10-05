@@ -1,7 +1,8 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using IMGUI;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -83,7 +84,43 @@ public sealed class LogisticsScreen : MonoBehaviour
         instance = go.AddComponent<LogisticsScreen>();
     }
 
-    void Awake() => instance = this;
+    void Awake()
+    {
+        instance = this;
+
+        // 이 오브젝트는 씬을 넘어 살지만 GUIManager는 씬마다 새로 태어나 Items를 비운다(GUIManager.Awake).
+        // 덮개를 계속 쥐고 있으면 등록 안 된 위젯에 Fade를 거는 셈이라 **아무것도 안 그려진다** -
+        // 증상은 "새 런부터 워프 암전이 안 뜬다". 참조를 버려 다음에 다시 짓게 한다.
+        UnityEngine.SceneManagement.SceneManager.sceneLoaded += (_, _) =>
+        {
+            black = null;
+            flash = null;
+            caption = null;
+            card = null;
+            window = null;
+        };
+    }
+
+    /// <summary>프롤로그 → 1구역. 항로 화면 없이 같은 워프 연출을 탄다. 못 열면 false - 부르는 쪽이 연출 없이 간다.</summary>
+    public static bool WarpIn(Campaign c)
+    {
+        if (instance == null || c == null)
+            return false;
+
+        IsOpen = true;   // 계기판·대사 게이트. 연출이 도착 순간에 푼다
+        Coroutine run = instance.StartCoroutine(WarpTransition.Run(instance, c, -1));
+        instance.StartCoroutine(WarpTransition.Watchdog(instance, c, run));
+        return true;
+    }
+
+    void EnsureBlack()
+    {
+        if (black != null)
+            return;
+        black = Widget.SetLayer(Widget.BoxLabel("", FullScreen(), GUIStyleMaker.Box(Color.black)), WindowLayer + 10);
+        black.isVisible = false;
+        black.isInteractable = false;
+    }
 
     public static void Open()
     {
@@ -213,7 +250,10 @@ public sealed class LogisticsScreen : MonoBehaviour
         infoTitle = Widget.Label(info, "", new Rect(infoIn.x, infoIn.y + 20f, infoIn.width, 28f), heading);
         infoKind = Widget.Label(info, "", new Rect(infoIn.x, infoIn.y + 50f, infoIn.width, 18f), eyebrow);
         depart = Widget.Button(info, "출항", new Rect(infoIn.x, infoIn.yMax - 16f - Gap - 44f, infoIn.width, 44f), Depart, button);
-        Widget.Label(info, "←→ 항로   Enter 출항", new Rect(infoIn.x, infoIn.yMax - 16f, infoIn.width, 16f), eyebrow);
+        // 들판에서 출구에 닿았으면 갈래는 이미 정해졌다. ←→가 안 먹는 이유를 말하고 다른 갈래를 흐리게 한다.
+        bool locked = c.ChosenLane >= 0;
+        Widget.Label(info, locked ? "닿은 출구로 항로 확정   Enter 출항" : "←→ 항로   Enter 출항",
+            new Rect(infoIn.x, infoIn.yMax - 16f, infoIn.width, 16f), eyebrow);
         Hoverable(depart);
 
         // Ship Status: 읽기만. 정비는 정비 노드의 RefitScreen이다 - 여기서 고치면 배가 안 보이는 채로 숫자만 바뀐다.
@@ -246,12 +286,7 @@ public sealed class LogisticsScreen : MonoBehaviour
         if (commsDef == null)
             commsDef = Comms.Load();
 
-        if (black == null)
-        {
-            black = Widget.SetLayer(Widget.BoxLabel("", screen, GUIStyleMaker.Box(Color.black)), WindowLayer + 10);
-            black.isVisible = false;
-            black.isInteractable = false;
-        }
+        EnsureBlack();
 
         lane = -1;
         for (int k = 0; k < lanes.Length && lane < 0; k++)
@@ -293,6 +328,13 @@ public sealed class LogisticsScreen : MonoBehaviour
                 ready = true;
                 window.isInteractable = true;
                 Bark(OpeningBark());
+
+                // 흐리게는 등장 페이드가 끝난 뒤에 - 먼저 하면 FadeIn이 1로 덮는다.
+                Campaign c = Campaign.current;
+                if (c != null && c.ChosenLane >= 0)
+                    for (int k = 0; k < laneButtons.Length; k++)
+                        if (laneButtons[k] != null && k != c.ChosenLane)
+                            laneButtons[k].Opacity = DisabledOpacity;
             });
     }
 
@@ -406,9 +448,22 @@ public sealed class LogisticsScreen : MonoBehaviour
             InfoRow(area, row++, ship, Tint($"×{n}", Palette.Breach));
         if (facilities > 0)
             InfoRow(area, row++, "표적 시설", Tint(facilities.ToString(), Palette.Radiance));
-        InfoRow(area, row++, "정비", s.refit ? Tint("가능", Palette.Signal) : Tint("불가", Palette.Steel));
-        if (s.credits > 0)
-            InfoRow(area, row++, "지원금", Tint($"+{s.credits}", Palette.Signal));
+        // 들판의 정비·보급은 SectorDef가 아니라 자리(SpawnDef)에 찍힌다(OpenSectorGen). 구역 값만 읽으면
+        // 정비 잔해가 있는 들판이 "정비 불가"로, 보급 부표가 있는 들판이 보상 0으로 보였다.
+        bool refit = s.refit;
+        int cr = s.credits, prop = 0, mun = 0;
+        foreach (SpawnDef sp in s.spawns)
+        {
+            refit |= sp.refit;
+            cr += sp.credits;
+            prop += sp.propellant;
+            mun += sp.munitions;
+        }
+        InfoRow(area, row++, "정비", refit ? Tint("가능", Palette.Signal) : Tint("불가", Palette.Steel));
+        if (cr > 0 || prop > 0 || mun > 0)
+            InfoRow(area, row++, "보급",
+                Tint(string.Join(" · ", new[] { cr > 0 ? $"{cr} CR" : null, prop > 0 ? $"PROP {prop / 1000}k" : null, mun > 0 ? $"MUN {mun}" : null }
+                    .Where(x => x != null)), Palette.Signal));
 
         if (announce)
             foreach (GUIItem item in infoRows)
@@ -699,8 +754,7 @@ public sealed class LogisticsScreen : MonoBehaviour
     // 기다리지 않는 덮개. 도착은 걷히는 도중에 틱을 풀어야 슬라이드가 보인다.
     public void Fade(float to, float seconds)
     {
-        if (black == null)
-            return;
+        EnsureBlack();
         black.SetRect(FullScreen());
         black.isVisible = true;
         black.FadeTo(to, seconds, ease: to > 0.5f ? TweenHelper.EaseInQuad : TweenHelper.EaseOutQuad,

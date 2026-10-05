@@ -132,8 +132,8 @@
       ],
       "refit": false,
       "credits": 4,
-      "propellant": 3000,
-      "munitions": 60,
+      "propellant": 60000,
+      "munitions": 3000,
       "signalSize": 5000,
       "weight": 3
     },
@@ -148,8 +148,8 @@
         "derelict"
       ],
       "credits": 16,
-      "propellant": 1000000,
-      "munitions": 200,
+      "propellant": 300000,
+      "munitions": 12000,
       "refit": true,
       "weight": 3,
       "signalSize": 8000
@@ -165,7 +165,7 @@
         "derelict"
       ],
       "credits": 30,
-      "munitions": 400,
+      "munitions": 24000,
       "refit": true,
       "weight": 1,
       "signalSize": 15000

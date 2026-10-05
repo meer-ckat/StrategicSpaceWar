@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -253,6 +253,9 @@ public static class WarpTransition
     }
 
     private static bool _done;
+
+    /// <summary>연출이 도는 중. 도착 슬라이드(IsOpen이 풀린 뒤 2.6초)까지 포함한다 - 정지가 이 동안 안 걸리게 PauseControl이 읽는다.</summary>
+    public static bool Running { get; private set; }
     private static GameObject _anchor;
     private static readonly List<(Transform t, Vector3 scale)> _stretched = new();
 
@@ -264,6 +267,7 @@ public static class WarpTransition
     public static IEnumerator Run(LogisticsScreen screen, Campaign campaign, int lane)
     {
         _done = false;
+        Running = true;
         _serial++;
 
         // 정비창이 timeScale을 0으로 뒀다. 틱은 TickManager.Paused가 따로 세우므로 시계는
@@ -271,10 +275,14 @@ public static class WarpTransition
         Core.TickManager.Paused = true;
         Time.timeScale = 1f;
 
-        string from = campaign.Current != null ? campaign.Current.name : "";
+        // lane < 0 = 프롤로그 → 1구역. 떠날 구역이 없다 - 이미 1구역에 있고, 워프로 도착만 한다.
+        string from = lane >= 0 && campaign.Current != null ? campaign.Current.name : "";
 
         // 항로 확정. 여기서 꺼도 다음 실행이 그 구역에서 열린다.
-        campaign.Depart(lane);
+        if (lane >= 0)
+            campaign.Depart(lane);
+        else
+            campaign.WarpFromPrologue();
 
         yield return screen.Cover(1f, BlackIn);
 
@@ -325,6 +333,7 @@ public static class WarpTransition
         yield return Arrive(screen, campaign);
 
         _done = true;
+        Running = false;
     }
 
     /// <summary>
@@ -393,6 +402,7 @@ public static class WarpTransition
             yield break;
 
         Debug.LogError("[WarpTransition] 전환이 제때 안 끝났다. 상태를 되돌리고 연출 없이 간다.");
+        Running = false;
 
         if (run != null)
             screen.StopCoroutine(run);   // 중첩 yield 전부 같이 선다

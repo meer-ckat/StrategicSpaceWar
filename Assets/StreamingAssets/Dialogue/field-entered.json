@@ -2,21 +2,21 @@
   "defName": "field-entered",
   "lines": [
     {
-      "message": "들판 진입. 출구는 둘, <color=yellow>A 위쪽 · B 아래쪽.</color> 어느 쪽이든 닿으면 워프.",
+      "message": "들판 진입. 출구는 둘, <color=yellow>A 위쪽 · B 아래쪽.</color> 닿는 쪽이 다음 항로다. 지도는 <color=yellow>M</color>.",
       "author": "조타",
       "duration": 5,
       "intensity": 0.8,
       "wait": 3
     },
     {
-      "message": "신호 다수. 종류는 가까이 가야 압니다. 가는 길에 있는 것만 들르면 됩니다.",
+      "message": "신호 다수. 종류는 가까이 가야 압니다. 잔해·보급에 들르면 다음 항로 정보와 작전 기록이 남습니다.",
       "author": "전술",
       "duration": 5,
       "intensity": 0.8,
       "wait": 3
     },
     {
-      "message": "챙길 게 있으면 챙기고, 없으면 바로 출구다. 화면 위 줄이 지금 할 일이다.",
+      "message": "보급은 창고로 간다. 탱크·탄약고에 넣는 건 정비 자리에서 <color=yellow>감속 후 R</color>. 부스터는 멀리서도 들린다.",
       "author": "함장",
       "duration": 5,
       "intensity": 0.9

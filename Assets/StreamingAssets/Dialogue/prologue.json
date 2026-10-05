@@ -2,7 +2,7 @@
   "defName": "prologue",
   "lines": [
     {
-      "message": "링크 정상. <color=grey>아트리아 국경 관제망 접속.</color>",
+      "message": "링크 정상. <color=grey>아트리아 국경 관제망 접속.  (Space: 다음 통신)</color>",
       "author": "시스템",
       "duration": 4,
       "intensity": 0.4,

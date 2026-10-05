@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
@@ -64,6 +64,9 @@ public static class RunState
         // 옛 저장이 기본값 0으로 정확히 그 상태로 열린다(Leg와 같은 규칙). 이게 없으면 항로
         // 화면에서 끈 저장이 깬 구역을 다시 싸우게 하고 노획을 두 번 준다.
         public int pendingLeg;
+
+        // 들판에서 닿은 출구(lane + 1, 0 = 없음). 없으면 출구에 닿고 항로 화면에서 끈 저장이 재개 때 다른 갈래를 고를 수 있었다.
+        public int pendingLane;
 
         /// <summary>지난 들판에서 얼마나 시끄러웠나. 다음 들판의 추격이 그만큼 일찍 온다 - 은폐의 유일한 장기 보상이다.</summary>
         public int heat;
@@ -248,6 +251,7 @@ public static class RunState
     public static List<int> Lanes => Read().lanes ?? new List<int>();
 
     public static int PendingLeg => Read().pendingLeg - 1;
+    public static int PendingLane => Read().pendingLane - 1;
 
     /// <summary>추적 열기 0~<see cref="MaxHeat"/>. 구역을 넘어 남는 유일한 전술 상태다.</summary>
     public const int MaxHeat = 5;
@@ -268,10 +272,11 @@ public static class RunState
     public static bool HasProgress => File.Exists(ProgressPath);
     public static bool PendingRefit => Read().pendingRefit;
 
-    public static void SetPendingFork(int leg, bool refit)
+    public static void SetPendingFork(int leg, bool refit, int lane = -1)
     {
         Progress p = Read();
         p.pendingLeg = leg + 1;
+        p.pendingLane = lane + 1;
         p.pendingRefit = refit;
         Write(p);
     }
@@ -285,6 +290,7 @@ public static class RunState
         p.lanes ??= new List<int>();
         p.lanes.Add(lane);
         p.pendingLeg = 0;
+        p.pendingLane = 0;
         p.pendingRefit = false;
         p.reveals = new List<Vector3>();   // 새 노드 = 새 원장
         Write(p);
@@ -320,6 +326,7 @@ public static class RunState
         p.sector = Mathf.Max(0, sector);
         p.leg = 0;
         p.pendingLeg = 0;
+        p.pendingLane = 0;
         p.pendingRefit = refit;
         p.reveals = new List<Vector3>();
         Write(p);
@@ -340,12 +347,12 @@ public static class RunState
     /// 창고 상한. **이 숫자가 보급 자리를 선택으로 만든다** - 상한이 없으면 보이는 보급은 전부 가는 것이
     /// 언제나 정답이라 고를 것이 없었다. 탄약이 가득이고 추진제가 빈 배는 탄약고를 지나치고 급유선으로 간다.
     ///
-    /// 세 값 다 **한 판 돌려보고 정할 추정치다.** 지금 근거는 자리가 주는 양뿐이다 - 보급 부표가
-    /// MTRL 16 / PROP 1,000,000 / MUN 200, 기항지가 MTRL 30 / MUN 400. 상한이 그 몇 배여야
-    /// "몇 군데 돌면 찬다"가 된다. 연구는 화물이 아니라 정보라 상한이 없다.
+    /// 단위의 기준(2026-09-28): 탄약고 1개 = 6,000발, 워프 1회 ≈ 추진제 80만. 예전 MUN 400,000에
+    /// 보급 200은 +0%로 보여서 보급이 보상이 아니었다. 지금 Depot = PROP 300,000 / MUN 12,000(창고 20%),
+    /// 기항지 MUN 24,000. 연구는 화물이 아니라 정보라 상한이 없다.
     /// </summary>
     public const int MaxPropellant = 3000000;
-    public const int MaxMunitions = 400000;
+    public const int MaxMunitions = 60000;
 
     /// <summary>
     /// 이 런의 돈. **화물이 아니라 계좌라 상한이 없다** - 위 두 상한이 보급 자리를 선택으로
@@ -528,7 +535,19 @@ public static class RunState
     private static void Write(Progress p)
     {
         string json = JsonUtility.ToJson(p, prettyPrint: true);
-        File.WriteAllText(ProgressPath, json);
+        WriteAtomic(ProgressPath, json);
+    }
+
+    // 쓰는 도중에 꺼지면 반쪽 JSON이 남아 런이 통째로 날아간다. 임시 파일을 다 쓴 뒤 바꿔 끼운다.
+    private static void WriteAtomic(string path, string text)
+    {
+        string tmp = path + ".tmp";
+        File.WriteAllText(tmp, text);
+
+        if (File.Exists(path))
+            File.Replace(tmp, path, null);
+        else
+            File.Move(tmp, path);
     }
 
     /// <summary>
@@ -572,7 +591,7 @@ public static class RunState
                 text = merged;
         }
 
-        File.WriteAllText(FilePath, text);
+        WriteAtomic(FilePath, text);
 
         Debug.Log(
             $"[RunState] 판 {damaged.placements.Count}개, 잃은 후면 {damaged.rearLost.Count}칸 저장: {FilePath}");

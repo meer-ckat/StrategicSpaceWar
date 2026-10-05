@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
@@ -197,13 +197,18 @@ public static class OpenSectorGen
     /// <remarks>v9: 들판 전체에 <see cref="ScenerySpacing"/>(500 m) 균등 격자. 덩어리는 그 위의 웃돈이다.</remarks>
     /// <remarks>v10: 밀도를 FTL 간격으로. 덩어리 15~25 -> 6~10, 자리 3~4 -> 1~2, 템플릿 함선 수 절반,
     /// 떠돌이 15~25 s -> 120~180 s. 전투 사이에 승무원·전기를 만질 시간이 있어야 한다(오너 2026-09-19).</remarks>
-    public const int Version = 10;
+    /// <remarks>v11: 수직 슬라이스(Docs/Slice-Plan.md). 들판 60 km -> 20 km, 덩어리 6~10 -> 4~6, 장당 소구역 2 -> 1,
+    /// 템플릿 tier 하한 2.</remarks>
+    public const int Version = 12;   // 12: 보급 양 재조정(탄약 x50, Depot 추진제 30%)
 
     /// <summary>장 사이 소구역 수(깊이). 갈림길은 각 깊이에서 <see cref="Lanes"/>갈래.</summary>
-    public const int LegsPerChapter = 2;
+    public const int LegsPerChapter = 1;
 
     /// <summary>한 갈림길의 갈래 수.</summary>
     public const int Lanes = 2;
+
+    /// <summary>템플릿 tier를 정할 때 쓰는 장 번호의 하한. 3이면 tier 2부터.</summary>
+    private const int MinTierChapter = 3;
 
     private static OpenSectorPool _pool;
 
@@ -549,10 +554,10 @@ public static class OpenSectorGen
     /// 들판 치수. 전부 오너 손잡이다 - 여기 숫자가 재미를 정하지 코드가 정하지 않는다.
     /// 출구는 +X 끝. 덩어리 사이가 비어 있는 것이 의도다(그 사이를 점프가 접는다).
     /// </summary>
-    private const float FieldLength = 60000f;
-    private const float FieldHalfWidth = 30000f;   // 60×60. 출구는 +X 끝, 도착점은 -X 변 가운데
+    private const float FieldLength = 20000f;
+    private const float FieldHalfWidth = 10000f;   // 20×20. 출구는 +X 끝, 도착점은 -X 변 가운데
     private const float GateX = FieldLength - 2000f;
-    private const float GateY = FieldHalfWidth * 0.6f;   // 두 출구의 세로 간격 = 36 km
+    private const float GateY = FieldHalfWidth * 0.6f;   // 두 출구의 세로 간격 = 12 km
     // 간격은 시간으로 못 잡는다(2026-09-11 정정). 전속 467 m/s면 6 km가 13초고 100 m/s면 60초라,
     // 같은 거리가 속도에 따라 다섯 배로 달라진다 - "엔카운터 1~2분"은 이 숫자에서 나올 수 없다.
     // 6 km의 실제 뜻: 덩어리 반경 1.5 km를 빼면 빈 구간이 3 km라 센서(1.2 km)의 두 배 - 덩어리를
@@ -560,14 +565,14 @@ public static class OpenSectorGen
     private const float SideBias = 0.75f;          // 덩어리가 자기 쪽 성격을 따를 확률. 1이면 위/아래가 완전히 갈린다
     private const float QuietRockScale = 2f;       // 조용한 쪽 덩어리의 운석 배수
     private const int GateClusters = 2;          // 출구마다 하나. 출구는 덩어리 안에 있다
-    private const int MinClusters = 6;
-    private const int MaxClusters = 10;
+    private const int MinClusters = 4;
+    private const int MaxClusters = 6;             // 20 km에 간격 6 km면 5~6개가 물리적 상한이다
     private const float ClusterSpacing = 6000f;    // 덩어리 중심 사이
     private const float ClusterRadius = 1500f;     // 덩어리 안 자리가 앉는 반지름. 간격의 반보다 작아야 덩어리가 갈린다
     private const float SiteSpacing = 1200f;       // 덩어리 안 자리 사이. 센서 거리와 같다 - 한 자리에서 옆 자리가 보인다
-    private const float CellSize = 1000f;          // 밀도 지도 칸. 60×60이면 3,600칸
+    private const float CellSize = 1000f;          // 밀도 지도 칸. 20×20이면 400칸
     private const int DensityOctaves = 5;
-    private const float DensityWavelength = 40000f; // 첫 겹 파장. 들판 한 변의 2/3
+    private const float DensityWavelength = FieldLength * 2f / 3f; // 첫 겹 파장. 들판 한 변의 2/3
     private const int MinSitesPerCluster = 1;
     private const int MaxSitesPerCluster = 2;
     private const int MinMainRockFields = 5;       // 메인 100 km. 밭 하나 = 운석 8~14 = TraceWorld에 배 8~14척
@@ -687,7 +692,8 @@ public static class OpenSectorGen
         OpenSectorPool pool, int chapter, ref DeterministicRng rng,
         System.Predicate<OpenSectorTemplate> allow = null)
     {
-        int want = Mathf.Clamp(1 + chapter / 3, 1, 3);
+        // 슬라이스는 장이 둘뿐이라 인덱스로 오르면 tier 1(가장 쉬운 적)만 나온다. 하한을 둔다.
+        int want = Mathf.Clamp(1 + Mathf.Max(chapter, MinTierChapter) / 3, 1, 3);
 
         _candidates.Clear();
 

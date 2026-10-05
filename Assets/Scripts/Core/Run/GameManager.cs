@@ -99,13 +99,32 @@ public sealed class GameManager : MonoBehaviour
         go.AddComponent<GameManager>();
     }
 
-    private void OnEnable() => SceneManager.sceneLoaded += OnSceneLoaded;
+    private void OnEnable()
+    {
+        SceneManager.sceneLoaded += OnSceneLoaded;
+        Battle.onAnyEnd += OnBattleEnd;
+    }
 
-    private void OnDisable() => SceneManager.sceneLoaded -= OnSceneLoaded;
+    private void OnDisable()
+    {
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+        Battle.onAnyEnd -= OnBattleEnd;
+    }
+
+    // 좌초처럼 포가 살아 있는 채로 진 패배는 IsCombatEffective가 못 본다. Battle.current는
+    // 씬을 넘어 남으므로 그걸 읽지 않고 사건을 받아 씬마다 지운다.
+    private static bool _battleLost;
+
+    private static void OnBattleEnd(Battle battle)
+    {
+        if (!battle.Won)
+            _battleLost = true;
+    }
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
         _sceneStart = Time.unscaledTime;
+        _battleLost = false;
         _bootFaded = false;   // 새 씬은 부팅 암전을 처음부터 다시 걷는다
     }
 
@@ -132,7 +151,8 @@ public sealed class GameManager : MonoBehaviour
             // 걸러낸다.
             bool down =
                 (player != null && !player.IsCombatEffective) ||
-                (player == null && _sawPlayer);
+                (player == null && _sawPlayer) ||
+                _battleLost;
 
             if (!down)
                 return;
@@ -348,6 +368,7 @@ public sealed class GameManager : MonoBehaviour
         // 지우지도 않고, 마지막으로 저장된 상태에서 다시 시작한다.
         PlayerDown = false;
         _sawPlayer = false;
+        _battleLost = false;
         _restarting = false;
         _restartHold = 0f;
         DeathXray.Reset();

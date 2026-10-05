@@ -59,7 +59,13 @@ public sealed class PauseControl : MonoBehaviour
         Keyboard k = Keyboard.current;
         if (k == null) return;
 
-        if (k.spaceKey.wasPressedThisFrame && !TickManager.Paused && !ScriptManager.Listening && !GameManager.GuiHidden)
+        // 푸는 쪽은 언제나 된다. 거는 쪽만 막는다 - 연출이 틱·카메라·입력을 쥐고 있는 동안 정지를 걸면
+        // 연출 코루틴(실시간)은 계속 가는데 세계만 멎어서 프롤로그 컷신과 워프 도착이 어긋났다.
+        // Space는 대사 넘기기이기도 해서, 컷신 중엔 누를 이유가 정지가 아니라 넘기기다.
+        bool busy = TickManager.Paused || ScriptManager.Listening || GameManager.GuiHidden
+            || CutSceneManager.Active || WarpTransition.Running
+            || LogisticsScreen.IsOpen || RefitScreen.IsOpen || MapScreen.IsOpen || ShipSelectScreen.IsOpen;
+        if (k.spaceKey.wasPressedThisFrame && (TickManager.UserPaused || !busy))
             Toggle();
 
         if (TickManager.UserPaused && k.tabKey.wasPressedThisFrame)

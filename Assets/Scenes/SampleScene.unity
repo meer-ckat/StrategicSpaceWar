@@ -1384,6 +1384,7 @@ MonoBehaviour:
   interludeTicks: 90
   researchPerPlate: 0.5
   creditsPerPlate: 0.3
+  salvagePerPlate: 0.3
   entrySpeed: 400
   slideTicks: 30
   entryStaggerTicks: 90
@@ -1392,6 +1393,8 @@ MonoBehaviour:
   wakeStaggerTicks: 30
   refitCameraSize: 28
   spawnDistance: 5000
+  scenerySpawnDistance: 1500
+  sceneryDropDistance: 2000
   wandererMinTicks: 7200
   wandererMaxTicks: 10800
   wandererDistance: 1400
@@ -1864,6 +1867,18 @@ PrefabInstance:
     - target: {fileID: 7100597543316558242, guid: 268f60fb423d6b342859c6fecea57d47, type: 3}
       propertyPath: m_IsActive
       value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 7143951334151111984, guid: 268f60fb423d6b342859c6fecea57d47, type: 3}
+      propertyPath: m_LocalScale.x
+      value: 2600
+      objectReference: {fileID: 0}
+    - target: {fileID: 7143951334151111984, guid: 268f60fb423d6b342859c6fecea57d47, type: 3}
+      propertyPath: m_LocalScale.y
+      value: 2600
+      objectReference: {fileID: 0}
+    - target: {fileID: 7143951334151111984, guid: 268f60fb423d6b342859c6fecea57d47, type: 3}
+      propertyPath: m_LocalScale.z
+      value: 2600
       objectReference: {fileID: 0}
     - target: {fileID: 7143951334151111984, guid: 268f60fb423d6b342859c6fecea57d47, type: 3}
       propertyPath: m_LocalPosition.x

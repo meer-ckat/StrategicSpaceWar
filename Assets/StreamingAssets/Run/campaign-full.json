@@ -1,0 +1,141 @@
+{
+  "defName": "campaign",
+  "sectors": [
+    {
+      "name": "감시소 17",
+      "field": 100000,
+
+      "script": "sector-01",
+      "spawns": [
+        { "ship": "newship", "team": "Ally", "x": -600, "y": -35, "facing": 1, "isWingman": true, "autoFormation": true },
+        { "ship": "destroyer", "team": "Ally", "x": -600, "y": 35, "facing": 1, "isWingman": true, "autoFormation": true },
+        { "ship": "newship", "team": "Enemy", "x": 720, "y": 0, "facing": -1 },
+        { "ship": "dart", "team": "Enemy", "x": 760, "y": 45, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 760, "y": -45, "facing": -1 },
+        { "ship": "dart", "team": "Enemy", "x": 800, "y": 90, "facing": -1 }
+      ]
+    },
+    {
+      "name": "감시소 19",
+      "field": 100000,
+
+      "script": "sector-02",
+      "spawns": [
+        { "ship": "destroyer", "team": "Ally", "x": 50, "y": -35, "facing": 1, "isWingman": true },
+        { "ship": "scout", "team": "Ally", "x": 50, "y": 35, "facing": 1, "isWingman": true },
+        { "ship": "scout", "team": "Enemy", "x": 700, "y": 20, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 740, "y": -20, "facing": -1 },
+        { "ship": "dart", "team": "Enemy", "x": 720, "y": 70, "facing": -1 },
+        { "ship": "dart", "team": "Enemy", "x": 760, "y": -70, "facing": -1 }
+      ]
+    },
+    {
+      "name": "감시소 22",
+      "field": 100000,
+
+      "script": "sector-03",
+      "spawns": [
+        { "ship": "frigate", "team": "Ally", "x": 50, "y": -45, "facing": 1, "isWingman": true },
+        { "ship": "newship", "team": "Ally", "x": 50, "y": 25, "facing": 1, "isWingman": true },
+        { "ship": "frigate", "team": "Enemy", "x": 920, "y": -10, "facing": -1 },
+        { "ship": "frigate", "team": "Enemy", "x": 960, "y": 40, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 880, "y": -60, "facing": -1 },
+        { "ship": "dart", "team": "Enemy", "x": 920, "y": 90, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 960, "y": -110, "facing": -1 },
+        { "ship": "derelict", "team": "Neutral", "x": 700, "y": 50, "facing": 1 }
+      ]
+    },
+    {
+      "name": "왕정군 초계선",
+      "field": 100000,
+
+      "script": "sector-04",
+      "spawns": [
+        { "ship": "destroyer", "team": "Ally", "x": 70, "y": -35, "facing": 1, "isWingman": true },
+        { "ship": "frigate", "team": "Ally", "x": 70, "y": 35, "facing": 1, "isWingman": true },
+        { "ship": "frigate", "team": "Enemy", "x": 720, "y": 25, "facing": -1 },
+        { "ship": "frigate", "team": "Enemy", "x": 760, "y": -25, "facing": -1 },
+        { "ship": "frigate", "team": "Enemy", "x": 740, "y": 75, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 700, "y": -75, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 780, "y": 120, "facing": -1 },
+        { "ship": "dart", "team": "Enemy", "x": 780, "y": -120, "facing": -1 }
+      ]
+    },
+    {
+      "name": "호위대",
+      "field": 100000,
+
+      "script": "sector-05",
+      "spawns": [
+        { "ship": "lance", "team": "Ally", "x": 50, "y": -40, "facing": 1, "isWingman": true },
+        { "ship": "destroyer", "team": "Ally", "x": 50, "y": 40, "facing": 1, "isWingman": true },
+        { "ship": "destroyer", "team": "Enemy", "x": 760, "y": 0, "facing": -1 },
+        { "ship": "frigate", "team": "Enemy", "x": 720, "y": 50, "facing": -1 },
+        { "ship": "frigate", "team": "Enemy", "x": 720, "y": -50, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 700, "y": 100, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 700, "y": -100, "facing": -1 },
+        { "ship": "dart", "team": "Enemy", "x": 800, "y": 140, "facing": -1 },
+        { "ship": "dart", "team": "Enemy", "x": 800, "y": -140, "facing": -1 }
+      ]
+    },
+    {
+      "name": "봉쇄선",
+      "field": 100000,
+
+      "script": "sector-06",
+      "spawns": [
+        { "ship": "destroyer", "team": "Ally", "x": 90, "y": -40, "facing": 1, "isWingman": true },
+        { "ship": "destroyer", "team": "Ally", "x": 90, "y": 40, "facing": 1, "isWingman": true },
+        { "ship": "destroyer", "team": "Enemy", "x": 740, "y": 30, "facing": -1 },
+        { "ship": "destroyer", "team": "Enemy", "x": 780, "y": -30, "facing": -1 },
+        { "ship": "destroyer", "team": "Enemy", "x": 760, "y": 90, "facing": -1 },
+        { "ship": "frigate", "team": "Enemy", "x": 720, "y": -90, "facing": -1 },
+        { "ship": "frigate", "team": "Enemy", "x": 800, "y": 140, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 700, "y": 180, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 700, "y": -180, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 820, "y": -140, "facing": -1 }
+      ]
+    },
+    {
+      "name": "기함 전대",
+      "field": 100000,
+
+      "script": "sector-07",
+      "spawns": [
+        { "ship": "cruiser", "team": "Ally", "x": 80, "y": -45, "facing": 1, "isWingman": true },
+        { "ship": "frigate", "team": "Ally", "x": 80, "y": 45, "facing": 1, "isWingman": true },
+        { "ship": "cruiser", "team": "Enemy", "x": 800, "y": 0, "facing": -1 },
+        { "ship": "destroyer", "team": "Enemy", "x": 760, "y": 55, "facing": -1 },
+        { "ship": "destroyer", "team": "Enemy", "x": 760, "y": -55, "facing": -1 },
+        { "ship": "frigate", "team": "Enemy", "x": 730, "y": 110, "facing": -1 },
+        { "ship": "frigate", "team": "Enemy", "x": 730, "y": -110, "facing": -1 },
+        { "ship": "frigate", "team": "Enemy", "x": 840, "y": 160, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 700, "y": 200, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 700, "y": -200, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 840, "y": -160, "facing": -1 }
+      ]
+    },
+    {
+      "name": "초복사 시설",
+      "kind": "Facility",
+      "field": 100000,
+
+      "script": "sector-08",
+      "spawns": [
+        { "ship": "lance", "team": "Ally", "x": 110, "y": -57, "facing": 1, "isWingman": true },
+        { "ship": "destroyer", "team": "Ally", "x": 110, "y": 33, "facing": 1, "isWingman": true },
+        { "ship": "mirror", "hulk": true, "target": true, "x": 980, "y": -12, "facing": 1 },
+        { "ship": "cruiser", "team": "Enemy", "x": 800, "y": -12, "facing": -1 },
+        { "ship": "cruiser", "team": "Enemy", "x": 840, "y": 58, "facing": -1 },
+        { "ship": "destroyer", "team": "Enemy", "x": 760, "y": 38, "facing": -1 },
+        { "ship": "destroyer", "team": "Enemy", "x": 760, "y": -62, "facing": -1 },
+        { "ship": "destroyer", "team": "Enemy", "x": 840, "y": -82, "facing": -1 },
+        { "ship": "frigate", "team": "Enemy", "x": 720, "y": 98, "facing": -1 },
+        { "ship": "frigate", "team": "Enemy", "x": 720, "y": -122, "facing": -1 },
+        { "ship": "frigate", "team": "Enemy", "x": 880, "y": 118, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 700, "y": 158, "facing": -1 },
+        { "ship": "scout", "team": "Enemy", "x": 700, "y": -182, "facing": -1 }
+      ]
+    }
+  ]
+}
