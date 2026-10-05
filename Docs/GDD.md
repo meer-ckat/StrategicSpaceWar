@@ -416,7 +416,6 @@ canon은 `STORY.md`가 단일 원본이다. 여기에는 시스템과 맞물리�
 | 렌더 | 스프라이트 파일 없음. `ArmorSkin`(선체 PNG + 6×6 손상 마스크 + 실루엣 마스크를 `PlateSkin` 셰이더가 조합), `SolidSkin`(모듈·탄, def의 PNG). 적열은 HDR 셰이더 가산 |
 | 풀링 | `BoosterTrail`, `SpallTrails`만 (초당 1,300 GameObject 실측 근거) |
 | 저장 | `run-ship.json`(손상된 배 = 배치가 적은 ShipDef), `run-progress.json`(구역·자원·항로·동료). 연구 해금은 PlayerPrefs |
-| TTS | Supertonic 로컬 TTS, 대사 사전 베이크(`TtsBaked`) |
 | 테스트 | 에디터 메뉴 self-test 9종 (관통·격자·def·RunState·워프·스킨 등). 씬·플레이 모드 불필요 |
 | 빌드 | Windows x64 (`Builds/StrategicSpaceWar.exe`) |
 
