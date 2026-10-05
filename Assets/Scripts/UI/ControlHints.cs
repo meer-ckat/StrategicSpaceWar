@@ -168,6 +168,11 @@ public sealed class ControlHints : MonoBehaviour
             new Step(new[] { "TAB" },
                 "정지 중 층 전환 - 전부 · 전기 · 기압.",
                 () => Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame),
+
+            // 지도는 들판의 전부인데(출구·신호·점프) 어디서도 M을 안 알려줬다. 뒤에 붙여서 이미 앞을 본 사람도 여기서 이어 본다.
+            new Step(new[] { "M" },
+                "지도. 출구·신호·항로. 지도에서 점을 찍고 J면 점프.",
+                () => Keyboard.current != null && Keyboard.current.mKey.wasPressedThisFrame),
         };
 
         _threshold = mouseThreshold;

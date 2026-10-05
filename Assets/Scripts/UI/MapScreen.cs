@@ -348,6 +348,8 @@ public sealed class MapScreen : MonoBehaviour
                     _alpha *= Mathf.Max(0.25f, c.strength);   // 유령은 시간이 갈수록 흐려진다
                 else if (c.kind == "소멸")
                     _alpha *= DeadDim;                        // 치운 자리. 남아 있되 조용하다
+                else if (c.state == ContactView.Reveal.Visited && c.kind != "출구")
+                    _alpha *= 0.55f;                          // 다녀간 자리. 색은 kind만 말해서 가 본 곳과 안 가 본 곳이 같아 보였다
 
                 bool hover = hoverHit == c.at;
 
@@ -473,6 +475,8 @@ public sealed class MapScreen : MonoBehaviour
         {
             _alpha = PickAlpha();
             Row(inn, ref y, "—", "고른 것 없음", row++);
+            // J가 어디서 되는지 알려주는 자리가 없었다. 지도에서 앵커를 골라야만 J가 산다.
+            _alpha = PickAlpha(); Row(inn, ref y, "점프  (J)", "보급·잔해·출구 클릭", row++);
         }
         else
         {
@@ -527,6 +531,11 @@ public sealed class MapScreen : MonoBehaviour
 
                 if (RowButton(inn, ref y, "점프  (J)", ok ? $"Δv {campaign.jumpDeltaV:0} · 앞 {campaign.jumpStandoff / 1000f:0.0} km" : why, row++, !ok) && ok)
                     TryJump();
+            }
+            else
+            {
+                _alpha = PickAlpha();
+                Row(inn, ref y, "점프  (J)", c.state >= ContactView.Reveal.Identified ? "앵커 아님" : "식별 뒤 가능", row++, true);
             }
         }
 

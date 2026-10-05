@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections.Generic;
 using UnityEngine.UI;
@@ -346,7 +346,10 @@ namespace IMGUI // not I'm GUI.
             if (item is GUIGroup group)
                 group.DrawChildren();
             else
-                item.Draw();
+                {
+                    item.Draw();
+                    ClipCheck.Check(item);
+                }
 
             GUI.enabled = oldEnabled;
             GUI.color = oldColor;

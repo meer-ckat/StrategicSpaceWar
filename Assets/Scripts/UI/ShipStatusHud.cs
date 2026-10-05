@@ -739,7 +739,7 @@ public sealed class ShipStatusHud : MonoBehaviour
         DrawRect(new Rect(rect.x, rect.y, rect.width, 1f), Palette.Telemetry);
         DrawRect(new Rect(rect.x, rect.yMax - 1f, rect.width, 1f), Palette.Telemetry);
         GUI.contentColor = Palette.Telemetry;
-        GUI.Label(rect, $"PAUSED  ·  {PauseControl.FocusLabel}  ·  TAB", _objectiveStyle);
+        GUI.Label(rect, $"PAUSED  ·  {PauseControl.FocusLabel}  ·  TAB 층  ·  클릭 검사  ·  ESC", _objectiveStyle);
         GUI.contentColor = Color.white;
     }
 

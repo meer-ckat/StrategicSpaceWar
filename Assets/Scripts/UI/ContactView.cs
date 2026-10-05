@@ -358,7 +358,9 @@ public sealed class ContactView : MonoBehaviour
         // 한꺼번에 "새 접촉"이면 대사가 아니라 소음이다. 그 뒤에 새로 오르는 것만 말한다.
         bool firstFill = _announced.Count == 0;
 
-        for (int i = 0; i < _near.Count && _rows.Count < TrackerRows; i++)
+        // 행(HUD 트래커)만 TrackerRows개로 자른다. 예전엔 루프 자체를 잘라서 지도(Known)도 12개에서 끊겼다 -
+        // 신호 13개째부터는 지도에 없는 자리가 됐다.
+        for (int i = 0; i < _near.Count; i++)
         {
             (float d, Vector2 at, float size) = _near[i];
             Reveal state = StateOf(at);
@@ -370,7 +372,7 @@ public sealed class ContactView : MonoBehaviour
 
             string label = LabelFor(campaign, sector, at, state, out string kind);
 
-            if (!occluded)
+            if (!occluded && _rows.Count < TrackerRows)
             {
                 _rows.Add((at, label));
 
@@ -495,6 +497,24 @@ public sealed class ContactView : MonoBehaviour
     }
     private static Reveal Max(Reveal a, Reveal b) => a > b ? a : b;
 
+    // 잠든 적도 센다 - 거기 있고 깨면 싸운다. 소환 전(거리 밖이라 아직 안 세움)도 센다: 배가 하나도 없는데
+    // 그 자리 적 배치가 아직 안 풀렸으면 모르는 것이지 죽은 것이 아니다.
+    private static bool LiveEnemyNear(Vector2 at)
+    {
+        bool any = false;
+        for (int i = 0; i < Ship.All.Count; i++)
+        {
+            Ship s = Ship.All[i];
+            if (s == null || s.team != Ship.Team.Enemy
+                || ((Vector2)s.transform.position - at).sqrMagnitude > TrackerFold * TrackerFold * 4f)
+                continue;
+            any = true;
+            if (s.IsCombatEffective)
+                return true;
+        }
+        return !any;
+    }
+
     /// <summary>Identify와 같은 자리 찾기, 답만 거칠게. 자리가 안 잡히면 "신호".</summary>
     private static string Coarse(SectorDef sector, Vector2 at, out string kind)
     {
@@ -507,8 +527,12 @@ public sealed class ContactView : MonoBehaviour
                 || (new Vector2(spawn.x, spawn.y) - at).sqrMagnitude > TrackerFold * TrackerFold)
                 continue;
 
+            // 원본 배치가 아니라 지금 거기 싸울 수 있는 배가 있나로 가른다. 배치만 보면 매복을 다 잡은 보급 자리가
+            // 끝까지 "무장 방출"로 남았다 - 죽은 배는 방출하지 않는다.
             if (!spawn.hulk)
             {
+                if (!LiveEnemyNear(at))
+                    continue;
                 kind = "적";
                 return "무장 방출";
             }
@@ -806,11 +830,13 @@ public sealed class ContactView : MonoBehaviour
 
         Vector2 pos = EdgePoint(bounds, point, out string glyph);
 
-        float x = Mathf.Clamp(pos.x - MarkerWidth * 0.5f, bounds.xMin, bounds.xMax - MarkerWidth);
+        // 폭은 글자를 따라간다. 108 고정이면 "↗ 무장 방출 · 활성  534 m"(170 px)가 상자 밖으로 삐져나왔다.
+        string label = glyph == null ? text : glyph + " " + text;
+        float w = Mathf.Max(MarkerWidth, style.CalcSize(new GUIContent(label)).x + 12f);
+        float x = Mathf.Clamp(pos.x - w * 0.5f, bounds.xMin, bounds.xMax - w);
         float y = Mathf.Clamp(pos.y - MarkerHeight * 0.5f, bounds.yMin, bounds.yMax - MarkerHeight);
 
-        GUIBoxLabel marker = ImGui.BoxLabel(
-            id, new Rect(x, y, MarkerWidth, MarkerHeight), glyph == null ? text : glyph + " " + text, style);
+        GUIBoxLabel marker = ImGui.BoxLabel(id, new Rect(x, y, w, MarkerHeight), label, style);
         marker.Layer = MarkerLayer;
     }
 

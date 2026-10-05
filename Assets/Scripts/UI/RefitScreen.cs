@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using IMGUI;
 using UnityEngine;
@@ -15,7 +15,7 @@ public sealed class RefitScreen : MonoBehaviour
     public const float PanelFraction = 0.5f;   // 0.4는 모듈 행(이름 + 교체 + 후보 가격)이 안 들어갔다
 
     const int WindowLayer = UiLayer.Screen;   // LogisticsScreen과 같다. 둘이 동시에 열리는 일이 없다
-    const float Margin = 24f, Padding = 16f, Gap = 8f, RowH = 22f, ButtonH = 40f;
+    const float Margin = 24f, Padding = 16f, Gap = 8f, RowH = 22f, ButtonH = 40f, ActionH = 48f;   // ActionH: 한 줄 세 칸 버튼. 이름 + 값 두 줄이라 높다
     const float OpenFade = 0.22f;
     const float BarkSeconds = 4f;
     const float BlackIn = 0.3f, BlackOut = 0.4f;   // 출항: 정비 → 암전 → 항로 화면. 없으면 씬에서 전체 화면으로 뚝 끊긴다
@@ -83,6 +83,8 @@ public sealed class RefitScreen : MonoBehaviour
         GUIStyle heading = GUIStyleMaker.Label(Palette.Hull, 20).Font(20, FontStyle.Bold);
         GUIStyle body = GUIStyleMaker.Label(Palette.Hull, 15).Wrap().RichText();
         GUIStyle button = GUIStyleMaker.Button(Palette.Hull, Palette.Void, Palette.Radiance, null, 16);
+        // 세 칸 버튼은 폭이 패널의 1/3이라 "탄약 구입 · 12 CR → +40%"가 16pt 한 줄에 안 들어갔다. 이름과 값을 두 줄로.
+        GUIStyle action = GUIStyleMaker.Button(Palette.Hull, Palette.Void, Palette.Radiance, null, 13);
         GUIStyle panelStyle = GUIStyleMaker.Box(Palette.DeepSpace);
         GUIStyle card = GUIStyleMaker.Box(Palette.Bulkhead);
         rowLabel = GUIStyleMaker.Label(Palette.Steel, 15);
@@ -127,26 +129,26 @@ public sealed class RefitScreen : MonoBehaviour
         float bw = (inn.width - Gap * 2f) / 3f;
         repairButtons = new[]
         {
-            Widget.Button(panel, "수리 1  (R)", new Rect(inn.x, y, bw, ButtonH), null, button),
-            Widget.Button(panel, "수리 10", new Rect(inn.x + bw + Gap, y, bw, ButtonH), null, button),
-            Widget.Button(panel, "전량  (⇧R)", new Rect(inn.x + (bw + Gap) * 2f, y, bw, ButtonH), null, button),
+            Widget.Button(panel, "수리 1  (R)", new Rect(inn.x, y, bw, ActionH), null, action),
+            Widget.Button(panel, "수리 10", new Rect(inn.x + bw + Gap, y, bw, ActionH), null, action),
+            Widget.Button(panel, "전량  (⇧R)", new Rect(inn.x + (bw + Gap) * 2f, y, bw, ActionH), null, action),
         };
         repairButtons[0].callBack = () => Repair(1, repairButtons[0]);
         repairButtons[1].callBack = () => Repair(10, repairButtons[1]);
         repairButtons[2].callBack = () => Repair(RunState.Credits, repairButtons[2]);
         foreach (GUIButton b in repairButtons)
             Hoverable(b);
-        y += ButtonH + Gap;
+        y += ActionH + Gap;
 
         float tw = (inn.width - Gap * 2f) / 3f;
-        refuel = Widget.Button(panel, "급유", new Rect(inn.x, y, tw, ButtonH), Refuel, button);
+        refuel = Widget.Button(panel, "급유", new Rect(inn.x, y, tw, ActionH), Refuel, action);
         Hoverable(refuel);
-        rearm = Widget.Button(panel, "재보급", new Rect(inn.x + tw + Gap, y, tw, ButtonH), Rearm, button);
+        rearm = Widget.Button(panel, "재보급", new Rect(inn.x + tw + Gap, y, tw, ActionH), Rearm, action);
         Hoverable(rearm);
         // 크레딧이 살 것이 수리뿐이라 남아돌았다. 희소한 것(탄약)과 바꿀 수 있어야 돈이 결정이 된다.
-        buyAmmo = Widget.Button(panel, "탄약 구입", new Rect(inn.x + (tw + Gap) * 2f, y, tw, ButtonH), BuyAmmo, button);
+        buyAmmo = Widget.Button(panel, "탄약 구입", new Rect(inn.x + (tw + Gap) * 2f, y, tw, ActionH), BuyAmmo, action);
         Hoverable(buyAmmo);
-        y += ButtonH + Gap * 2f;
+        y += ActionH + Gap * 2f;
 
         depart = Widget.Button(panel, "출항  (Enter)", new Rect(inn.x, inn.yMax - ButtonH, inn.width, ButtonH), Depart, button);
         Hoverable(depart);
@@ -379,9 +381,9 @@ public sealed class RefitScreen : MonoBehaviour
 
         // 값이 버튼에 적혀 있어야 누르기 전에 안다. 판 한 장이 1 CR이라 장수가 곧 값이다.
         int all = Mathf.Min(damaged, RunState.Credits);
-        repairButtons[0].Content.text = "수리 1  ·  1 CR  (R)";
-        repairButtons[1].Content.text = $"수리 10  ·  {Mathf.Min(10, all)} CR";
-        repairButtons[2].Content.text = $"전량 {all}장  ·  {all} CR  (⇧R)";
+        repairButtons[0].Content.text = "수리 1\n1 CR  (R)";
+        repairButtons[1].Content.text = $"수리 10\n{Mathf.Min(10, all)} CR";
+        repairButtons[2].Content.text = $"전량 {all}장\n{all} CR  (⇧R)";
 
         foreach (GUIButton b in repairButtons)
         {
@@ -393,7 +395,7 @@ public sealed class RefitScreen : MonoBehaviour
         // 배는 "지금 얼마나 차 있나"로 적는다 - 버튼을 누를지 말지가 그 두 값에서만 나온다.
         propellantValue.Content.text = $"<b>{100f * RunState.Propellant / RunState.MaxPropellant:0}%</b>";
         bool canFuel = p != null && RunState.Propellant > 0 && p.shipTanks.Count > 0;
-        refuel.Content.text = canFuel ? "급유  ·  창고 전량" : p == null || p.shipTanks.Count == 0 ? "급유  ·  탱크 없음" : "급유  ·  창고 빔";
+        refuel.Content.text = canFuel ? "급유\n창고 전량" : p == null || p.shipTanks.Count == 0 ? "급유\n탱크 없음" : "급유\n창고 빔";
         refuel.isEnabled = refuel.isInteractable = canFuel;
         refuel.Opacity = canFuel ? 1f : LogisticsScreen.DisabledOpacity;
 
@@ -402,10 +404,10 @@ public sealed class RefitScreen : MonoBehaviour
                 p.Rounds <= p.MaxRounds * 0.25f ? Palette.Breach : Palette.Steel) : "");
         bool canArm = p != null && RunState.Munitions > 0 && p.Rounds < p.MaxRounds;
         int fits = p == null ? 0 : Mathf.Min(RunState.Munitions, p.MaxRounds - p.Rounds);
-        rearm.Content.text = p != null && p.MaxRounds > 0 && p.Rounds >= p.MaxRounds ? "재보급  ·  가득 참"
-            : RunState.Munitions <= 0 ? "재보급  ·  창고 빔"
-            : p == null || p.MaxRounds <= 0 ? "재보급  ·  탄약고 없음"
-            : $"재보급  ·  함내 +{100f * fits / p.MaxRounds:0}%";
+        rearm.Content.text = p != null && p.MaxRounds > 0 && p.Rounds >= p.MaxRounds ? "재보급\n가득 참"
+            : RunState.Munitions <= 0 ? "재보급\n창고 빔"
+            : p == null || p.MaxRounds <= 0 ? "재보급\n탄약고 없음"
+            : $"재보급\n함내 +{100f * fits / p.MaxRounds:0}%";
         rearm.isEnabled = rearm.isInteractable = canArm;
         rearm.Opacity = canArm ? 1f : LogisticsScreen.DisabledOpacity;
 
@@ -414,8 +416,8 @@ public sealed class RefitScreen : MonoBehaviour
         int room = RunState.MaxMunitions - RunState.Munitions;
         int spend = Mathf.Min(RunState.Credits, Mathf.CeilToInt((float)room / AmmoPerCredit));
         buyAmmo.Content.text = canBuy
-            ? $"탄약 구입  ·  {spend} CR → +{100f * Mathf.Min(room, spend * AmmoPerCredit) / RunState.MaxMunitions:0}%"
-            : RunState.Credits <= 0 ? "탄약 구입  ·  잔고 없음" : "탄약 구입  ·  창고 가득";
+            ? $"탄약 구입\n{spend} CR → +{100f * Mathf.Min(room, spend * AmmoPerCredit) / RunState.MaxMunitions:0}%"
+            : RunState.Credits <= 0 ? "탄약 구입\n잔고 없음" : "탄약 구입\n창고 가득";
         buyAmmo.isEnabled = buyAmmo.isInteractable = canBuy;
         buyAmmo.Opacity = canBuy ? 1f : LogisticsScreen.DisabledOpacity;
 
