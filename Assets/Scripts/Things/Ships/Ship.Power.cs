@@ -143,6 +143,8 @@ public partial class Ship
         public bool tripped;      // 차단기(M4). 전선 하나에 하나. 리셋은 사람이
         public bool manual;       // 사람이 내렸다 = 버스 타이 개방(M5)
         public float i2t;         // 정격 초과분의 적분. BreakerTripSeconds x 3에 닿으면 트립
+        public float openFor;     // 스스로 내려간 뒤 흐른 초. 재폐로기가 읽는다
+        public int reclosed;      // 연속 재폐로 횟수. 식으면(i2t 0) 0으로
     }
 
     private readonly List<WireRun> _wires = new();
@@ -413,6 +415,7 @@ public partial class Ship
         _wires[wire].tripped = false;
         _wires[wire].manual = false;
         _wires[wire].i2t = 0f;
+        _wires[wire].reclosed = 0;
         Repower();
     }
 
@@ -669,7 +672,17 @@ public partial class Ship
         for (int w = 0; w < _wires.Count; w++)
         {
             WireRun run = _wires[w];
-            if (run.tripped) continue;
+            if (run.tripped)
+            {
+                // 재폐로. 다음 풀이에 전류가 다시 흐르고, 원인이 그대로면 아래에서 또 내려간다.
+                if (run.manual || run.reclosed >= Ballistics.BreakerRecloseTries) continue;
+                run.openFor += dt;
+                if (run.openFor < Ballistics.BreakerRecloseSeconds) continue;
+                run.tripped = false;
+                run.i2t = 0f;
+                run.reclosed++;
+                continue;
+            }
 
             float peak = 0f;
             for (int e = 0; e < _grid.edgeCount; e++)
@@ -682,11 +695,15 @@ public partial class Ship
             else if (ratio > 1f)
                 run.i2t += (ratio * ratio - 1f) * dt;
             else
+            {
                 run.i2t = Mathf.Max(0f, run.i2t - Ballistics.BreakerCoolPerSecond * dt);
+                if (run.i2t <= 0f) run.reclosed = 0;   // 정격 안에서 버텼다 = 재폐로 성공
+            }
 
             if (run.i2t < limit) continue;
 
             run.tripped = true;
+            run.openFor = 0f;
             trips++;
         }
 

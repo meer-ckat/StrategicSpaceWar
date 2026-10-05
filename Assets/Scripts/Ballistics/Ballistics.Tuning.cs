@@ -603,6 +603,20 @@ public static partial class Ballistics
     public const float BreakerTripSeconds = 2f;    // 정격 2배에서 트립까지. I2t: ((I/Ir)^2 - 1)을 초로 적분해 3x이 값에 닿으면 트립
     public const float BreakerInstantMul = 10f;    // 이 배수 이상이면 즉시(전자식). 단락 전용
     public const float BreakerCoolPerSecond = 0.5f; // 정격 밑에서 누적 I2t가 초당 이만큼 빠진다
+    // 재폐로기(recloser). 스스로 내려간 차단기만 이 초 뒤 다시 올린다. 원인이 그대로면 또 내려가고,
+    // 이 횟수를 넘기면 잠긴다(lockout) - 끝없이 올리면 단락 구간을 계속 달구니까. 잠긴 것은 사람이 올린다.
+    public const float BreakerRecloseSeconds = 3f;
+
+    // ---- 타격감. 흔들림은 월드 m라 카메라가 반높이 60~120 m일 때 1 m ≈ 화면 1%다. 예전 피격 최대 0.45는 안 보였다.
+    public const float HitStopScale = 0.05f;          // 히트스톱 동안의 시간 배율
+    public const float HitStopModule = 0.06f;         // 적 모듈 격파(실시간 초)
+    public const float HitStopKill = 0.14f;           // 적함 무력화
+    public const float ShakeOutPenetrate = 0.8f;      // 내 탄이 관통
+    public const float ShakeOutModule = 2.2f;         // 내 탄이 적 모듈 격파
+    public const float ShakeOutKill = 4.5f;           // 적함 무력화
+    public const float ShakeInScale = 0.006f;         // 내가 맞음: armorDamage x 이 값
+    public const float ShakeInMax = 3f;
+    public const int BreakerRecloseTries = 3;
 
     // ---- M5 병렬 운전. 원자로 여럿이 한 버스에 붙으면 전압이 높은 쪽이 낮은 쪽을 부하로 만든다.
     /// <summary>다 상한 원자로가 내는 전압 비율. 손상이 전압을 낮추고, 낮은 전압이 역전류를 부른다 - 노후화가 규칙에서 나온다.</summary>
