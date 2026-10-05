@@ -78,7 +78,7 @@ endCut을 호출한다. Campaign은 구역 대본 동안 전투 판정도 보류
 - 변경 코드의 컴파일 오류는 없었다. 최종 Console에는 별개 함선 정의 문제인
   `Pitbull_RailDreadnought.json` 누락 오류 1건이 남았다. `Pitbull_Leviathan.json`의
   정의 이름·상속 참조와 파일 이름을 별도로 정리해야 한다.
-- 검증 후 Unity는 재생 정지 상태다. 재생 전후 진행 저장을 `SaveBackups`에 보관했다.
+- 검증 후 Unity는 재생 정지 상태다.
 
 ## 한계와 후속 설계
 
