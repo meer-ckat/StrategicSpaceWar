@@ -1280,9 +1280,7 @@ MonoBehaviour:
   fontSize: 14
   lineWidth: 680
   maxLines: 3
-  platePadding: {x: 12, y: 8}
-  topFraction: 0.01
-  plateAlpha: 0.78
+  bottomOffset: 150
   typeSpeed: 42
   minimumHoldTime: 0.5
   lineGap: 0.6

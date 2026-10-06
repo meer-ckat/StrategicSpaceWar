@@ -9,7 +9,7 @@ using UnityEngine;
 /// 흉내 내야 했고(줄마다 Opacity가 없으니까), 한 줄이 사라질 때 나머지가 문자열 안에서 순간이동했다.
 /// 줄 하나 = 리테인드 위젯 하나로 바꾸면 그 둘이 같이 사라진다 - 알파는 Opacity가, 자리 이동은 트윈이 한다.
 ///
-/// **판과 글이 한 개체다.** <see cref="GUIBoxLabel"/>이 배경과 글을 같이 그리므로 둘로 나눌 이유가 없다.
+/// **그림자와 글이 한 개체다.** <see cref="SubtitleLabel"/>이 둘을 같이 그리므로 둘로 나눌 이유가 없다.
 /// 나누면 자리를 옮길 때마다 둘을 같은 값으로 움직여야 하고, 그 둘이 갈라지는 프레임이 반드시 생긴다.
 /// </summary>
 public class Dialogue
@@ -30,7 +30,7 @@ public class Dialogue
     public bool leaving;
 
     /// <summary>이 줄의 위젯. 재 보고 나서 태어난다 - 높이를 모르면 자리를 못 잡는다.</summary>
-    public GUIBoxLabel item;
+    public SubtitleLabel item;
 
     /// <summary>이 줄이 먹는 세로(px). OnGUI에서 한 번 잰다. 0이면 아직 안 쟀다.</summary>
     public float height;
@@ -74,10 +74,11 @@ public class Dialogue
         foreach (Dialogue other in manager.Texts)
         {
             // 나가는 중인 것은 안 민다 - 같이 사라질 것이라 옮겨봐야 안 보인다.
-            if (other == this || other.leaving || other.item == null || other.slotY <= slotY)
+            // 쌓임이 아래에서 위로라 내 위에 있던 줄이 내 자리로 내려온다.
+            if (other == this || other.leaving || other.item == null || other.slotY >= slotY)
                 continue;
 
-            other.slotY -= gap;
+            other.slotY += gap;
             other.item.MoveTo(
                 new Vector2(other.item.Rect.x, other.slotY),
                 DialogueManager.SlideTime, 0f, TweenHelper.EaseInOutQuad);
@@ -86,8 +87,8 @@ public class Dialogue
 }
 
 /// <summary>
-/// 하프라이프 2 자막. **줄 하나가 판 하나.** 화면 위 가운데(에이스 컴뱃 자리) 반투명 판에 화자를 색으로
-/// 붙인 줄이 두 줄까지 쌓이고, 다 읽으면 사라진다. 그것이 전부다.
+/// 에이스 컴뱃 자막(2026-10-05, 오너 선택). 화면 아래 가운데, 판 없이 글자와 그림자만. 화자 이름이 작게 위에
+/// 채널 색으로 붙고, 새 줄이 맨 아래에 들어오며 앞 줄을 위로 민다. 다 읽으면 사라진다.
 ///
 /// **리테인드다**(2026-09-13). <see cref="Widget"/>로 한 번 짓고 매 프레임 Opacity만 만진다 -
 /// ImGui는 매 프레임 Rect를 되돌리므로(Materialise의 Reset) 줄이 제자리로 스냅해서 트윈이 안 보인다.
@@ -108,13 +109,9 @@ public class DialogueManager : MonoBehaviour
     public int fontSize = 14;
     public float lineWidth = 680f;
     public int maxLines = 2;
-    public Vector2 platePadding = new(12f, 8f);
 
-    /// <summary>판의 위 끝. 화면 높이 대비. 에이스 컴뱃처럼 위 중앙이다 - 아래는 배와 계기판(AIRFRAME·WPN)의 자리라 대사가 거기 있으면 늘 뭔가와 겹친다. 줄이 늘면 아래로 자란다.</summary>
-    public float topFraction = 0.01f;
-
-    /// <summary>판 불투명도. 하프라이프는 0.5, 여기는 별이 많아 더 덮는다. 접근성 옵션으로 1까지 올릴 자리.</summary>
-    public float plateAlpha = 0.78f;
+    /// <summary>맨 아래 줄의 아래 끝이 화면 바닥에서 이만큼(논리 px) 위다. 그 밑은 정비 안내(120)와 조작 힌트(40) 자리다.</summary>
+    public float bottomOffset = 150f;
 
     [Header("박자")]
     /// <summary>초당 읽는 글자 수. 타이핑 연출은 없고 다음 줄까지의 간격만 이걸로 잰다.</summary>
@@ -125,7 +122,8 @@ public class DialogueManager : MonoBehaviour
     public float lineGap = 0.6f;
 
     private const float FadeIn = 6f, FadeOut = 4f;
-    private const float EnterDrop = 14f, EnterTime = 0.18f;   // 새 줄은 위에서 살짝 내려앉는다
+    private const float EnterRise = 10f, EnterTime = 0.18f;   // 새 줄은 아래에서 살짝 떠오른다
+    private const int NameShrink = 3;                          // 화자 이름은 본문보다 이만큼 작다
 
     /// <summary>앞 줄이 나갈 때 뒤 줄이 올라가는 시간. 들어오는 것(0.18)보다 느리다 - 빈자리가 메워지는 것은 사건이 아니다.</summary>
     public const float SlideTime = 0.36f;
@@ -142,7 +140,7 @@ public class DialogueManager : MonoBehaviour
     public void MarkLine() => _lastLine = Time.unscaledTime;
 
     private float _lastLine;
-    private GUIStyle _plate;
+    private GUIStyle _text, _shadow;
 
     private void OnEnable() => current = this;
 
@@ -293,36 +291,38 @@ public class DialogueManager : MonoBehaviour
                 continue;
 
             var content = new GUIContent(Compose(line));
-            line.height = _plate.CalcHeight(content, width);
+            line.height = _text.CalcHeight(content, width);
             Build(line, content, width);
         }
     }
 
     /// <summary>
-    /// 줄 하나를 짓는다. 자리는 **살아 있는 앞 줄들의 높이 합**이다 - 인덱스 곱하기 고정 높이가 아니다.
-    /// 줄마다 높이가 달라서(한 줄짜리와 세 줄짜리가 섞인다) 고정 간격으로 두면 긴 줄이 다음 줄을 덮는다.
+    /// 줄 하나를 짓는다. 새 줄은 언제나 맨 아래 자리에 앉고, 살아 있는 앞 줄들을 자기 높이만큼 위로 민다.
+    /// 줄마다 높이가 달라서(한 줄짜리와 두 줄짜리가 섞인다) 미는 양은 고정값이 아니라 이 줄의 높이다.
     /// </summary>
     private void Build(Dialogue line, GUIContent content, float width)
     {
-        float y = GUIManager.LogicalHeight * topFraction;
+        float y = GUIManager.LogicalHeight - bottomOffset - line.height;
+        float push = line.height + RowGap;
 
         foreach (Dialogue other in Texts)
         {
-            if (other == line)
-                break;
+            if (other == line || other.leaving || other.item == null)
+                continue;
 
-            if (!other.leaving && other.height > 0f)
-                y += other.height + RowGap;
+            other.slotY -= push;
+            other.item.MoveTo(new Vector2(other.item.Rect.x, other.slotY), SlideTime, 0f, TweenHelper.EaseInOutQuad);
         }
 
         line.slotY = y;
         line.item = Widget.SetLayer(
-            Widget.BoxLabel(content, new Rect((GUIManager.LogicalWidth - width) * 0.5f, y, width, line.height), _plate),
+            new SubtitleLabel(content, new Rect((GUIManager.LogicalWidth - width) * 0.5f, y, width, line.height), _text, _shadow),
             PlateLayer);
+        GUIManager.Register(line.item);
 
-        line.item.isInteractable = false;   // 장식이다. 안 끄면 대사판이 그 밑의 버튼 입력을 통째로 먹는다
+        line.item.isInteractable = false;   // 장식이다. 안 끄면 자막 칸이 그 밑의 버튼 입력을 통째로 먹는다
         line.item.Opacity = line.alpha;
-        line.item.MoveIn(new Vector2(0f, -EnterDrop), EnterTime, 0f, TweenHelper.EaseOutQuad);
+        line.item.MoveIn(new Vector2(0f, EnterRise), EnterTime, 0f, TweenHelper.EaseOutQuad);
     }
 
     /// <summary>
@@ -339,12 +339,12 @@ public class DialogueManager : MonoBehaviour
         line.item = null;
     }
 
-    /// <summary>"화자  본문". 화자는 종류 색, 본문은 Hull. **알파는 안 넣는다** - 줄마다 위젯이 있으니 Opacity가 한다.</summary>
-    private static string Compose(Dialogue line)
+    /// <summary>윗줄 화자(작게, 채널 색), 아랫줄 본문(Hull). 알파는 Opacity가 한다.</summary>
+    private string Compose(Dialogue line)
     {
         string who = string.IsNullOrWhiteSpace(line.author) ? Tag(line.style) ?? "COMMS" : line.author;
 
-        return $"<color=#{ColorUtility.ToHtmlStringRGB(Accent(line.style))}>{who}:</color> " +
+        return $"<size={fontSize - NameShrink}><color=#{ColorUtility.ToHtmlStringRGB(Accent(line.style))}>{who}</color></size>\n" +
                $"<color=#{ColorUtility.ToHtmlStringRGB(Palette.Hull)}>{line.message}</color>";
     }
 
@@ -386,15 +386,42 @@ public class DialogueManager : MonoBehaviour
 
     private void Styles()
     {
-        if (_plate != null || !GUIStyleMaker.Initialized)
+        if (_text != null || !GUIStyleMaker.Initialized)
             return;
 
-        // 판과 글이 한 스타일이다. 배경·글자 크기·여백·리치텍스트·줄바꿈을 전부 여기서 정한다.
-        _plate = GUIStyleMaker
-            .Box(Palette.DeepSpace.WithAlpha(plateAlpha), Palette.Hull, fontSize)
-            .Padding(Mathf.RoundToInt(platePadding.x), Mathf.RoundToInt(platePadding.y))
-            .Align(TextAnchor.UpperLeft)
-            .RichText()
-            .Wrap();
+        // 판이 없으니 별·폭발 위에서 읽히는 것은 그림자 하나다. 둘이 같은 조판이어야 그림자가 글자 밑에 정확히 깔린다.
+        _text = GUIStyleMaker.Label(Palette.Hull, fontSize).Align(TextAnchor.UpperCenter).RichText().Wrap();
+        _shadow = GUIStyleMaker.Label(Palette.Void, fontSize).Align(TextAnchor.UpperCenter).RichText().Wrap();
+    }
+}
+
+/// <summary>
+/// 판 없는 자막 한 줄. 그림자를 먼저 1px 어긋나게 그리고 글자를 얹는다. 그림자 쪽은 color 태그를 뺀다 -
+/// 남겨 두면 그림자까지 화자 색으로 칠해져 그림자가 아니게 된다. size·b는 남겨야 줄바꿈 자리가 같다.
+/// </summary>
+public sealed class SubtitleLabel : GUIItem
+{
+    private static readonly System.Text.RegularExpressions.Regex ColorTag = new("</?color[^>]*>");
+
+    private readonly GUIStyle _shadowStyle;
+    private readonly GUIContent _shadow = new();
+    private string _source;
+
+    public SubtitleLabel(GUIContent content, Rect rect, GUIStyle style, GUIStyle shadow)
+        : base(content, rect, style) => _shadowStyle = shadow;
+
+    public override bool Decorative => true;
+
+    public override void Draw()
+    {
+        if (!ReferenceEquals(_source, Content.text))
+        {
+            _source = Content.text;
+            _shadow.text = ColorTag.Replace(_source ?? "", "");
+        }
+
+        Rect r = DrawRect;
+        GUI.Label(new Rect(r.x + 1f, r.y + 1f, r.width, r.height), _shadow, _shadowStyle);
+        GUI.Label(r, Content, Style);
     }
 }
